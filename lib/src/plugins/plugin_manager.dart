@@ -1,5 +1,6 @@
-import '../utils/logger.dart';
+import '../core/models.dart';
 import 'plugin_interface.dart';
+import '../utils/logger.dart';
 
 /// Manages plugins for the MCPLlm system
 class PluginManager implements IPluginManager {
@@ -25,7 +26,7 @@ class PluginManager implements IPluginManager {
   final Map<String, ProviderPlugin> _providerPlugins = {};
 
   /// Logger
-  final Logger _logger = Logger();
+  final Logger _logger = Logger.getLogger('mcp_llm.plugin');
 
   /// Create a new plugin manager
   PluginManager();

@@ -21,7 +21,7 @@ class ClientPool {
   final Map<String, LlmClientFactory> _clientFactories = {};
 
   /// Logger instance
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.client_pool');
 
   /// Create a new client pool
   ClientPool({int defaultMaxPoolSize = 5})

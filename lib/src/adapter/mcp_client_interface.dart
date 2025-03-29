@@ -1,3 +1,4 @@
+/*
 /// Interface for MCP client
 abstract class IMcpClient {
   /// Initialize the client
@@ -596,3 +597,4 @@ class McpMessage {
     this.metadata,
   }) : timestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
 }
+ */

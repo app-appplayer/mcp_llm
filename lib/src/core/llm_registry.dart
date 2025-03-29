@@ -1,3 +1,5 @@
+import '../../mcp_llm.dart';
+
 /// 동적으로 LLM 제공자를 등록하고 관리하는 레지스트리
 class LlmRegistry {
   // 싱글톤 코드 제거
@@ -12,7 +14,7 @@ class LlmRegistry {
   void registerProvider(String name, LlmProviderFactory factory) {
     _providers[name] = factory;
     // 로그 출력 (Logger를 인스턴스로 받거나 필요 시 생성)
-    final logger = Logger();
+    final logger = Logger.getLogger('mcp_llm.llm_registry');
     logger.info('LLM provider registered: $name');
   }
 

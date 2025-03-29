@@ -1,3 +1,4 @@
+/*
 /// Interface for MCP server
 abstract class IMcpServer {
   /// Initialize the server
@@ -715,3 +716,4 @@ class McpMessage {
     this.metadata,
   }) : timestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
 }
+*/

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'package:collection/collection.dart';
 
 import '../utils/logger.dart';
 import '../utils/performance_monitor.dart';
@@ -43,8 +44,8 @@ class LlmTask<T> {
 /// Task scheduler with priority queue and concurrency control
 class TaskScheduler {
   /// Priority queue for task scheduling
-  final Queue<LlmTask> _taskQueue = PriorityQueue<LlmTask>(
-        (a, b) => b.priority.compareTo(a.priority), // Higher priority first
+  final PriorityQueue<LlmTask> _taskQueue = PriorityQueue<LlmTask>(
+        (a, b) => b.priority.compareTo(a.priority),
   );
 
   /// Currently running tasks
@@ -57,13 +58,13 @@ class TaskScheduler {
   bool _isRunning = false;
 
   /// Logger instance
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.plugin');
 
   /// Performance monitor
-  final PerformanceMonitor _performanceMonitor = PerformanceMonitor.instance;
+  final PerformanceMonitor _performanceMonitor;
 
   /// Create a new task scheduler
-  TaskScheduler({int maxConcurrency = 5}) : _maxConcurrency = maxConcurrency;
+  TaskScheduler({int maxConcurrency = 5, required PerformanceMonitor performanceMonitor}) : _maxConcurrency = maxConcurrency, _performanceMonitor = performanceMonitor;
 
   /// Number of tasks currently in the queue
   int get queueLength => _taskQueue.length;
@@ -125,7 +126,7 @@ class TaskScheduler {
 
     // Find tasks in the queue
     final tasksToRemove = <LlmTask>[];
-    for (final task in _taskQueue) {
+    for (final task in _taskQueue.toList()) {
       if (task.category == category) {
         tasksToRemove.add(task);
         task.completer.completeError(TaskCancelledException('Task cancelled by category: $category'));
@@ -205,7 +206,7 @@ class TaskScheduler {
     final taskCount = _taskQueue.length;
 
     // Cancel all pending tasks
-    for (final task in _taskQueue) {
+    for (final task in _taskQueue.toList()) {
       if (!task.completer.isCompleted) {
         task.completer.completeError(TaskCancelledException('Task cancelled by queue clear'));
       }
@@ -227,7 +228,7 @@ class TaskScheduler {
     }
 
     // Count queued tasks by category
-    for (final task in _taskQueue) {
+    for (final task in _taskQueue.toList()) {
       categoryStats.putIfAbsent(task.category, () => {'queued': 0, 'running': 0});
       categoryStats[task.category]!['queued'] = (categoryStats[task.category]!['queued'] ?? 0) + 1;
     }

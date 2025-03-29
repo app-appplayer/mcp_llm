@@ -1,3 +1,7 @@
+import 'dart:math';
+
+import '../../mcp_llm.dart';
+
 /// 여러 LLM 응답을 집계하는 인터페이스
 abstract class ResultAggregator {
   LlmResponse aggregate(List<LlmResponse> responses);

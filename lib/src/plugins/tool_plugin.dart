@@ -17,7 +17,7 @@ abstract class BaseToolPlugin implements ToolPlugin {
   final Map<String, dynamic> _inputSchema;
 
   /// Logger instance
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.tool_plugin');
 
   /// Plugin configuration
   Map<String, dynamic> _config = {};

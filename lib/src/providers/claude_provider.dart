@@ -1,3 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
+import '../core/llm_interface.dart';
+import '../core/models.dart';
+import '../utils/logger.dart';
+import '../utils/performance_monitor.dart';
+import 'provider.dart';
+
 /// LLM 제공자 팩토리 구현
 class ClaudeProviderFactory implements LlmProviderFactory {
   @override
@@ -35,6 +44,7 @@ class ClaudeProvider implements LlmInterface {
   final String? baseUrl;
   final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
+  final Logger _logger = Logger.getLogger('mcp_llm.claude_provider');
 
   ClaudeProvider({
     required this.apiKey,
@@ -45,9 +55,6 @@ class ClaudeProvider implements LlmInterface {
 
   @override
   Future<LlmResponse> complete(LlmRequest request) async {
-    // 성능 모니터링 시작
-    final requestId = PerformanceMonitor.instance.startRequest('claude');
-
     try {
       // 요청 데이터 구성
       final requestBody = _buildRequestBody(request);
@@ -75,17 +82,11 @@ class ClaudeProvider implements LlmInterface {
         // 결과 생성
         final response = _parseResponse(responseJson);
 
-        // 성능 모니터링 완료
-        PerformanceMonitor.instance.endRequest(requestId, success: true);
-
         return response;
       } else {
         // 에러 처리
         final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
-        log.error(error);
-
-        // 성능 모니터링 완료 (실패)
-        PerformanceMonitor.instance.endRequest(requestId, success: false);
+        _logger.error(error);
 
         return LlmResponse(
           text: 'Error: Unable to get a response from Claude.',
@@ -93,10 +94,7 @@ class ClaudeProvider implements LlmInterface {
         );
       }
     } catch (e) {
-      log.error('Error calling Claude API: $e');
-
-      // 성능 모니터링 완료 (실패)
-      PerformanceMonitor.instance.endRequest(requestId, success: false);
+      _logger.error('Error calling Claude API: $e');
 
       return LlmResponse(
         text: 'Error: Unable to get a response from Claude.',
@@ -107,9 +105,6 @@ class ClaudeProvider implements LlmInterface {
 
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
-    // 성능 모니터링 시작
-    final requestId = PerformanceMonitor.instance.startRequest('claude');
-
     try {
       // 요청 데이터 구성
       final requestBody = _buildRequestBody(request);
@@ -193,7 +188,7 @@ class ClaudeProvider implements LlmInterface {
                   );
                 }
               } catch (e) {
-                log.error('Error parsing chunk: $e');
+                _logger.error('Error parsing chunk: $e');
               }
             }
           }
@@ -202,7 +197,7 @@ class ClaudeProvider implements LlmInterface {
         // 에러 처리
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
-        log.error(error);
+        _logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from Claude.',
@@ -211,7 +206,7 @@ class ClaudeProvider implements LlmInterface {
         );
       }
     } catch (e) {
-      log.error('Error streaming from Claude API: $e');
+      _logger.error('Error streaming from Claude API: $e');
 
       yield LlmResponseChunk(
         textChunk: 'Error: Unable to get a streaming response from Claude.',
@@ -219,8 +214,8 @@ class ClaudeProvider implements LlmInterface {
         metadata: {'error': e.toString()},
       );
     } finally {
-      // 성능 모니터링 완료
-      PerformanceMonitor.instance.endRequest(requestId);
+      // 클라이언트 닫기
+      _client.close();
     }
   }
 
@@ -233,7 +228,7 @@ class ClaudeProvider implements LlmInterface {
   @override
   Future<void> initialize(LlmConfiguration config) async {
     // 초기화 로직
-    log.info('Claude provider initialized with model: $model');
+    _logger.info('Claude provider initialized with model: $model');
   }
 
   @override

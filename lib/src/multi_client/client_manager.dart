@@ -5,6 +5,7 @@ class MultiClientManager {
   final Map<String, LlmClient> _clients = {};
   final ClientRouter _router = ClientRouter();
   final LoadBalancer _loadBalancer = LoadBalancer();
+  final Logger _logger = Logger.getLogger('mcp_llm.client_manager');
 
   /// 새 클라이언트 추가
   void addClient(String clientId, LlmClient client, {
@@ -18,7 +19,7 @@ class MultiClientManager {
     }
 
     _loadBalancer.registerClient(clientId, weight: loadWeight);
-    log.info('Added client: $clientId');
+    _logger.info('Added client: $clientId');
   }
 
   /// 클라이언트 제거
@@ -28,7 +29,7 @@ class MultiClientManager {
       await client.close();
       _router.unregisterClient(clientId);
       _loadBalancer.unregisterClient(clientId);
-      log.info('Removed client: $clientId');
+      _logger.info('Removed client: $clientId');
     }
   }
 
@@ -88,7 +89,7 @@ class MultiClientManager {
         parameters: parameters,
       );
     } catch (e) {
-      log.error('Error in client $clientId: $e');
+      _logger.error('Error in client $clientId: $e');
       return LlmResponse(
         text: 'Error from client $clientId: $e',
         metadata: {'error': e.toString(), 'clientId': clientId},

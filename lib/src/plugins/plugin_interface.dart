@@ -1,5 +1,5 @@
 import '../core/models.dart';
-import '../utils/logger.dart';
+import '../providers/provider.dart';
 
 /// Base interface for all MCPLlm plugins
 abstract class LlmPlugin {

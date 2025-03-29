@@ -1,4 +1,7 @@
-import 'logger.dart';
+
+import 'dart:async';
+
+import '../../mcp_llm.dart';
 
 /// Error types for MCPLlm
 enum ErrorType {
@@ -26,6 +29,7 @@ class McpLlmError extends Error {
   final dynamic originalError;
 
   /// Stack trace, if available
+  @override
   final StackTrace? stackTrace;
 
   McpLlmError(
@@ -45,15 +49,12 @@ class NetworkError extends McpLlmError {
   final int? statusCode;
 
   NetworkError(
-      String message, {
+      super.message, {
         this.statusCode,
-        dynamic originalError,
-        StackTrace? stackTrace,
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.network,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 
   @override
@@ -63,28 +64,22 @@ class NetworkError extends McpLlmError {
 /// Authentication errors (API keys, tokens)
 class AuthenticationError extends McpLlmError {
   AuthenticationError(
-      String message, {
-        dynamic originalError,
-        StackTrace? stackTrace,
+      super.message, {
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.authentication,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 }
 
 /// Permission errors (access denied)
 class PermissionError extends McpLlmError {
   PermissionError(
-      String message, {
-        dynamic originalError,
-        StackTrace? stackTrace,
+      super.message, {
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.permission,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 }
 
@@ -94,15 +89,12 @@ class ValidationError extends McpLlmError {
   final String? field;
 
   ValidationError(
-      String message, {
+      super.message, {
         this.field,
-        dynamic originalError,
-        StackTrace? stackTrace,
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.validation,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 
   @override
@@ -118,16 +110,13 @@ class ResourceNotFoundError extends McpLlmError {
   final String? resourceType;
 
   ResourceNotFoundError(
-      String message, {
+      super.message, {
         this.resourceId,
         this.resourceType,
-        dynamic originalError,
-        StackTrace? stackTrace,
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.resourceNotFound,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 
   @override
@@ -140,19 +129,16 @@ class TimeoutError extends McpLlmError {
   final Duration? duration;
 
   TimeoutError(
-      String message, {
+      super.message, {
         this.duration,
-        dynamic originalError,
-        StackTrace? stackTrace,
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.timeout,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 
   @override
-  String toString() => 'TimeoutError: $message${duration != null ? ' (Duration: ${duration.inSeconds}s)' : ''}';
+  String toString() => 'TimeoutError: $message${duration != null ? ' (Duration: ${duration?.inSeconds}s)' : ''}';
 }
 
 /// Provider-specific errors
@@ -161,15 +147,12 @@ class ProviderError extends McpLlmError {
   final String providerName;
 
   ProviderError(
-      String message, {
+      super.message, {
         required this.providerName,
-        dynamic originalError,
-        StackTrace? stackTrace,
+        super.originalError,
+        super.stackTrace,
       }) : super(
-    message,
     type: ErrorType.provider,
-    originalError: originalError,
-    stackTrace: stackTrace,
   );
 
   @override
@@ -178,6 +161,8 @@ class ProviderError extends McpLlmError {
 
 /// Error handler for MCPLlm
 class ErrorHandler {
+  final Logger _logger = Logger.getLogger('mcp_llm.error_handler');
+
   ErrorHandler();
 
   /// Error callbacks

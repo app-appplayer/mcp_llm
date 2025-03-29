@@ -31,7 +31,7 @@ class Conversation {
   final StorageManager? storageManager;
 
   /// Logger instance
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.conversation');
 
   /// Current active session ID
   String? _activeSessionId;

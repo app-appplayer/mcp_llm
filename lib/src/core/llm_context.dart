@@ -1,4 +1,3 @@
-import '../utils/logger.dart';
 
 /// Manages the execution context for LLM requests
 class LlmContext {
@@ -60,6 +59,22 @@ class LlmContext {
       topP: topP ?? this.topP,
       topK: topK ?? this.topK,
     );
+  }
+
+  /// Convert the LLM context to a JSON representation
+  Map<String, dynamic> toJson() {
+    return {
+      'contextInfo': contextInfo,
+      'systemInstructions': systemInstructions,
+      'maxInputTokens': maxInputTokens,
+      'maxOutputTokens': maxOutputTokens,
+      'timeout': timeout?.inMilliseconds,
+      'allowToolUse': allowToolUse,
+      'allowedTools': allowedTools,
+      'temperature': temperature,
+      'topP': topP,
+      'topK': topK,
+    };
   }
 
   /// Create a context optimized for creative generation

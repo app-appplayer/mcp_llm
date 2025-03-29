@@ -13,7 +13,7 @@ class OpenAiProvider implements LlmInterface {
   final String? baseUrl;
   final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.openai_provider');
 
   OpenAiProvider({
     required this.apiKey,

@@ -1,3 +1,4 @@
+import '../../mcp_llm.dart';
 import '../core/models.dart';
 import 'plugin_interface.dart';
 import '../utils/logger.dart';
@@ -17,7 +18,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
   final List<PromptArgument> _arguments;
 
   /// Logger instance
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.prompt_plugin');
 
   /// Plugin configuration
   Map<String, dynamic> _config = {};

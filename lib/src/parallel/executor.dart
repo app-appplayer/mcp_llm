@@ -1,7 +1,10 @@
+import '../../mcp_llm.dart';
+
 /// 여러 LLM에 대한 병렬 작업을 관리하는 클래스
 class ParallelExecutor {
   final List<LlmInterface> _providers;
   final ResultAggregator _aggregator;
+  final Logger _logger = Logger.getLogger('mcp_llm.parallel_executor');
 
   ParallelExecutor({
     required List<LlmInterface> providers,
@@ -34,7 +37,7 @@ class ParallelExecutor {
     try {
       return await provider.complete(request).timeout(timeout);
     } catch (e) {
-      log.error('Provider execution error: $e');
+      _logger.error('Provider execution error: $e');
       return LlmResponse(
         text: 'Error: $e',
         metadata: {'error': e.toString(), 'provider': provider.toString()},

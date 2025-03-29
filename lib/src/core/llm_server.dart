@@ -1,90 +1,69 @@
-import '../core/llm_interface.dart';
-import '../core/models.dart';
-import '../plugins/plugin_manager.dart';
-import '../rag/retriever.dart';
-import '../storage/storage_manager.dart';
+// lib/src/core/llm_server.dart
+import '../../mcp_llm.dart';
+import 'llm_interface.dart';
+import '../adapter/llm_server_adapter.dart';
 import '../utils/logger.dart';
 
-/// Server for providing LLM capabilities to MCP clients
+/// Server for providing LLM capabilities
 class LlmServer {
   /// LLM provider
   final LlmInterface llmProvider;
 
-  /// MCP server (type-agnostic to avoid direct dependency)
-  final dynamic mcpServer;
+  /// MCP server adapter
+  final LlmServerAdapter? _serverAdapter;
 
-  /// Storage manager
-  final StorageManager? storageManager;
+  /// Raw MCP server instance
+  final dynamic _mcpServer;
 
-  /// Retrieval manager for RAG
-  final RetrievalManager? retrievalManager;
-
-  /// Plugin manager
-  final PluginManager? pluginManager;
-
-  /// Logger
+  /// Logger instance
   final Logger _logger = Logger.getLogger('mcp_llm.server');
 
   /// Create a new LLM server
   LlmServer({
     required this.llmProvider,
-    this.mcpServer,
-    this.storageManager,
-    this.retrievalManager,
-    this.pluginManager,
-  });
+    dynamic mcpServer, StorageManager? storageManager, RetrievalManager? retrievalManager, required PluginManager pluginManager,
+  }) : _mcpServer = mcpServer,
+        _serverAdapter = mcpServer != null ? LlmServerAdapter(mcpServer) : null;
 
-  /// Register LLM capabilities as tools with the MCP server
-  Future<void> registerLlmTools() async {
-    if (mcpServer == null) {
-      _logger.warning('Cannot register LLM tools: MCP server is null');
-      return;
+  /// Check if MCP server is available
+  bool get hasMcpServer => _mcpServer != null && _serverAdapter != null;
+
+  /// Register LLM capabilities as tools
+  Future<bool> registerLlmTools() async {
+    if (!hasMcpServer) {
+      _logger.warning('Cannot register LLM tools: MCP server is not available');
+      return false;
     }
 
     try {
-      // Check if the MCP server has an addTool method
-      if (!_hasAddToolMethod(mcpServer)) {
-        _logger.error('MCP server does not support adding tools');
-        return;
-      }
+      bool success = true;
 
       // Register completion tool
-      await _registerCompletionTool();
+      success = success && await _registerCompletionTool();
 
-      // Register streaming completion tool
-      await _registerStreamingTool();
+      // Register streaming tool
+      success = success && await _registerStreamingTool();
 
       // Register embedding tool
-      await _registerEmbeddingTool();
+      success = success && await _registerEmbeddingTool();
 
-      // Register RAG tool if retrieval manager is available
-      if (retrievalManager != null) {
-        await _registerRagTool();
+      if (success) {
+        _logger.info('Successfully registered LLM tools with MCP server');
+      } else {
+        _logger.warning('Some tools failed to register');
       }
 
-      _logger.info('Registered LLM tools with MCP server');
+      return success;
     } catch (e) {
       _logger.error('Error registering LLM tools: $e');
-    }
-  }
-
-  /// Check if the MCP server has an addTool method
-  bool _hasAddToolMethod(dynamic server) {
-    try {
-      // Use reflection to check if the object has an 'addTool' method
-      return server != null &&
-          server is Object &&
-          server.runtimeType.toString().contains('McpServer') &&
-          server.toString().contains('addTool');
-    } catch (_) {
       return false;
     }
   }
 
   /// Register LLM completion tool
-  Future<void> _registerCompletionTool() async {
+  Future<bool> _registerCompletionTool() async {
     try {
-      await mcpServer.addTool(
+      return await _serverAdapter!.registerTool(
         name: 'llm-complete',
         description: 'Generate text completion using the LLM',
         inputSchema: {
@@ -97,17 +76,16 @@ class LlmServer {
         },
         handler: _handleLlmCompleteTool,
       );
-
-      _logger.debug('Registered LLM completion tool');
     } catch (e) {
-      _logger.error('Failed to register LLM completion tool: $e');
+      _logger.error('Failed to register completion tool: $e');
+      return false;
     }
   }
 
-  /// Register LLM streaming completion tool
-  Future<void> _registerStreamingTool() async {
+  /// Register LLM streaming tool
+  Future<bool> _registerStreamingTool() async {
     try {
-      await mcpServer.addTool(
+      return await _serverAdapter!.registerTool(
         name: 'llm-stream',
         description: 'Generate streaming text completion using the LLM',
         inputSchema: {
@@ -118,20 +96,19 @@ class LlmServer {
           },
           'required': ['prompt']
         },
-        handler: _handleLlmStreamTool,
+        handler: _handleLlmStreamingTool,
         isStreaming: true,
       );
-
-      _logger.debug('Registered LLM streaming tool');
     } catch (e) {
-      _logger.error('Failed to register LLM streaming tool: $e');
+      _logger.error('Failed to register streaming tool: $e');
+      return false;
     }
   }
 
   /// Register LLM embedding tool
-  Future<void> _registerEmbeddingTool() async {
+  Future<bool> _registerEmbeddingTool() async {
     try {
-      await mcpServer.addTool(
+      return await _serverAdapter!.registerTool(
         name: 'llm-embed',
         description: 'Generate embeddings for text using the LLM',
         inputSchema: {
@@ -141,181 +118,92 @@ class LlmServer {
           },
           'required': ['text']
         },
-        handler: _handleLlmEmbedTool,
+        handler: _handleLlmEmbeddingTool,
       );
-
-      _logger.debug('Registered LLM embedding tool');
     } catch (e) {
-      _logger.error('Failed to register LLM embedding tool: $e');
+      _logger.error('Failed to register embedding tool: $e');
+      return false;
     }
   }
 
-  /// Register RAG tool
-  Future<void> _registerRagTool() async {
+  /// Handle LLM completion tool calls
+  Future<Map<String, dynamic>> _handleLlmCompleteTool(Map<String, dynamic> args) async {
     try {
-      await mcpServer.addTool(
-        name: 'llm-rag',
-        description: 'Retrieve and generate using the LLM',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': 'The query for retrieval'},
-            'topK': {'type': 'integer', 'description': 'Number of documents to retrieve', 'default': 5},
-            'parameters': {'type': 'object', 'description': 'Optional parameters'}
-          },
-          'required': ['query']
-        },
-        handler: _handleLlmRagTool,
-      );
+      final prompt = args['prompt'] as String;
+      final parameters = args['parameters'] as Map<String, dynamic>? ?? {};
 
-      _logger.debug('Registered LLM RAG tool');
-    } catch (e) {
-      _logger.error('Failed to register LLM RAG tool: $e');
-    }
-  }
+      _logger.debug('Handling LLM completion: $prompt');
 
-  /// Handle LLM completion tool
-  Future<dynamic> _handleLlmCompleteTool(Map<String, dynamic> arguments) async {
-    try {
-      final prompt = arguments['prompt'] as String;
-      final parameters = arguments['parameters'] as Map<String, dynamic>? ?? {};
-
-      _logger.debug('Handling LLM completion tool: $prompt');
-
-      // Create the LLM request
+      // Create request
       final request = LlmRequest(
         prompt: prompt,
         parameters: parameters,
       );
 
-      // Get the completion
+      // Get completion
       final response = await llmProvider.complete(request);
 
-      _logger.debug('LLM completion tool completed');
-
-      // Return the text as content
-      return CallToolResult([
-        TextContent(text: response.text),
-      ]);
+      return {
+        'content': response.text,
+        'metadata': response.metadata,
+      };
     } catch (e) {
-      _logger.error('Error handling LLM completion tool: $e');
-
-      return CallToolResult(
-        [TextContent(text: 'Error: $e')],
-        isError: true,
-      );
+      _logger.error('Error in LLM completion: $e');
+      return {'error': e.toString()};
     }
   }
 
-  /// Handle LLM streaming tool
-  Future<dynamic> _handleLlmStreamTool(Map<String, dynamic> arguments) async {
+  /// Handle LLM streaming tool calls
+  Future<Stream<Map<String, dynamic>>> _handleLlmStreamingTool(Map<String, dynamic> args) async {
     try {
-      final prompt = arguments['prompt'] as String;
-      final parameters = arguments['parameters'] as Map<String, dynamic>? ?? {};
+      final prompt = args['prompt'] as String;
+      final parameters = args['parameters'] as Map<String, dynamic>? ?? {};
 
-      _logger.debug('Handling LLM streaming tool: $prompt');
+      _logger.debug('Handling LLM streaming: $prompt');
 
-      // Create the LLM request
+      // Create request
       final request = LlmRequest(
         prompt: prompt,
         parameters: parameters,
       );
 
-      // Get the streaming completion
+      // Get streaming response
       final responseStream = llmProvider.streamComplete(request);
 
-      _logger.debug('LLM streaming tool started');
-
-      // Return the stream
-      return responseStream.map((chunk) {
-        return CallToolResult(
-          [TextContent(text: chunk.textChunk)],
-          isStreaming: !chunk.isDone,
-        );
+      // Convert to map stream
+      return responseStream.map((chunk) => {
+        'content': chunk.textChunk,
+        'isDone': chunk.isDone,
+        'metadata': chunk.metadata,
       });
     } catch (e) {
-      _logger.error('Error handling LLM streaming tool: $e');
-
-      return Stream.value(CallToolResult(
-        [TextContent(text: 'Error: $e')],
-        isError: true,
-      ));
+      _logger.error('Error in LLM streaming: $e');
+      return Stream.value({'error': e.toString()});
     }
   }
 
-  /// Handle LLM embedding tool
-  Future<dynamic> _handleLlmEmbedTool(Map<String, dynamic> arguments) async {
+  /// Handle LLM embedding tool calls
+  Future<Map<String, dynamic>> _handleLlmEmbeddingTool(Map<String, dynamic> args) async {
     try {
-      final text = arguments['text'] as String;
+      final text = args['text'] as String;
 
-      _logger.debug('Handling LLM embedding tool: ${text.substring(0, min(20, text.length))}...');
+      _logger.debug('Handling LLM embedding generation');
 
-      // Get the embeddings
+      // Get embeddings
       final embeddings = await llmProvider.getEmbeddings(text);
 
-      _logger.debug('LLM embedding tool completed');
-
-      // Return the embeddings as content
-      return CallToolResult([
-        TextContent(text: 'Embedding vector of length ${embeddings.length}'),
-      ]);
+      return {
+        'embeddings': embeddings,
+        'dimension': embeddings.length,
+      };
     } catch (e) {
-      _logger.error('Error handling LLM embedding tool: $e');
-
-      return CallToolResult(
-        [TextContent(text: 'Error: $e')],
-        isError: true,
-      );
+      _logger.error('Error in LLM embedding: $e');
+      return {'error': e.toString()};
     }
   }
 
-  /// Handle LLM RAG tool
-  Future<dynamic> _handleLlmRagTool(Map<String, dynamic> arguments) async {
-    try {
-      final query = arguments['query'] as String;
-      final topK = arguments['topK'] as int? ?? 5;
-      final parameters = arguments['parameters'] as Map<String, dynamic>? ?? {};
-
-      _logger.debug('Handling LLM RAG tool: $query');
-
-      if (retrievalManager == null) {
-        throw StateError('RetrievalManager is not available');
-      }
-
-      // Get the RAG response
-      final response = await retrievalManager.retrieveAndGenerate(
-        query,
-        topK: topK,
-        generationParams: parameters,
-      );
-
-      _logger.debug('LLM RAG tool completed');
-
-      // Return the response as content
-      return CallToolResult([
-        TextContent(text: response),
-      ]);
-    } catch (e) {
-      _logger.error('Error handling LLM RAG tool: $e');
-
-      return CallToolResult(
-        [TextContent(text: 'Error: $e')],
-        isError: true,
-      );
-    }
-  }
-
-  /// Close the server and release resources
+  /// Close and release resources
   Future<void> close() async {
-    _logger.info('Shutting down LLM server');
-
-    try {
-      await llmProvider.close();
-    } catch (e) {
-      _logger.error('Error closing LLM provider: $e');
-    }
+    await llmProvider.close();
   }
 }
-
-// Helper function for min (avoiding dart:math dependency)
-int min(int a, int b) => a < b ? a : b;

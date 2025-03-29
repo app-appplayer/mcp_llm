@@ -1,15 +1,11 @@
 import 'dart:math';
-import '../core/llm_interface.dart';
-import '../storage/storage_manager.dart';
-import '../utils/logger.dart';
-import 'document_store.dart';
-import 'embeddings.dart';
+import '../../mcp_llm.dart';
 
 /// Manages retrieval of relevant documents for RAG
 class RetrievalManager {
   final DocumentStore documentStore;
   final LlmInterface llmProvider;
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.retriever');
 
   RetrievalManager({
     required this.documentStore,

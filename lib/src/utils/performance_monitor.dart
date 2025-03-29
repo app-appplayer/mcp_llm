@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import '../../mcp_llm.dart';
+
 /// LLM 및 MCP 사용에 대한 성능 모니터링 시스템
 class PerformanceMonitor {
   // 싱글톤 코드 제거
@@ -17,6 +21,8 @@ class PerformanceMonitor {
 
   // 타임스탬프 - 요청 ID 맵
   final Map<String, DateTime> _requestStartTimes = {};
+
+  final Logger _logger = Logger.getLogger('mcp_llm.performance_monitor');
 
   // 일반 생성자
   PerformanceMonitor();
@@ -85,7 +91,7 @@ class PerformanceMonitor {
       _logPerformanceMetrics();
     });
 
-    log.info('Performance monitoring started with interval: ${interval.inSeconds}s');
+    _logger.info('Performance monitoring started with interval: ${interval.inSeconds}s');
   }
 
   /// 모니터링 중지
@@ -94,7 +100,7 @@ class PerformanceMonitor {
     _monitoringTimer = null;
     _isMonitoring = false;
 
-    log.info('Performance monitoring stopped');
+    _logger.info('Performance monitoring stopped');
   }
 
   /// 현재 메트릭 보고서 가져오기
@@ -129,11 +135,11 @@ class PerformanceMonitor {
   /// 성능 메트릭 로깅
   void _logPerformanceMetrics() {
     final report = getMetricsReport();
-    log.info('=== Performance Metrics ===');
-    log.info('Total Requests: ${report['total_requests']}');
-    log.info('Success Rate: ${report['success_rate']}');
-    log.info('Tool Call Success Rate: ${report['tool_call_success_rate']}');
-    log.info('Active Requests: ${report['active_requests']}');
-    log.info('===========================');
+    _logger.info('=== Performance Metrics ===');
+    _logger.info('Total Requests: ${report['total_requests']}');
+    _logger.info('Success Rate: ${report['success_rate']}');
+    _logger.info('Tool Call Success Rate: ${report['tool_call_success_rate']}');
+    _logger.info('Active Requests: ${report['active_requests']}');
+    _logger.info('===========================');
   }
 }

@@ -1,4 +1,5 @@
-import '../transport/transport.dart';
+import '../chat/message.dart';
+import 'llm_context.dart';
 
 /// Base content type enum for MCP
 enum MessageRole {
@@ -218,7 +219,7 @@ class Tool {
     };
 
     if (id != null) {
-      result['id'] = id;
+      result['id'] = id as String;
     }
 
     return result;
@@ -253,7 +254,7 @@ class ToolCall {
     };
 
     if (id != null) {
-      result['id'] = id;
+      result['id'] = id as String;
     }
 
     return result;
@@ -286,8 +287,8 @@ class Resource {
   final String uri;
   final String name;
   final String description;
-  final String mimeType;
-  final Map<String, dynamic>? uriTemplate;
+  final String? mimeType;
+  final String? uriTemplate;
 
   Resource({
     required this.uri,
@@ -302,12 +303,9 @@ class Resource {
       'uri': uri,
       'name': name,
       'description': description,
-      'mimeType': mimeType,
+      if (mimeType != null) 'mimeType': mimeType,
+      if (uriTemplate != null) 'uriTemplate' : uriTemplate
     };
-
-    if (uriTemplate != null) {
-      result['uriTemplate'] = uriTemplate;
-    }
 
     return result;
   }
@@ -383,44 +381,7 @@ class Prompt {
     };
   }
 }
-/*
-/// Message model for prompt system
-class Message {
-  final String role;
-  final dynamic content;
-  final DateTime timestamp;
-  final Map<String, dynamic> metadata;
 
-  Message({
-    required this.role,
-    required this.content,
-    DateTime? timestamp,
-    this.metadata = const {},
-  }) : timestamp = timestamp ?? DateTime.now();
-
-  factory Message.fromJson(Map<String, dynamic> json) {
-    return Message(
-      role: json['role'] as String,
-      content: json['content'],
-      timestamp: json['timestamp'] != null
-          ? DateTime.parse(json['timestamp'] as String)
-          : DateTime.now(),
-      metadata: json['metadata'] != null
-          ? Map<String, dynamic>.from(json['metadata'] as Map)
-          : {},
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'role': role,
-      'content': content,
-      'timestamp': timestamp.toIso8601String(),
-      'metadata': metadata,
-    };
-  }
-}
-*/
 /// Get prompt result
 class GetPromptResult {
   final String description;
@@ -587,6 +548,21 @@ class LlmConfiguration {
   }
 }
 
+/// Abstract base class for server transport implementations
+abstract class ServerTransport {
+  /// Stream of incoming messages
+  Stream<dynamic> get onMessage;
+
+  /// Future that completes when the transport is closed
+  Future<void> get onClose;
+
+  /// Send a message through the transport
+  void send(dynamic message);
+
+  /// Close the transport
+  void close();
+}
+
 /// Client session information
 class ClientSession {
   final String id;
@@ -631,11 +607,8 @@ class Root {
     final result = {
       'uri': uri,
       'name': name,
+      if (description != null) 'description' : description!
     };
-
-    if (description != null) {
-      result['description'] = description;
-    }
 
     return result;
   }

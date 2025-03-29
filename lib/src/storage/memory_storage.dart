@@ -6,7 +6,7 @@ import 'storage_manager.dart';
 class MemoryStorage implements StorageManager {
   final Map<String, String> _stringStorage = {};
   final Map<String, List<int>> _dataStorage = {};
-  final Logger _logger = Logger();
+  final Logger _logger = Logger.getLogger('mcp_llm.memory_storage');
 
   /// Create a new memory storage
   MemoryStorage();

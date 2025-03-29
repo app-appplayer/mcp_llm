@@ -13,7 +13,7 @@ class TogetherProvider implements LlmInterface {
   final String? baseUrl;
   final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
-  final Logger _logger = Logger.instance;
+  final Logger _logger = Logger.getLogger('mcp_llm.together_provider');
 
   TogetherProvider({
     required this.apiKey,

@@ -1,3 +1,5 @@
+import '../../mcp_llm.dart';
+
 /// 텍스트의 토큰 수를 계산하는 유틸리티
 class TokenCounter {
   // 싱글톤 코드 제거

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import '../core/llm_interface.dart';
 import '../core/models.dart';
@@ -9,7 +8,7 @@ import 'provider.dart';
 /// Base class for implementing custom LLM providers
 abstract class CustomLlmProvider implements LlmInterface {
   /// Logger instance
-  final Logger _logger = Logger();
+  final Logger _logger = Logger.getLogger('mcp_llm.providers.custom');
 
   /// Provider name
   final String name;
