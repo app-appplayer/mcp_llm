@@ -246,7 +246,7 @@ class PluginManager implements IPluginManager {
   }
 
   /// Try to execute a tool by name
-  Future<CallToolResult?> tryExecuteTool(String toolName, Map<String, dynamic> arguments) async {
+  Future<LlmCallToolResult?> tryExecuteTool(String toolName, Map<String, dynamic> arguments) async {
     final plugin = getToolPlugin(toolName);
     if (plugin == null) return null;
 
@@ -254,15 +254,15 @@ class PluginManager implements IPluginManager {
       return await plugin.execute(arguments);
     } catch (e) {
       _logger.error('Error executing tool plugin $toolName: $e');
-      return CallToolResult(
-        [TextContent(text: 'Error executing tool: $e')],
+      return LlmCallToolResult(
+        [LlmTextContent(text: 'Error executing tool: $e')],
         isError: true,
       );
     }
   }
 
   /// Try to execute a prompt by name
-  Future<GetPromptResult?> tryExecutePrompt(String promptName, Map<String, dynamic> arguments) async {
+  Future<LlmGetPromptResult?> tryExecutePrompt(String promptName, Map<String, dynamic> arguments) async {
     final plugin = getPromptPlugin(promptName);
     if (plugin == null) return null;
 

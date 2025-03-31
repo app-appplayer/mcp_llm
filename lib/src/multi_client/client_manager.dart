@@ -1,4 +1,5 @@
 import '../../mcp_llm.dart';
+import '../core/models.dart';
 
 /// 다중 MCP 클라이언트를 관리하는 클래스
 class MultiClientManager {

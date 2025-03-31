@@ -31,14 +31,14 @@ class ChatSession {
         _history = ChatHistory();
 
   /// Get current chat history
-  List<Message> get messages => _history.messages;
+  List<LlmMessage> get messages => _history.messages;
 
   /// Get the number of messages in history
   int get messageCount => _history.length;
 
   /// Add a user message to the chat
   void addUserMessage(String content) {
-    final message = Message(
+    final message = LlmMessage(
       role: 'user',
       content: content,
       timestamp: DateTime.now(),
@@ -52,7 +52,7 @@ class ChatSession {
 
   /// Add an assistant message to the chat
   void addAssistantMessage(String content) {
-    final message = Message(
+    final message = LlmMessage(
       role: 'assistant',
       content: content,
       timestamp: DateTime.now(),
@@ -66,7 +66,7 @@ class ChatSession {
 
   /// Add a system message to the chat
   void addSystemMessage(String content) {
-    final message = Message(
+    final message = LlmMessage(
       role: 'system',
       content: content,
       timestamp: DateTime.now(),
@@ -81,7 +81,7 @@ class ChatSession {
   /// Add a tool result to the chat
   void addToolResult(String toolName, Map<String, dynamic> arguments, List<dynamic> result) {
     // Create tool call message
-    final toolCallMessage = Message(
+    final toolCallMessage = LlmMessage(
       role: 'assistant',
       content: {
         'type': 'tool_call',
@@ -92,7 +92,7 @@ class ChatSession {
     );
 
     // Create tool result message
-    final toolResultMessage = Message(
+    final toolResultMessage = LlmMessage(
       role: 'tool',
       content: {
         'type': 'tool_result',
@@ -112,7 +112,7 @@ class ChatSession {
 
   /// Add a tool error to the chat
   void addToolError(String toolName, String error) {
-    final message = Message(
+    final message = LlmMessage(
       role: 'tool',
       content: {
         'type': 'tool_error',
@@ -129,7 +129,7 @@ class ChatSession {
   }
 
   /// Get messages formatted for LLM context
-  List<Message> getMessagesForContext({int? maxTokens}) {
+  List<LlmMessage> getMessagesForContext({int? maxTokens}) {
     final maxTokenCount = maxTokens ?? _maxContextTokens;
 
     // Get provider model name from llmProvider if possible
@@ -155,7 +155,7 @@ class ChatSession {
     final nonSystemMessages = allMessages.where((msg) => msg.role != 'system').toList();
 
     // Start with system messages
-    final List<Message> contextMessages = List.from(systemMessages);
+    final List<LlmMessage> contextMessages = List.from(systemMessages);
     tokenCount = _tokenCounter.countMessageTokens(contextMessages, modelIdentifier);
 
     // Add most recent messages first, up to token limit

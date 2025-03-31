@@ -22,19 +22,19 @@ abstract class LlmPlugin {
 /// Interface for tool plugins that provide tool functionality
 abstract class ToolPlugin extends LlmPlugin {
   /// Get the tool definition
-  Tool getToolDefinition();
+  LlmTool getToolDefinition();
 
   /// Execute the tool with the given arguments
-  Future<CallToolResult> execute(Map<String, dynamic> arguments);
+  Future<LlmCallToolResult> execute(Map<String, dynamic> arguments);
 }
 
 /// Interface for prompt plugins that provide prompt templates
 abstract class PromptPlugin extends LlmPlugin {
   /// Get the prompt definition
-  Prompt getPromptDefinition();
+  LlmPrompt getPromptDefinition();
 
   /// Execute the prompt with the given arguments
-  Future<GetPromptResult> execute(Map<String, dynamic> arguments);
+  Future<LlmGetPromptResult> execute(Map<String, dynamic> arguments);
 }
 
 /// Interface for embedding plugins that provide embedding functionality

@@ -1,4 +1,5 @@
 import '../../mcp_llm.dart';
+import '../core/models.dart';
 
 /// 동적으로 LLM 제공자를 등록하고 관리하는 레지스트리
 class LlmRegistry {

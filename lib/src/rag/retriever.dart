@@ -1,5 +1,6 @@
 import 'dart:math';
 import '../../mcp_llm.dart';
+import '../core/models.dart';
 
 /// Manages retrieval of relevant documents for RAG
 class RetrievalManager {

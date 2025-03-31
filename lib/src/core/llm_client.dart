@@ -1,4 +1,5 @@
 import '../../mcp_llm.dart';
+import '../core/models.dart';
 import '../adapter/llm_client_adapter.dart';
 
 /// Client for interacting with LLM providers

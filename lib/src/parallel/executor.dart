@@ -1,4 +1,5 @@
 import '../../mcp_llm.dart';
+import '../core/models.dart';
 
 /// 여러 LLM에 대한 병렬 작업을 관리하는 클래스
 class ParallelExecutor {

@@ -1,7 +1,5 @@
 import '../../mcp_llm.dart';
 import '../core/models.dart';
-import 'plugin_interface.dart';
-import '../utils/logger.dart';
 
 /// Base implementation of a prompt plugin
 abstract class BasePromptPlugin implements PromptPlugin {
@@ -15,7 +13,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
   final String description;
 
   /// Arguments definition for the prompt
-  final List<PromptArgument> _arguments;
+  final List<LlmPromptArgument> _arguments;
 
   /// Logger instance
   final Logger _logger = Logger.getLogger('mcp_llm.prompt_plugin');
@@ -30,7 +28,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
     required this.name,
     required this.version,
     required this.description,
-    required List<PromptArgument> arguments,
+    required List<LlmPromptArgument> arguments,
   }) : _arguments = arguments;
 
   @override
@@ -62,10 +60,10 @@ abstract class BasePromptPlugin implements PromptPlugin {
   }
 
   @override
-  Prompt getPromptDefinition() {
+  LlmPrompt getPromptDefinition() {
     _checkInitialized();
 
-    return Prompt(
+    return LlmPrompt(
       name: name,
       description: description,
       arguments: _arguments,
@@ -73,7 +71,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
   }
 
   @override
-  Future<GetPromptResult> execute(Map<String, dynamic> arguments) async {
+  Future<LlmGetPromptResult> execute(Map<String, dynamic> arguments) async {
     _checkInitialized();
 
     try {
@@ -99,7 +97,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
   }
 
   /// Hook for plugin-specific execution logic
-  Future<GetPromptResult> onExecute(Map<String, dynamic> arguments);
+  Future<LlmGetPromptResult> onExecute(Map<String, dynamic> arguments);
 
   /// Check if the plugin is initialized
   void _checkInitialized() {
@@ -145,17 +143,17 @@ class StoryStarterPromptPlugin extends BasePromptPlugin {
     version: '1.0.0',
     description: 'Generates creative story starters based on genre and theme',
     arguments: [
-      PromptArgument(
+      LlmPromptArgument(
         name: 'genre',
         description: 'Genre of the story (e.g., sci-fi, fantasy, mystery)',
         required: true,
       ),
-      PromptArgument(
+      LlmPromptArgument(
         name: 'theme',
         description: 'Primary theme or topic for the story',
         required: false,
       ),
-      PromptArgument(
+      LlmPromptArgument(
         name: 'tone',
         description: 'Tone of the story (e.g., dark, humorous, whimsical)',
         required: false,
@@ -165,13 +163,13 @@ class StoryStarterPromptPlugin extends BasePromptPlugin {
   );
 
   @override
-  Future<GetPromptResult> onExecute(Map<String, dynamic> arguments) async {
+  Future<LlmGetPromptResult> onExecute(Map<String, dynamic> arguments) async {
     final genre = arguments['genre'] as String;
     final theme = arguments['theme'] as String?;
     final tone = arguments['tone'] as String? ?? 'neutral';
 
     // Build system message
-    final systemMessage = Message.system(
+    final systemMessage = LlmMessage.system(
       'You are a creative writing assistant specializing in ${genre.toLowerCase()} stories '
           'with a ${tone.toLowerCase()} tone. Your task is to create engaging story starters '
           'that will inspire writers.',
@@ -184,10 +182,10 @@ class StoryStarterPromptPlugin extends BasePromptPlugin {
     }
     userPrompt += ' and a ${tone.toLowerCase()} tone.';
 
-    final userMessage = Message.user(userPrompt);
+    final userMessage = LlmMessage.user(userPrompt);
 
     // Create the result
-    return GetPromptResult(
+    return LlmGetPromptResult(
       description: 'A ${tone.toLowerCase()} ${genre.toLowerCase()} story starter' +
           (theme != null ? ' about ${theme.toLowerCase()}' : ''),
       messages: [systemMessage, userMessage],

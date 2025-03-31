@@ -1,6 +1,5 @@
 import 'dart:math';
-
-import '../../mcp_llm.dart';
+import '../core/models.dart';
 
 /// 여러 LLM 응답을 집계하는 인터페이스
 abstract class ResultAggregator {
@@ -64,8 +63,8 @@ class MergeResultAggregator implements ResultAggregator {
     );
   }
 
-  List<ToolCall>? _mergeToolCalls(List<LlmResponse> responses) {
-    final allToolCalls = <ToolCall>[];
+  List<LlmToolCall>? _mergeToolCalls(List<LlmResponse> responses) {
+    final allToolCalls = <LlmToolCall>[];
 
     for (final response in responses) {
       if (response.toolCalls != null) {

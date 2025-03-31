@@ -1,8 +1,6 @@
-// lib/src/core/llm_server.dart
 import '../../mcp_llm.dart';
-import 'llm_interface.dart';
+import '../core/models.dart';
 import '../adapter/llm_server_adapter.dart';
-import '../utils/logger.dart';
 
 /// Server for providing LLM capabilities
 class LlmServer {

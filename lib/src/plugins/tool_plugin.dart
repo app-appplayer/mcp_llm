@@ -61,10 +61,10 @@ abstract class BaseToolPlugin implements ToolPlugin {
   }
 
   @override
-  Tool getToolDefinition() {
+  LlmTool getToolDefinition() {
     _checkInitialized();
 
-    return Tool(
+    return LlmTool(
       name: name,
       description: description,
       inputSchema: _inputSchema,
@@ -72,7 +72,7 @@ abstract class BaseToolPlugin implements ToolPlugin {
   }
 
   @override
-  Future<CallToolResult> execute(Map<String, dynamic> arguments) async {
+  Future<LlmCallToolResult> execute(Map<String, dynamic> arguments) async {
     _checkInitialized();
 
     try {
@@ -90,15 +90,15 @@ abstract class BaseToolPlugin implements ToolPlugin {
       _logger.error('Error executing tool plugin $name: $e');
       _logger.debug('Stack trace: $stackTrace');
 
-      return CallToolResult(
-        [TextContent(text: 'Error executing tool: $e')],
+      return LlmCallToolResult(
+        [LlmTextContent(text: 'Error executing tool: $e')],
         isError: true,
       );
     }
   }
 
   /// Hook for plugin-specific execution logic
-  Future<CallToolResult> onExecute(Map<String, dynamic> arguments);
+  Future<LlmCallToolResult> onExecute(Map<String, dynamic> arguments);
 
   /// Check if the plugin is initialized
   void _checkInitialized() {
@@ -155,14 +155,14 @@ class EchoToolPlugin extends BaseToolPlugin {
   );
 
   @override
-  Future<CallToolResult> onExecute(Map<String, dynamic> arguments) async {
+  Future<LlmCallToolResult> onExecute(Map<String, dynamic> arguments) async {
     final message = arguments['message'] as String;
     final uppercase = arguments['uppercase'] as bool? ?? false;
 
     final result = uppercase ? message.toUpperCase() : message;
 
-    return CallToolResult([
-      TextContent(text: result),
+    return LlmCallToolResult([
+      LlmTextContent(text: result),
     ]);
   }
 }

@@ -22,7 +22,7 @@ class TokenCounter {
   }
 
   /// 메시지 목록의 토큰 수 계산
-  int countMessageTokens(List<Message> messages, String model) {
+  int countMessageTokens(List<LlmMessage> messages, String model) {
     final tokenizer = _getTokenizer(model);
 
     int total = 0;
@@ -64,7 +64,7 @@ class TokenCounter {
 /// 토크나이저 인터페이스
 abstract class Tokenizer {
   int countTokens(String text);
-  int countMessageTokens(Message message);
+  int countMessageTokens(LlmMessage message);
   int getBaseTokens();
 }
 
@@ -77,7 +77,7 @@ class DefaultTokenizer implements Tokenizer {
   }
 
   @override
-  int countMessageTokens(Message message) {
+  int countMessageTokens(LlmMessage message) {
     int tokens = 0;
 
     // 역할 토큰
@@ -116,7 +116,7 @@ class GPTTokenizer implements Tokenizer {
   }
 
   @override
-  int countMessageTokens(Message message) {
+  int countMessageTokens(LlmMessage message) {
     int tokens = 0;
 
     // 역할 토큰
@@ -153,7 +153,7 @@ class ClaudeTokenizer implements Tokenizer {
   }
 
   @override
-  int countMessageTokens(Message message) {
+  int countMessageTokens(LlmMessage message) {
     int tokens = 0;
 
     // 역할 토큰

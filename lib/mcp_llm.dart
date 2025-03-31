@@ -70,7 +70,7 @@ import 'src/rag/retriever.dart';
 import 'src/storage/storage_manager.dart';
 import 'src/utils/performance_monitor.dart';
 
-typedef MCPCLlm = McpLlm;
+typedef MCPLlm = McpLlm;
 /// Main class for MCPLlm functionality
 class McpLlm {
   /// LLM provider registry

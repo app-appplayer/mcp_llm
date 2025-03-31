@@ -378,7 +378,7 @@ class OpenAiProvider implements LlmInterface {
     }
 
     // Extract tool calls if any
-    List<ToolCall>? toolCalls;
+    List<LlmToolCall>? toolCalls;
     final toolCallsList = message['tool_calls'] as List<dynamic>?;
     if (toolCallsList != null && toolCallsList.isNotEmpty) {
       toolCalls = toolCallsList.map((toolCallData) {
@@ -396,7 +396,7 @@ class OpenAiProvider implements LlmInterface {
           arguments = {'_error': 'Failed to parse arguments'};
         }
 
-        return ToolCall(
+        return LlmToolCall(
           id: id,
           name: name,
           arguments: arguments,

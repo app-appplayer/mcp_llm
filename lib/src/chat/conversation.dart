@@ -135,8 +135,8 @@ class Conversation {
   }
 
   /// Get all messages across all sessions
-  List<Message> getAllMessages() {
-    final allMessages = <Message>[];
+  List<LlmMessage> getAllMessages() {
+    final allMessages = <LlmMessage>[];
 
     for (final session in _sessions.values) {
       allMessages.addAll(session.messages);

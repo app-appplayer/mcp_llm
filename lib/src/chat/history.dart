@@ -3,21 +3,21 @@ import 'message.dart';
 /// Manages the history of messages for a chat session
 class ChatHistory {
   /// List of messages in the history
-  final List<Message> _messages = [];
+  final List<LlmMessage> _messages = [];
 
   /// Get the list of messages
-  List<Message> get messages => List.unmodifiable(_messages);
+  List<LlmMessage> get messages => List.unmodifiable(_messages);
 
   /// Get the number of messages in the history
   int get length => _messages.length;
 
   /// Add a message to the history
-  void addMessage(Message message) {
+  void addMessage(LlmMessage message) {
     _messages.add(message);
   }
 
   /// Get a message by index
-  Message? getMessage(int index) {
+  LlmMessage? getMessage(int index) {
     if (index >= 0 && index < _messages.length) {
       return _messages[index];
     }
@@ -25,7 +25,7 @@ class ChatHistory {
   }
 
   /// Get the last N messages
-  List<Message> getLastMessages(int count) {
+  List<LlmMessage> getLastMessages(int count) {
     if (count >= _messages.length) {
       return List.unmodifiable(_messages);
     }
@@ -44,7 +44,7 @@ class ChatHistory {
   }
 
   /// Insert a message at a specific index
-  void insertMessage(int index, Message message) {
+  void insertMessage(int index, LlmMessage message) {
     if (index >= 0 && index <= _messages.length) {
       _messages.insert(index, message);
     } else {
@@ -64,7 +64,7 @@ class ChatHistory {
     final messagesList = json['messages'] as List<dynamic>?;
     if (messagesList != null) {
       for (final messageData in messagesList) {
-        final message = Message.fromJson(messageData as Map<String, dynamic>);
+        final message = LlmMessage.fromJson(messageData as Map<String, dynamic>);
         addMessage(message);
       }
     }
@@ -78,19 +78,19 @@ class ChatHistory {
   }
 
   /// Get filtered messages by role
-  List<Message> getMessagesByRole(String role) {
+  List<LlmMessage> getMessagesByRole(String role) {
     return _messages.where((message) => message.role == role).toList();
   }
 
   /// Get system messages
-  List<Message> get systemMessages => getMessagesByRole('system');
+  List<LlmMessage> get systemMessages => getMessagesByRole('system');
 
   /// Get user messages
-  List<Message> get userMessages => getMessagesByRole('user');
+  List<LlmMessage> get userMessages => getMessagesByRole('user');
 
   /// Get assistant messages
-  List<Message> get assistantMessages => getMessagesByRole('assistant');
+  List<LlmMessage> get assistantMessages => getMessagesByRole('assistant');
 
   /// Get tool messages
-  List<Message> get toolMessages => getMessagesByRole('tool');
+  List<LlmMessage> get toolMessages => getMessagesByRole('tool');
 }

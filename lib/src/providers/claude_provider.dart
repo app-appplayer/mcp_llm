@@ -321,11 +321,11 @@ class ClaudeProvider implements LlmInterface {
         .join('\n');
 
     // 도구 호출 추출
-    List<ToolCall>? toolCalls;
+    List<LlmToolCall>? toolCalls;
     final toolUses = response['tool_uses'] as List<dynamic>?;
     if (toolUses != null && toolUses.isNotEmpty) {
       toolCalls = toolUses.map((tool) {
-        return ToolCall(
+        return LlmToolCall(
           name: tool['name'] as String,
           arguments: tool['input'] as Map<String, dynamic>,
         );
