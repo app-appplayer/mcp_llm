@@ -53,6 +53,8 @@ dart pub add mcp_llm
 import 'package:mcp_llm/mcp_llm.dart';
 
 void main() async {
+  /// Logging
+  final Logger _logger = Logger.getLogger('mcp_llm.main');
   // Get MCPLlm instance
   final mcpLlm = MCPLlm.instance;
   
@@ -71,7 +73,7 @@ void main() async {
     enableTools: true,
   );
   
-  print(response.text);
+  _logger(response.text);
   
   // Clean up
   await mcpLlm.shutdown();
@@ -95,7 +97,7 @@ final response = await provider.complete(LlmRequest(
   parameters: {'temperature': 0.7},
 ));
 
-print(response.text);
+_logger(response.text);
 ```
 
 ### Multi-Client Management
@@ -165,6 +167,25 @@ final answer = await retrievalManager.retrieveAndGenerate(
 );
 ```
 
+## Logging
+
+The package includes a built-in logging utility:
+
+```dart
+/// Logging
+final Logger _logger = Logger.getLogger('mcp_llm.test');
+_logger.setLevel(LogLevel.debug);
+
+// Configure logging
+_logger.configure(level: LogLevel.debug, includeTimestamp: true, useColor: true);
+
+// Log messages at different levels
+_logger.debug('Debugging information');
+_logger.info('Important information');
+_logger.warning('Warning message');
+_logger.error('Error message');
+```
+
 ## Examples
 
 Check out the [example](https://github.com/app-appplayer/mcp_llm/tree/main/example) directory for complete sample applications.
@@ -197,8 +218,8 @@ mcpLlm.enablePerformanceMonitoring();
 
 // Get performance metrics
 final metrics = mcpLlm.getPerformanceMetrics();
-print("Total requests: ${metrics['total_requests']}");
-print("Success rate: ${metrics['success_rate']}");
+_logger("Total requests: ${metrics['total_requests']}");
+_logger("Success rate: ${metrics['success_rate']}");
 ```
 
 ## MCP Integration
