@@ -17,6 +17,9 @@ class ClientPool {
   /// Default maximum pool size
   final int _defaultMaxPoolSize;
 
+  /// Default timeout duration for client acquisition
+  final Duration _defaultTimeout;
+
   /// Client factories for creating new clients as needed
   final Map<String, LlmClientFactory> _clientFactories = {};
 
@@ -24,8 +27,11 @@ class ClientPool {
   final Logger _logger = Logger.getLogger('mcp_llm.client_pool');
 
   /// Create a new client pool
-  ClientPool({int defaultMaxPoolSize = 5})
-      : _defaultMaxPoolSize = defaultMaxPoolSize;
+  ClientPool({
+    int defaultMaxPoolSize = 5,
+    Duration defaultTimeout = const Duration(seconds: 10),
+  }) : _defaultMaxPoolSize = defaultMaxPoolSize,
+        _defaultTimeout = defaultTimeout;
 
   /// Register a client factory
   void registerClientFactory(String providerName, LlmClientFactory factory, {int? maxPoolSize}) {
@@ -48,8 +54,8 @@ class ClientPool {
     return _maxPoolSize[providerName] ?? _defaultMaxPoolSize;
   }
 
-  /// Get a client from the pool
-  Future<LlmClient> getClient(String providerName) async {
+  /// Get a client from the pool with configurable timeout
+  Future<LlmClient> getClient(String providerName, {Duration? timeout}) async {
     // Ensure we have a list for this provider
     _availableClients.putIfAbsent(providerName, () => []);
     _inUseClients.putIfAbsent(providerName, () => {});
@@ -71,14 +77,17 @@ class ClientPool {
 
       // Wait for a client to be returned to the pool
       final completer = Completer<LlmClient>();
+      final actualTimeout = timeout ?? _defaultTimeout;
 
-      // Wait for a client to become available with timeout
+      // 변수 선언을 null로 초기화 (final 제거)
       Timer? timeoutTimer;
+      Timer? checkTimer;
 
       // Function to check for an available client
       void checkForAvailableClient() {
         if (_availableClients[providerName]!.isNotEmpty) {
           timeoutTimer?.cancel();
+          checkTimer?.cancel();
 
           final client = _availableClients[providerName]!.removeLast();
           _inUseClients[providerName]!.add(client);
@@ -88,17 +97,18 @@ class ClientPool {
       }
 
       // Set up a periodic check
-      final checkTimer = Timer.periodic(Duration(milliseconds: 100), (_) {
+      checkTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
         checkForAvailableClient();
       });
 
       // Set a timeout
-      timeoutTimer = Timer(Duration(seconds: 10), () {
-        checkTimer.cancel();
+      timeoutTimer = Timer(actualTimeout, () {
+        checkTimer?.cancel();
 
         if (!completer.isCompleted) {
           _logger.error('Timeout waiting for available client for provider: $providerName');
-          completer.completeError(TimeoutException('Timeout waiting for available client'));
+          completer.completeError(TimeoutException(
+              'Timeout waiting for available client after ${actualTimeout.inSeconds} seconds'));
         }
       });
 
@@ -117,7 +127,6 @@ class ClientPool {
     _logger.debug('Created new client for provider: $providerName');
     return client;
   }
-
   /// Return a client to the pool
   void releaseClient(String providerName, LlmClient client) {
     if (!_inUseClients.containsKey(providerName) ||

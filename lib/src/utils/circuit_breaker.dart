@@ -14,15 +14,25 @@ class CircuitBreakerSettings {
   final int failureThreshold; // Failure count threshold to open circuit
   final Duration resetTimeout; // Circuit reset time
   final Duration halfOpenTimeout; // Half-open state duration
-  final int
-      halfOpenSuccessThreshold; // Success count threshold to close circuit
+  final int halfOpenSuccessThreshold; // Success count threshold to close circuit
+  final StateStore? stateStore; // Optional state persistence store
 
   CircuitBreakerSettings({
     this.failureThreshold = 5,
     this.resetTimeout = const Duration(seconds: 30),
     this.halfOpenTimeout = const Duration(seconds: 5),
     this.halfOpenSuccessThreshold = 2,
+    this.stateStore,
   });
+}
+
+/// Interface for circuit breaker state persistence
+abstract class StateStore {
+  /// Save circuit state
+  Future<void> saveState(String name, Map<String, dynamic> state);
+
+  /// Load circuit state
+  Future<Map<String, dynamic>?> loadState(String name);
 }
 
 /// Circuit breaker implementation
@@ -41,11 +51,15 @@ class CircuitBreaker {
   final List<void Function(CircuitState, CircuitState)> _stateChangeCallbacks =
       [];
 
+  final StateStore? _stateStore;
+
   CircuitBreaker({
     required this.name,
     CircuitBreakerSettings? settings,
-  }) : settings = settings ?? CircuitBreakerSettings() {
+  }) : _stateStore = settings?.stateStore,
+        settings = settings ?? CircuitBreakerSettings() {
     _lastStateChange = DateTime.now();
+    _loadState();
   }
 
   /// Current state
@@ -107,6 +121,48 @@ class CircuitBreaker {
     } catch (e) {
       _recordFailure(e);
       rethrow;
+    }
+  }
+
+  /// Load state from persistence store if available
+  Future<void> _loadState() async {
+    if (_stateStore == null) return;
+
+    try {
+      final savedState = await _stateStore.loadState(name);
+      if (savedState != null) {
+        _state = CircuitState.values.byName(savedState['state'] as String);
+        _failureCount = savedState['failureCount'] as int;
+        _successCount = savedState['successCount'] as int;
+        _lastStateChange = DateTime.parse(savedState['lastStateChange'] as String);
+
+        // Reset timers based on loaded state
+        if (_state == CircuitState.open) {
+          _startResetTimer();
+        } else if (_state == CircuitState.halfOpen) {
+          _startHalfOpenTimer();
+        }
+
+        _logger.debug('Loaded circuit state: ${_state.name} for circuit: $name');
+      }
+    } catch (e) {
+      _logger.error('Error loading circuit state: $e');
+    }
+  }
+
+  /// Save current state to persistence store
+  Future<void> _saveState() async {
+    if (_stateStore == null) return;
+
+    try {
+      await _stateStore.saveState(name, {
+        'state': _state.name,
+        'failureCount': _failureCount,
+        'successCount': _successCount,
+        'lastStateChange': _lastStateChange?.toIso8601String(),
+      });
+    } catch (e) {
+      _logger.error('Error saving circuit state: $e');
     }
   }
 
@@ -205,6 +261,9 @@ class CircuitBreaker {
         _logger.error('Error in circuit breaker state change callback: $e');
       }
     }
+
+    // Save state after transition
+    _saveState();
 
     _logger.info(
         'Circuit $name transitioned from ${oldState.toString().split('.').last} to ${newState.toString().split('.').last}');

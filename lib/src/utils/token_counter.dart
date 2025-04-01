@@ -1,9 +1,8 @@
 import '../../mcp_llm.dart';
 
 class TokenCounter {
-  // Simplified token counter (no external library dependencies)
+  final Logger _logger = Logger.getLogger('mcp_llm.token_counter');
 
-  // Token estimation coefficient by model
   final Map<String, double> _modelToFactor = {
     'gpt-3.5-turbo': 0.25, // Approximately 1 token per 4 characters
     'gpt-4': 0.25,
@@ -14,15 +13,33 @@ class TokenCounter {
     'default': 0.25,
   };
 
+  // Optional model-specific tokenizers for higher accuracy
+  final Map<String, Tokenizer> _tokenizers = {};
+
   TokenCounter();
 
+  /// Register a custom tokenizer for a specific model
+  void registerTokenizer(String model, Tokenizer tokenizer) {
+    _tokenizers[model.toLowerCase()] = tokenizer;
+    _logger.debug('Registered custom tokenizer for model: $model');
+  }
+
+  /// Count tokens in text
   int countTokens(String text, String model) {
+    // Use model-specific tokenizer if available
+    final modelLower = model.toLowerCase();
+
+    if (_tokenizers.containsKey(modelLower)) {
+      return _tokenizers[modelLower]!.countTokens(text);
+    }
+
     // Find appropriate factor for the model
     final factor = _getFactorForModel(model);
 
     // Estimate tokens considering whitespace, punctuation, etc.
     return _estimateTokens(text, factor);
   }
+
 
   int countMessageTokens(List<LlmMessage> messages, String model) {
     final factor = _getFactorForModel(model);

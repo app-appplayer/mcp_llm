@@ -301,23 +301,18 @@ class DatabaseStorage implements StorageManager {
     _checkInitialized();
 
     try {
-      ResultSet result;
-
       if (prefix != null) {
-        // SQLite LIKE pattern for prefix search (needs % escaping)
-        final escapedPrefix = prefix
-            .replaceAll('\\', '\\\\')
-            .replaceAll('%', '\\%')
-            .replaceAll('_', '\\_');
+        // Use prepared statement with parameter binding to prevent SQL injection
+        final stmt = _db.prepare(
+            'SELECT key FROM storage WHERE key LIKE ? ESCAPE "\\"');
+        final result = stmt.select(['$prefix%']);
+        stmt.dispose();
 
-        result = _db.select(
-            'SELECT key FROM storage WHERE key LIKE ? ESCAPE "\\"',
-            ['$escapedPrefix%']);
+        return result.map((row) => row['key'] as String).toList();
       } else {
-        result = _db.select('SELECT key FROM storage');
+        final result = _db.select('SELECT key FROM storage');
+        return result.map((row) => row['key'] as String).toList();
       }
-
-      return result.map((row) => row['key'] as String).toList();
     } catch (e) {
       _logger.error('Error listing keys with prefix $prefix: $e');
       return [];

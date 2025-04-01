@@ -82,14 +82,14 @@ abstract class CustomLlmProvider implements LlmInterface {
     }
   }
 
-  /// Execute the actual API request
+  /// Execute the actual API request - must be implemented by subclasses
   Future<Map<String, dynamic>> executeRequest(
       Map<String, dynamic> requestData,
       String endpoint,
       Map<String, String> headers,
       );
 
-  /// Execute a streaming API request
+  /// Execute the actual API request - must be implemented by subclasses
   Stream<dynamic> executeStreamingRequest(
       Map<String, dynamic> requestData,
       String endpoint,

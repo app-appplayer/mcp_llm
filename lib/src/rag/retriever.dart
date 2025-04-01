@@ -66,7 +66,6 @@ class RetrievalManager {
       throw Exception('Failed to retrieve documents: $e');
     }
   }
-
   /// Retrieve and generate a response in one call
   Future<String> retrieveAndGenerate(String query, {
     int topK = 5,
@@ -76,21 +75,56 @@ class RetrievalManager {
     _logger.debug('Performing RAG for query: $query');
 
     // Retrieve relevant documents
-    final docs = await retrieveRelevant(query, topK: topK, minimumScore: minimumScore);
+    final docs = await _retrieveDocuments(query, topK, minimumScore);
 
     if (docs.isEmpty) {
-      _logger.warning('No relevant documents found for query: $query');
-
-      // Fall back to just answering without context
-      final fallbackRequest = LlmRequest(
-        prompt: 'Answer the following question without additional context: $query',
-        parameters: Map<String, dynamic>.from(generationParams),
-      );
-
-      final fallbackResponse = await llmProvider.complete(fallbackRequest);
-      return fallbackResponse.text;
+      return await _generateResponseWithoutContext(query, generationParams);
     }
 
+    // Generate response with documents
+    return await _generateResponseWithContext(query, docs, generationParams);
+  }
+
+  /// Retrieve relevant documents
+  Future<List<Document>> _retrieveDocuments(
+      String query, int topK, double? minimumScore) async {
+    try {
+      // Get embedding for the query
+      final queryEmbedding = await llmProvider.getEmbeddings(query);
+
+      // Retrieve similar documents
+      final results = await documentStore.findSimilar(
+        queryEmbedding,
+        limit: topK,
+        minimumScore: minimumScore,
+      );
+
+      _logger.debug('Retrieved ${results.length} relevant documents');
+      return results;
+    } catch (e) {
+      _logger.error('Error retrieving documents: $e');
+      throw Exception('Failed to retrieve documents: $e');
+    }
+  }
+
+  /// Generate a response without document context
+  Future<String> _generateResponseWithoutContext(
+      String query, Map<String, dynamic> generationParams) async {
+    _logger.warning('No relevant documents found for query: $query');
+
+    // Fall back to just answering without context
+    final fallbackRequest = LlmRequest(
+      prompt: 'Answer the following question without additional context: $query',
+      parameters: Map<String, dynamic>.from(generationParams),
+    );
+
+    final fallbackResponse = await llmProvider.complete(fallbackRequest);
+    return fallbackResponse.text;
+  }
+
+  /// Generate a response with document context
+  Future<String> _generateResponseWithContext(
+      String query, List<Document> docs, Map<String, dynamic> generationParams) async {
     // Build context from documents
     final context = _formatDocumentsAsContext(docs);
 
