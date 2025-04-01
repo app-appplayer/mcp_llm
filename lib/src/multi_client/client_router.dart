@@ -1,32 +1,33 @@
-/// 쿼리를 기반으로 적절한 클라이언트로 라우팅하는 클래스
+/// Class that routes to appropriate clients based on queries
 class ClientRouter {
   final Map<String, Map<String, dynamic>> _clientProperties = {};
 
-  /// 라우팅 속성으로 클라이언트 등록
+  /// Register client with routing properties
   void registerClient(String clientId, Map<String, dynamic> properties) {
     _clientProperties[clientId] = properties;
   }
 
-  /// 클라이언트 등록 해제
+  /// Unregister client
   void unregisterClient(String clientId) {
     _clientProperties.remove(clientId);
   }
 
-  /// 쿼리에 적합한 클라이언트 찾기
+  /// Find appropriate client for query
   String? routeQuery(String query, [Map<String, dynamic>? queryProperties]) {
     if (queryProperties == null || queryProperties.isEmpty) {
-      // 간단한 키워드 기반 라우팅
+      // Simple keyword-based routing
       for (final entry in _clientProperties.entries) {
         final keywords = entry.value['keywords'] as List<String>?;
         if (keywords != null &&
-            keywords.any((keyword) => query.toLowerCase().contains(keyword.toLowerCase()))) {
+            keywords.any((keyword) =>
+                query.toLowerCase().contains(keyword.toLowerCase()))) {
           return entry.key;
         }
       }
       return null;
     }
 
-    // 속성 기반 라우팅
+    // Property-based routing
     String? bestMatch;
     int highestMatches = 0;
 
@@ -48,7 +49,7 @@ class ClientRouter {
     return bestMatch;
   }
 
-  /// 라우터 초기화
+  /// Initialize router
   void clear() {
     _clientProperties.clear();
   }

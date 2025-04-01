@@ -1,12 +1,12 @@
 import 'dart:math';
 import '../core/models.dart';
 
-/// 여러 LLM 응답을 집계하는 인터페이스
+/// Interface for aggregating multiple LLM responses
 abstract class ResultAggregator {
   LlmResponse aggregate(List<LlmResponse> responses);
 }
 
-/// 가장 자신감 있는 응답을 선택하는 집계기
+/// Aggregator that selects the response with highest confidence
 class ConfidenceResultAggregator implements ResultAggregator {
   @override
   LlmResponse aggregate(List<LlmResponse> responses) {
@@ -33,9 +33,7 @@ class ConfidenceResultAggregator implements ResultAggregator {
   }
 }
 
-
-
-/// 결과를 병합하는 집계기
+/// Aggregator that merges results
 class MergeResultAggregator implements ResultAggregator {
   @override
   LlmResponse aggregate(List<LlmResponse> responses) {
@@ -50,7 +48,7 @@ class MergeResultAggregator implements ResultAggregator {
     final allTexts = responses.map((r) => r.text).join('\n\n');
     final mergedText = 'Multiple results:\n\n$allTexts';
 
-    // 메타데이터 병합
+    // Merge metadata
     final mergedMetadata = <String, dynamic>{};
     for (final response in responses) {
       mergedMetadata.addAll(response.metadata);
@@ -76,7 +74,7 @@ class MergeResultAggregator implements ResultAggregator {
   }
 }
 
-/// 단순 결과 집계기
+/// Simple result aggregator
 class SimpleResultAggregator implements ResultAggregator {
   final SelectionStrategy _selectionStrategy;
 
@@ -95,17 +93,18 @@ class SimpleResultAggregator implements ResultAggregator {
         return responses.first;
 
       case SelectionStrategy.shortest:
-        return responses.reduce((a, b) => a.text.length <= b.text.length ? a : b);
+        return responses
+            .reduce((a, b) => a.text.length <= b.text.length ? a : b);
 
       case SelectionStrategy.longest:
-        return responses.reduce((a, b) => a.text.length >= b.text.length ? a : b);
+        return responses
+            .reduce((a, b) => a.text.length >= b.text.length ? a : b);
 
       case SelectionStrategy.random:
         return responses[Random().nextInt(responses.length)];
     }
   }
 }
-
 
 enum SelectionStrategy {
   first,

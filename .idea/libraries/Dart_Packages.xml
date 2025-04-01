@@ -65,6 +65,13 @@
             </list>
           </value>
         </entry>
+        <entry key="ffi">
+          <value>
+            <list>
+              <option value="$USER_HOME$/.pub-cache/hosted/pub.dev/ffi-2.1.4/lib" />
+            </list>
+          </value>
+        </entry>
         <entry key="file">
           <value>
             <list>
@@ -261,6 +268,13 @@
             </list>
           </value>
         </entry>
+        <entry key="sqlite3">
+          <value>
+            <list>
+              <option value="$USER_HOME$/.pub-cache/hosted/pub.dev/sqlite3-2.7.5/lib" />
+            </list>
+          </value>
+        </entry>
         <entry key="stack_trace">
           <value>
             <list>
@@ -385,6 +399,7 @@
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/convert-3.1.2/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/coverage-1.11.1/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/crypto-3.0.6/lib" />
+      <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/ffi-2.1.4/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/file-7.0.1/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/fixnum-1.1.1/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/frontend_server_client-4.0.0/lib" />
@@ -413,6 +428,7 @@
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/source_maps-0.10.13/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/source_span-1.10.1/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/sprintf-7.0.0/lib" />
+      <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/sqlite3-2.7.5/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/stack_trace-1.12.1/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/stream_channel-2.1.4/lib" />
       <root url="file://$USER_HOME$/.pub-cache/hosted/pub.dev/string_scanner-1.4.1/lib" />

@@ -4,22 +4,21 @@ import 'dart:io';
 import '../core/llm_interface.dart';
 import '../core/models.dart';
 import '../utils/logger.dart';
-import '../utils/performance_monitor.dart';
 import 'provider.dart';
 
-/// LLM 제공자 팩토리 구현
+/// Implementation of LLM provider factory
 class ClaudeProviderFactory implements LlmProviderFactory {
   @override
   String get name => 'claude';
 
   @override
   Set<LlmCapability> get capabilities => {
-    LlmCapability.completion,
-    LlmCapability.streaming,
-    LlmCapability.embeddings,
-    LlmCapability.toolUse,
-    LlmCapability.imageUnderstanding,
-  };
+        LlmCapability.completion,
+        LlmCapability.streaming,
+        LlmCapability.embeddings,
+        LlmCapability.toolUse,
+        LlmCapability.imageUnderstanding,
+      };
 
   @override
   LlmInterface createProvider(LlmConfiguration config) {
@@ -37,7 +36,7 @@ class ClaudeProviderFactory implements LlmProviderFactory {
   }
 }
 
-/// LLM 제공자 구현 (Claude)
+/// Implementation of LLM provider (Claude)
 class ClaudeProvider implements LlmInterface {
   final String apiKey;
   final String model;
@@ -56,35 +55,35 @@ class ClaudeProvider implements LlmInterface {
   @override
   Future<LlmResponse> complete(LlmRequest request) async {
     try {
-      // 요청 데이터 구성
+      // Configure request data
       final requestBody = _buildRequestBody(request);
 
-      // API 요청
+      // API request
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
       final httpRequest = await _client.postUrl(uri);
 
-      // 헤더 설정
+      // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
       httpRequest.headers.set('x-api-key', apiKey);
       httpRequest.headers.set('anthropic-version', '2023-06-01');
 
-      // 요청 본문 추가
+      // Add request body
       httpRequest.write(jsonEncode(requestBody));
 
-      // 응답 받기
+      // Get response
       final httpResponse = await httpRequest.close();
       final responseBody = await utf8.decoder.bind(httpResponse).join();
 
-      // 응답 파싱
+      // Parse response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
         final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
 
-        // 결과 생성
+        // Create result
         final response = _parseResponse(responseJson);
 
         return response;
       } else {
-        // 에러 처리
+        // Handle error
         final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
         _logger.error(error);
 
@@ -106,34 +105,34 @@ class ClaudeProvider implements LlmInterface {
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
     try {
-      // 요청 데이터 구성
+      // Configure request data
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
 
-      // API 요청
+      // API request
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
       final httpRequest = await _client.postUrl(uri);
 
-      // 헤더 설정
+      // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
       httpRequest.headers.set('x-api-key', apiKey);
       httpRequest.headers.set('anthropic-version', '2023-06-01');
 
-      // 요청 본문 추가
+      // Add request body
       httpRequest.write(jsonEncode(requestBody));
 
-      // 응답 받기
+      // Get response
       final httpResponse = await httpRequest.close();
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        // 스트리밍 응답 처리
+        // Process streaming response
         await for (final chunk in utf8.decoder.bind(httpResponse)) {
-          // SSE 형식 파싱
+          // Parse SSE format
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
               final data = line.substring(6);
               if (data == '[DONE]') {
-                // 스트리밍 완료
+                // Streaming complete
                 break;
               }
 
@@ -153,8 +152,9 @@ class ClaudeProvider implements LlmInterface {
                     );
                   }
                 } else if (type == 'tool_use') {
-                  // 도구 사용 응답
-                  final toolUse = chunkJson['tool_use'] as Map<String, dynamic>?;
+                  // Tool use response
+                  final toolUse =
+                      chunkJson['tool_use'] as Map<String, dynamic>?;
                   if (toolUse != null) {
                     yield LlmResponseChunk(
                       textChunk: '',
@@ -167,7 +167,7 @@ class ClaudeProvider implements LlmInterface {
                     );
                   }
                 } else if (type == 'tool_use_input_delta') {
-                  // 도구 입력 데이터
+                  // Tool input data
                   final delta = chunkJson['delta'] as Map<String, dynamic>?;
                   final inputDelta = delta?['input'] as Map<String, dynamic>?;
                   if (inputDelta != null) {
@@ -180,7 +180,7 @@ class ClaudeProvider implements LlmInterface {
                     );
                   }
                 } else if (type == 'message_stop') {
-                  // 메시지 종료
+                  // Message stop
                   yield LlmResponseChunk(
                     textChunk: '',
                     isDone: true,
@@ -194,7 +194,7 @@ class ClaudeProvider implements LlmInterface {
           }
         }
       } else {
-        // 에러 처리
+        // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
         _logger.error(error);
@@ -214,20 +214,60 @@ class ClaudeProvider implements LlmInterface {
         metadata: {'error': e.toString()},
       );
     } finally {
-      // 클라이언트 닫기
+      // Close client
       _client.close();
     }
   }
 
   @override
   Future<List<double>> getEmbeddings(String text) async {
-    // Claude 임베딩 API 구현 (생략)
-    throw UnimplementedError('Embeddings are not yet implemented for Claude');
+    _logger.debug('Claude embeddings request');
+
+    try {
+      // Prepare API request
+      final uri =
+          Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/embeddings');
+      final httpRequest = await _client.postUrl(uri);
+
+      // Set headers
+      httpRequest.headers.set('Content-Type', 'application/json');
+      httpRequest.headers.set('x-api-key', apiKey);
+      httpRequest.headers.set('anthropic-version', '2023-06-01');
+
+      // Add request body
+      final requestBody = {
+        'model': 'claude-3-haiku-20240307', // Use appropriate embedding model
+        'input': text,
+        'dimensions': 1536, // Standard embedding dimensions
+      };
+      httpRequest.write(jsonEncode(requestBody));
+
+      // Get response
+      final httpResponse = await httpRequest.close();
+      final responseBody = await utf8.decoder.bind(httpResponse).join();
+
+      // Handle response
+      if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
+        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final embedding = responseJson['embedding'] as List<dynamic>;
+        return embedding.cast<double>();
+      } else {
+        // Handle error
+        final error =
+            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        _logger.error(error);
+        throw Exception(error);
+      }
+    } catch (e, stackTrace) {
+      _logger.error('Error getting embeddings from Claude API: $e');
+      _logger.debug('Stack trace: $stackTrace');
+      throw Exception('Failed to get embeddings: $e');
+    }
   }
 
   @override
   Future<void> initialize(LlmConfiguration config) async {
-    // 초기화 로직
+    // Initialization logic
     _logger.info('Claude provider initialized with model: $model');
   }
 
@@ -236,12 +276,12 @@ class ClaudeProvider implements LlmInterface {
     _client.close();
   }
 
-  // 요청 본문 구성 헬퍼 메서드
+  // Helper method to build request body
   Map<String, dynamic> _buildRequestBody(LlmRequest request) {
-    // 메시지 구성
+    // Build messages
     final List<Map<String, dynamic>> messages = [];
 
-    // 이력 추가
+    // Add history
     for (final message in request.history) {
       messages.add({
         'role': message.role,
@@ -249,30 +289,30 @@ class ClaudeProvider implements LlmInterface {
       });
     }
 
-    // 현재 메시지 추가
+    // Add current message
     messages.add({
       'role': 'user',
       'content': request.prompt,
     });
 
-    // 요청 본문 구성
+    // Build request body
     final Map<String, dynamic> body = {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
     };
 
-    // 시스템 프롬프트가 있으면 추가
+    // Add system prompt if present
     if (request.parameters.containsKey('system')) {
       body['system'] = request.parameters['system'];
     }
 
-    // 도구 정보가 있으면 추가
+    // Add tool information if present
     if (request.parameters.containsKey('tools')) {
       body['tools'] = request.parameters['tools'];
     }
 
-    // 추가 파라미터 적용
+    // Apply additional parameters
     if (request.parameters.containsKey('temperature')) {
       body['temperature'] = request.parameters['temperature'];
     }
@@ -280,16 +320,16 @@ class ClaudeProvider implements LlmInterface {
     return body;
   }
 
-  // Claude 형식에 맞게 내용 변환
+  // Convert content to Claude format
   dynamic _convertContentToClaudeFormat(dynamic content) {
-    // 단순 텍스트면 그대로 반환
+    // Return as is if simple text
     if (content is String) {
       return content;
     }
 
-    // 메시지 구조체면 변환
+    // Convert message structure
     if (content is Map) {
-      // 이미지 내용 변환
+      // Convert image content
       if (content['type'] == 'image') {
         return {
           'type': 'image',
@@ -301,26 +341,26 @@ class ClaudeProvider implements LlmInterface {
         };
       }
 
-      // 텍스트 내용 변환
+      // Convert text content
       if (content['type'] == 'text') {
         return content['text'];
       }
     }
 
-    // 기본적으로 문자열 변환
+    // Default to string conversion
     return content.toString();
   }
 
-  // 응답 파싱 헬퍼 메서드
+  // Helper method to parse response
   LlmResponse _parseResponse(Map<String, dynamic> response) {
-    // 응답 내용 추출
+    // Extract response content
     final content = response['content'] as List<dynamic>;
     final text = content
         .where((item) => item['type'] == 'text')
         .map<String>((item) => item['text'] as String)
         .join('\n');
 
-    // 도구 호출 추출
+    // Extract tool calls
     List<LlmToolCall>? toolCalls;
     final toolUses = response['tool_uses'] as List<dynamic>?;
     if (toolUses != null && toolUses.isNotEmpty) {
@@ -332,7 +372,7 @@ class ClaudeProvider implements LlmInterface {
       }).toList();
     }
 
-    // 메타데이터 구성
+    // Build metadata
     final metadata = <String, dynamic>{
       'model': response['model'],
       'stop_reason': response['stop_reason'],

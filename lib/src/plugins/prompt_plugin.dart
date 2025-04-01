@@ -1,5 +1,4 @@
 import '../../mcp_llm.dart';
-import '../core/models.dart';
 
 /// Base implementation of a prompt plugin
 abstract class BasePromptPlugin implements PromptPlugin {

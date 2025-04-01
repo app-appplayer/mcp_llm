@@ -1,12 +1,9 @@
 import 'dart:async';
-
 import '../../mcp_llm.dart';
 
-/// LLM 및 MCP 사용에 대한 성능 모니터링 시스템
+/// Performance monitoring system for LLM and MCP usage
 class PerformanceMonitor {
-  // 싱글톤 코드 제거
-
-  // 성능 메트릭
+  // Performance metrics
   int _totalRequests = 0;
   int _failedRequests = 0;
   int _successfulToolCalls = 0;
@@ -15,31 +12,33 @@ class PerformanceMonitor {
   Map<String, int> _toolCallsPerTool = {};
   Map<String, List<int>> _responseTimesMs = {};
 
-  // 모니터링 타이머
+  // Monitoring timer
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
 
-  // 타임스탬프 - 요청 ID 맵
+  // Timestamp - request ID map
   final Map<String, DateTime> _requestStartTimes = {};
 
   final Logger _logger = Logger.getLogger('mcp_llm.performance_monitor');
 
-  // 일반 생성자
+  // Default constructor
   PerformanceMonitor();
 
-  /// 요청 시작 기록
+  /// Record request start
   String startRequest(String providerName) {
     _totalRequests++;
-    _requestsPerProvider[providerName] = (_requestsPerProvider[providerName] ?? 0) + 1;
+    _requestsPerProvider[providerName] =
+        (_requestsPerProvider[providerName] ?? 0) + 1;
 
-    // 요청 ID 생성
-    final requestId = 'req_${DateTime.now().millisecondsSinceEpoch}_${_totalRequests}';
+    // Generate request ID
+    final requestId =
+        'req_${DateTime.now().millisecondsSinceEpoch}_${_totalRequests}';
     _requestStartTimes[requestId] = DateTime.now();
 
     return requestId;
   }
 
-  /// 요청 완료 기록
+  /// Record request completion
   void endRequest(String requestId, {bool success = true}) {
     final startTime = _requestStartTimes.remove(requestId);
     if (startTime != null) {
@@ -49,7 +48,7 @@ class PerformanceMonitor {
         _failedRequests++;
       }
 
-      // 응답 시간 기록
+      // Record response time
       final responseTimeMs = duration.inMilliseconds;
       final provider = requestId.split('_').last;
       if (!_responseTimesMs.containsKey(provider)) {
@@ -59,7 +58,7 @@ class PerformanceMonitor {
     }
   }
 
-  /// 도구 호출 기록
+  /// Record tool call
   void recordToolCall(String toolName, {bool success = true}) {
     if (success) {
       _successfulToolCalls++;
@@ -70,7 +69,7 @@ class PerformanceMonitor {
     _toolCallsPerTool[toolName] = (_toolCallsPerTool[toolName] ?? 0) + 1;
   }
 
-  /// 메트릭 초기화
+  /// Reset metrics
   void resetMetrics() {
     _totalRequests = 0;
     _failedRequests = 0;
@@ -82,7 +81,7 @@ class PerformanceMonitor {
     _requestStartTimes.clear();
   }
 
-  /// 모니터링 시작
+  /// Start monitoring
   void startMonitoring(Duration interval) {
     if (_isMonitoring) return;
 
@@ -91,10 +90,11 @@ class PerformanceMonitor {
       _logPerformanceMetrics();
     });
 
-    _logger.info('Performance monitoring started with interval: ${interval.inSeconds}s');
+    _logger.info(
+        'Performance monitoring started with interval: ${interval.inSeconds}s');
   }
 
-  /// 모니터링 중지
+  /// Stop monitoring
   void stopMonitoring() {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
@@ -103,9 +103,9 @@ class PerformanceMonitor {
     _logger.info('Performance monitoring stopped');
   }
 
-  /// 현재 메트릭 보고서 가져오기
+  /// Get current metrics report
   Map<String, dynamic> getMetricsReport() {
-    // 평균 응답 시간 계산
+    // Calculate average response times
     final Map<String, double> avgResponseTimes = {};
     for (final entry in _responseTimesMs.entries) {
       if (entry.value.isNotEmpty) {
@@ -118,12 +118,18 @@ class PerformanceMonitor {
       'total_requests': _totalRequests,
       'failed_requests': _failedRequests,
       'success_rate': _totalRequests > 0
-          ? ((_totalRequests - _failedRequests) / _totalRequests * 100).toStringAsFixed(2) + '%'
+          ? ((_totalRequests - _failedRequests) / _totalRequests * 100)
+                  .toStringAsFixed(2) +
+              '%'
           : 'N/A',
       'total_tool_calls': _successfulToolCalls + _failedToolCalls,
       'successful_tool_calls': _successfulToolCalls,
       'tool_call_success_rate': (_successfulToolCalls + _failedToolCalls) > 0
-          ? (_successfulToolCalls / (_successfulToolCalls + _failedToolCalls) * 100).toStringAsFixed(2) + '%'
+          ? (_successfulToolCalls /
+                      (_successfulToolCalls + _failedToolCalls) *
+                      100)
+                  .toStringAsFixed(2) +
+              '%'
           : 'N/A',
       'requests_per_provider': _requestsPerProvider,
       'tool_calls_per_tool': _toolCallsPerTool,
@@ -132,7 +138,7 @@ class PerformanceMonitor {
     };
   }
 
-  /// 성능 메트릭 로깅
+  /// Log performance metrics
   void _logPerformanceMetrics() {
     final report = getMetricsReport();
     _logger.info('=== Performance Metrics ===');

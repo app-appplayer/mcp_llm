@@ -1,15 +1,16 @@
 import '../../mcp_llm.dart';
-import '../core/models.dart';
 
-/// 다중 MCP 클라이언트를 관리하는 클래스
+/// Class for managing multiple MCP clients
 class MultiClientManager {
   final Map<String, LlmClient> _clients = {};
   final ClientRouter _router = ClientRouter();
   final LoadBalancer _loadBalancer = LoadBalancer();
   final Logger _logger = Logger.getLogger('mcp_llm.client_manager');
 
-  /// 새 클라이언트 추가
-  void addClient(String clientId, LlmClient client, {
+  /// Add new client
+  void addClient(
+    String clientId,
+    LlmClient client, {
     Map<String, dynamic>? routingProperties,
     double loadWeight = 1.0,
   }) {
@@ -23,7 +24,7 @@ class MultiClientManager {
     _logger.info('Added client: $clientId');
   }
 
-  /// 클라이언트 제거
+  /// Remove client
   Future<void> removeClient(String clientId) async {
     final client = _clients.remove(clientId);
     if (client != null) {
@@ -38,12 +39,12 @@ class MultiClientManager {
     return _clients[clientId];
   }
 
-  /// 쿼리에 가장 적합한 클라이언트 선택
+  /// Select the most appropriate client for the query
   LlmClient? selectClient(String query, {Map<String, dynamic>? properties}) {
-    // 쿼리 특성에 따라 라우팅
+    // Route based on query characteristics
     String? clientId = _router.routeQuery(query, properties);
 
-    // 라우팅 결과가 없으면 로드 밸런서 사용
+    // Use load balancer if no routing result
     if (clientId == null || !_clients.containsKey(clientId)) {
       clientId = _loadBalancer.getNextClient();
     }
@@ -51,8 +52,9 @@ class MultiClientManager {
     return clientId != null ? _clients[clientId] : null;
   }
 
-  /// 모든 클라이언트에 동일 작업 실행 (팬아웃)
-  Future<Map<String, LlmResponse>> fanOutQuery(String query, {
+  /// Execute same operation on all clients (fan-out)
+  Future<Map<String, LlmResponse>> fanOutQuery(
+    String query, {
     bool enableTools = true,
     Map<String, dynamic> parameters = const {},
   }) async {
@@ -61,12 +63,8 @@ class MultiClientManager {
 
     for (final entry in _clients.entries) {
       futures.add(_executeClientQuery(
-          entry.key,
-          entry.value,
-          query,
-          enableTools,
-          parameters
-      ).then((response) {
+              entry.key, entry.value, query, enableTools, parameters)
+          .then((response) {
         results[entry.key] = response;
       }));
     }
@@ -75,14 +73,9 @@ class MultiClientManager {
     return results;
   }
 
-  // 개별 클라이언트 쿼리 실행 헬퍼 메서드
-  Future<LlmResponse> _executeClientQuery(
-      String clientId,
-      LlmClient client,
-      String query,
-      bool enableTools,
-      Map<String, dynamic> parameters
-      ) async {
+  // Helper method to execute individual client query
+  Future<LlmResponse> _executeClientQuery(String clientId, LlmClient client,
+      String query, bool enableTools, Map<String, dynamic> parameters) async {
     try {
       return await client.chat(
         query,
@@ -98,7 +91,7 @@ class MultiClientManager {
     }
   }
 
-  /// 모든 클라이언트 닫기
+  /// Close all clients
   Future<void> closeAll() async {
     final futures = <Future<void>>[];
     for (final client in _clients.values) {
@@ -110,4 +103,3 @@ class MultiClientManager {
     _loadBalancer.clear();
   }
 }
-

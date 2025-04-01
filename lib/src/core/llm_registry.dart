@@ -1,35 +1,34 @@
 import '../../mcp_llm.dart';
-import '../core/models.dart';
 
-/// 동적으로 LLM 제공자를 등록하고 관리하는 레지스트리
+/// Registry that dynamically registers and manages LLM providers
 class LlmRegistry {
-  // 싱글톤 코드 제거
+  // Singleton code removed
 
-  // 등록된 제공자 맵
+  // Registered provider map
   final Map<String, LlmProviderFactory> _providers = {};
 
-  // 일반 생성자
+  // Regular constructor
   LlmRegistry();
 
-  /// 새 LLM 제공자 등록
+  /// Register new LLM provider
   void registerProvider(String name, LlmProviderFactory factory) {
     _providers[name] = factory;
-    // 로그 출력 (Logger를 인스턴스로 받거나 필요 시 생성)
+    // Output log (receive Logger as instance or create when needed)
     final logger = Logger.getLogger('mcp_llm.llm_registry');
     logger.info('LLM provider registered: $name');
   }
 
-  /// 이름으로 제공자 팩토리 가져오기
+  /// Get provider factory by name
   LlmProviderFactory? getProviderFactory(String providerName) {
     return _providers[providerName];
   }
 
-  /// 모든 등록된 제공자 이름 가져오기
+  /// Get all registered provider names
   List<String> getAvailableProviders() {
     return _providers.keys.toList();
   }
 
-  /// 특정 기능을 지원하는 제공자 필터링
+  /// Filter providers that support specific capability
   List<String> getProvidersWithCapability(LlmCapability capability) {
     return _providers.entries
         .where((entry) => entry.value.capabilities.contains(capability))
@@ -37,9 +36,8 @@ class LlmRegistry {
         .toList();
   }
 
-  /// 모든 등록된 제공자 지우기 (주로 테스트용)
+  /// Clear all registered providers (mainly for testing)
   void clear() {
     _providers.clear();
   }
 }
-

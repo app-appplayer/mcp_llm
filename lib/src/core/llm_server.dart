@@ -1,5 +1,4 @@
 import '../../mcp_llm.dart';
-import '../core/models.dart';
 import '../adapter/llm_server_adapter.dart';
 
 /// Server for providing LLM capabilities

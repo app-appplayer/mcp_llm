@@ -1,7 +1,7 @@
 import '../../mcp_llm.dart';
 import '../core/models.dart';
 
-/// 여러 LLM에 대한 병렬 작업을 관리하는 클래스
+/// Class that manages parallel operations for multiple LLMs
 class ParallelExecutor {
   final List<LlmInterface> _providers;
   final ResultAggregator _aggregator;
@@ -10,31 +10,31 @@ class ParallelExecutor {
   ParallelExecutor({
     required List<LlmInterface> providers,
     ResultAggregator? aggregator,
-  }) : _providers = providers,
+  })  : _providers = providers,
         _aggregator = aggregator ?? SimpleResultAggregator();
 
-  /// 여러 LLM 제공자에게 병렬로 요청 실행
+  /// Execute requests in parallel to multiple LLM providers
   Future<LlmResponse> executeParallel(LlmRequest request) async {
     final futures = <Future<LlmResponse>>[];
 
-    // 모든 제공자에 대해 병렬로 요청 실행
+    // Execute requests in parallel for all providers
     for (final provider in _providers) {
       futures.add(_executeWithTimeout(provider, request));
     }
 
-    // 모든 결과 수집
+    // Collect all results
     final responses = await Future.wait(futures);
 
-    // 결과 집계
+    // Aggregate results
     return _aggregator.aggregate(responses);
   }
 
-  /// 타임아웃 있는 LLM 요청 실행
+  /// Execute LLM request with timeout
   Future<LlmResponse> _executeWithTimeout(
-      LlmInterface provider,
-      LlmRequest request, {
-        Duration timeout = const Duration(seconds: 30),
-      }) async {
+    LlmInterface provider,
+    LlmRequest request, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
     try {
       return await provider.complete(request).timeout(timeout);
     } catch (e) {
@@ -46,5 +46,3 @@ class ParallelExecutor {
     }
   }
 }
-
-
