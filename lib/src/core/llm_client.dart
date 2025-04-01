@@ -220,7 +220,7 @@ class LlmClient {
     if (enableMcpTools && _clientAdapter != null) {
       try {
         final result = await _clientAdapter.executeTool(toolName, args);
-        if (result != null && !result.containsKey('error')) {
+        if (!result.containsKey('error')) {
           return result;
         }
       } catch (e) {

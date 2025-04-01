@@ -1,5 +1,4 @@
 import '../../mcp_llm.dart';
-import '../core/models.dart';
 
 /// Class that manages parallel operations for multiple LLMs
 class ParallelExecutor {
