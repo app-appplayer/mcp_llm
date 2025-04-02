@@ -3,7 +3,7 @@ import '../utils/logger.dart';
 /// Adapter for interfacing with MCP server instances
 class LlmServerAdapter {
   final dynamic _mcpServer;
-  final Logger _logger = Logger.getLogger('mcp_llm.server.adapter');
+  final Logger _logger = Logger.getLogger('mcp_llm.server_adapter');
 
   LlmServerAdapter(this._mcpServer) {
     if (!_isValidServer(_mcpServer)) {

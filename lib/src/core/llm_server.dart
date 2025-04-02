@@ -13,7 +13,7 @@ class LlmServer {
   final dynamic _mcpServer;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.server');
+  final Logger _logger = Logger.getLogger('mcp_llm.llm_server');
 
   /// Create a new LLM server
   LlmServer({

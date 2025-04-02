@@ -3,7 +3,7 @@ import '../utils/logger.dart';
 /// Adapter for converting MCP client instances to LLM-compatible format
 class LlmClientAdapter {
   final dynamic _mcpClient;
-  final Logger _logger = Logger.getLogger('mcp_llm.client.adapter');
+  final Logger _logger = Logger.getLogger('mcp_llm.client_adapter');
 
   LlmClientAdapter(this._mcpClient) {
     if (!_isValidClient(_mcpClient)) {
