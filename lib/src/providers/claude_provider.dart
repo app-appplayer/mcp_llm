@@ -6,30 +6,29 @@ import '../core/models.dart';
 import '../utils/logger.dart';
 import 'provider.dart';
 
-/// Implementation of LLM provider factory
+/// Factory for creating Claude providers
 class ClaudeProviderFactory implements LlmProviderFactory {
   @override
   String get name => 'claude';
 
   @override
   Set<LlmCapability> get capabilities => {
-        LlmCapability.completion,
-        LlmCapability.streaming,
-        LlmCapability.embeddings,
-        LlmCapability.toolUse,
-        LlmCapability.imageUnderstanding,
-      };
+    LlmCapability.completion,
+    LlmCapability.streaming,
+    LlmCapability.toolUse,
+    LlmCapability.imageUnderstanding,
+  };
 
   @override
   LlmInterface createProvider(LlmConfiguration config) {
-    final apiKey = config.apiKey ?? Platform.environment['ANTHROPIC_API_KEY'];
-    if (apiKey == null) {
+    final apiKey = config.apiKey;
+    if (apiKey == null || apiKey.isEmpty) {
       throw StateError('API key is required for Claude provider');
     }
 
     return ClaudeProvider(
       apiKey: apiKey,
-      model: config.model ?? 'claude-3-5-sonnet-20241022',
+      model: config.model ?? 'claude-3-5-sonnet',
       baseUrl: config.baseUrl,
       options: config.options,
     );

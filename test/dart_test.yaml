@@ -1,0 +1,53 @@
+# dart_test.yaml configuration file
+tags:
+  # Register all tags that might be used in tests
+  integration:
+    # Integration tests require API keys and make real API calls
+    description: "Tests that make real API calls"
+
+  openai:
+    # OpenAI-specific tests
+    description: "Tests specific to OpenAI"
+
+  claude:
+    # Claude/Anthropic-specific tests
+    description: "Tests specific to Claude/Anthropic"
+
+  together:
+    # Together AI-specific tests
+    description: "Tests specific to Together AI"
+
+  streaming:
+    # Tests for streaming functionality
+    description: "Tests for streaming API responses"
+
+  embeddings:
+    # Tests for embedding functionality
+    description: "Tests for embedding generation"
+
+  rag:
+    # Tests for RAG functionality
+    description: "Tests for Retrieval Augmented Generation"
+
+# Configure timeouts and concurrency
+timeout: 60s # Default timeout of 60 seconds
+concurrency: 4 # Run up to 4 tests in parallel
+
+# Presets for common test configurations
+presets:
+  # Run only unit tests
+  unit:
+    exclude_tags: ["integration"]
+    description: "Run only unit tests, excluding integration tests"
+
+  # Run only quick tests (exclude slow ones)
+  quick:
+    exclude_tags: ["integration"]
+    timeout: 10s
+    description: "Run only quick unit tests with a short timeout"
+
+  # Configure CI environment tests
+  ci:
+    reporter: compact
+    concurrency: 6
+    description: "Configuration optimized for CI environments"

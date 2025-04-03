@@ -303,21 +303,19 @@ class TogetherProviderFactory implements LlmProviderFactory {
   Set<LlmCapability> get capabilities => {
     LlmCapability.completion,
     LlmCapability.streaming,
-    LlmCapability.embeddings,
   };
 
   @override
   LlmInterface createProvider(LlmConfiguration config) {
-    final apiKey = config.apiKey ?? Platform.environment['TOGETHER_API_KEY'];
-    if (apiKey == null) {
+    // Remove environment variable dependency and only use the config parameter
+    final apiKey = config.apiKey;
+    if (apiKey == null || apiKey.isEmpty) {
       throw StateError('API key is required for Together AI provider');
     }
 
-    final model = config.model ?? 'mistralai/Mixtral-8x7B-Instruct-v0.1';
-
     return TogetherProvider(
       apiKey: apiKey,
-      model: model,
+      model: config.model ?? 'together/mistralai/Mixtral-8x7B-Instruct-v0.1',
       baseUrl: config.baseUrl,
       options: config.options,
     );

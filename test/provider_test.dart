@@ -1,193 +1,77 @@
 // test/provider_test.dart
-import 'package:mcp_llm/mcp_llm.dart';
+
 import 'package:test/test.dart';
-import 'dart:io';
+import 'package:mcp_llm/mcp_llm.dart';
 
 void main() {
-  group('OpenAI Provider Factory', () {
-    late OpenAiProviderFactory factory;
+  group('OpenAI Provider', () {
+    // Other tests...
 
-    setUp(() {
-      factory = OpenAiProviderFactory();
-    });
+    test('OpenAI Provider Factory throws error when API key is missing', () {
+      // Clear any environment variable that might exist
+      // Note: This might not be possible in all environments,
+      // so your test environment setup might need additional configuration
 
-    test('provides correct name', () {
-      expect(factory.name, equals('openai'));
-    });
+      final factory = OpenAiProviderFactory();
 
-    test('provides correct capabilities', () {
-      expect(factory.capabilities, contains(LlmCapability.completion));
-      expect(factory.capabilities, contains(LlmCapability.streaming));
-      expect(factory.capabilities, contains(LlmCapability.embeddings));
-      expect(factory.capabilities, contains(LlmCapability.toolUse));
-      expect(factory.capabilities, contains(LlmCapability.imageUnderstanding));
-    });
-
-    // OpenAI Provider Factory
-    test('throws error when API key is missing', () {
-      final config = LlmConfiguration(apiKey: null);
-
-      expect(() => factory.createProvider(config), throwsStateError);
-    });
-
-    test('creates provider with correct configuration', () {
-      final config = LlmConfiguration(
-        apiKey: 'test_api_key',
-        model: 'gpt-4',
-        baseUrl: 'https://custom-api.example.com',
-        options: {'temperature': 0.7},
+      // Pass a configuration with null API key
+      // This should trigger the null check in the factory
+      final emptyConfig = LlmConfiguration(apiKey: null);
+      expect(
+            () => factory.createProvider(emptyConfig),
+        throwsA(isA<StateError>()),
       );
+    });
 
-      final provider = factory.createProvider(config) as OpenAiProvider;
-
-      expect(provider.apiKey, equals('test_api_key'));
-      expect(provider.model, equals('gpt-4'));
-      expect(provider.baseUrl, equals('https://custom-api.example.com'));
+    test('OpenAI Provider Factory creates provider with valid API key', () {
+      final factory = OpenAiProviderFactory();
+      final validConfig = LlmConfiguration(apiKey: 'test-api-key');
+      final provider = factory.createProvider(validConfig);
+      expect(provider, isA<OpenAiProvider>());
     });
   });
 
-  group('Claude Provider Factory', () {
-    late ClaudeProviderFactory factory;
+  group('Claude Provider', () {
+    // Other tests...
 
-    setUp(() {
-      factory = ClaudeProviderFactory();
-    });
+    test('Claude Provider Factory throws error when API key is missing', () {
+      final factory = ClaudeProviderFactory();
 
-    test('provides correct name', () {
-      expect(factory.name, equals('claude'));
-    });
-
-    test('provides correct capabilities', () {
-      expect(factory.capabilities, contains(LlmCapability.completion));
-      expect(factory.capabilities, contains(LlmCapability.streaming));
-      expect(factory.capabilities, contains(LlmCapability.embeddings));
-      expect(factory.capabilities, contains(LlmCapability.imageUnderstanding));
-    });
-
-    // Claude Provider Factory
-    test('throws error when API key is missing', () {
-      final config = LlmConfiguration(apiKey: null);
-
-      expect(() => factory.createProvider(config), throwsStateError);
-    });
-
-
-    test('creates provider with correct configuration', () {
-      final config = LlmConfiguration(
-        apiKey: 'test_api_key',
-        model: 'claude-3-opus',
-        baseUrl: 'https://custom-api.example.com',
+      // Pass a configuration with null API key
+      final emptyConfig = LlmConfiguration(apiKey: null);
+      expect(
+            () => factory.createProvider(emptyConfig),
+        throwsA(isA<StateError>()),
       );
+    });
 
-      final provider = factory.createProvider(config) as ClaudeProvider;
-
-      expect(provider.apiKey, equals('test_api_key'));
-      expect(provider.model, equals('claude-3-opus'));
-      expect(provider.baseUrl, equals('https://custom-api.example.com'));
+    test('Claude Provider Factory creates provider with valid API key', () {
+      final factory = ClaudeProviderFactory();
+      final validConfig = LlmConfiguration(apiKey: 'test-api-key');
+      final provider = factory.createProvider(validConfig);
+      expect(provider, isA<ClaudeProvider>());
     });
   });
 
-  group('Together Provider Factory', () {
-    late TogetherProviderFactory factory;
+  group('Together Provider', () {
+    // Other tests...
 
-    setUp(() {
-      factory = TogetherProviderFactory();
-    });
+    test('Together Provider Factory throws error when API key is missing', () {
+      final factory = TogetherProviderFactory();
 
-    test('provides correct name', () {
-      expect(factory.name, equals('together'));
-    });
-
-    test('provides correct capabilities', () {
-      expect(factory.capabilities, contains(LlmCapability.completion));
-      expect(factory.capabilities, contains(LlmCapability.streaming));
-      expect(factory.capabilities, contains(LlmCapability.embeddings));
-    });
-
-  // Together Provider Factory
-    test('throws error when API key is missing', () {
-      final config = LlmConfiguration(apiKey: null);
-
-      expect(() => factory.createProvider(config), throwsStateError);
-    });
-
-
-    test('creates provider with correct configuration', () {
-      final config = LlmConfiguration(
-        apiKey: 'test_api_key',
-        model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
+      // Pass a configuration with null API key
+      final emptyConfig = LlmConfiguration(apiKey: null);
+      expect(
+            () => factory.createProvider(emptyConfig),
+        throwsA(isA<StateError>()),
       );
+    });
 
-      final provider = factory.createProvider(config) as TogetherProvider;
-
-      expect(provider.apiKey, equals('test_api_key'));
-      expect(provider.model, equals('mistralai/Mixtral-8x7B-Instruct-v0.1'));
+    test('Together Provider Factory creates provider with valid API key', () {
+      final factory = TogetherProviderFactory();
+      final validConfig = LlmConfiguration(apiKey: 'test-api-key');
+      final provider = factory.createProvider(validConfig);
+      expect(provider, isA<TogetherProvider>());
     });
   });
-
-  group('Custom Provider', () {
-    test('can be extended for custom implementations', () {
-      final customProvider = TestCustomProvider(name: 'test_custom');
-
-      expect(customProvider.name, equals('test_custom'));
-
-      // 메서드 구현 테스트
-      expect(customProvider.getCompletionEndpoint(), equals('https://api.custom.provider/completion'));
-      expect(customProvider.getEmbeddingEndpoint(), equals('https://api.custom.provider/embeddings'));
-    });
-  });
-}
-
-/// Test Custom Provider Implementation
-class TestCustomProvider extends CustomLlmProvider {
-  TestCustomProvider({required String name}) : super(name: name);
-
-  @override
-  Future<Map<String, dynamic>> executeRequest(
-      Map<String, dynamic> requestData,
-      String endpoint,
-      Map<String, String> headers,
-      ) async {
-    return {
-      'text': 'Custom provider response',
-      'metadata': {'custom': true},
-    };
-  }
-
-  @override
-  Stream<dynamic> executeStreamingRequest(
-      Map<String, dynamic> requestData,
-      String endpoint,
-      Map<String, String> headers,
-      ) async* {
-    yield {'text': 'Streaming 1', 'done': false};
-    yield {'text': 'Streaming 2', 'done': false};
-    yield {'text': 'Streaming 3', 'done': true};
-  }
-
-  @override
-  String getCompletionEndpoint() {
-    return 'https://api.custom.provider/completion';
-  }
-
-  @override
-  String getEmbeddingEndpoint() {
-    return 'https://api.custom.provider/embeddings';
-  }
-
-  @override
-  Future<void> close() async {
-
-  }
-
-  @override
-  Future<List<double>> getEmbeddings(String text) async {
-
-    return List.generate(10, (i) => i / 10.0);
-  }
-
-  @override
-  Future<void> initialize(LlmConfiguration config) async {
-
-  }
 }

@@ -440,8 +440,8 @@ class OpenAiProviderFactory implements LlmProviderFactory {
 
   @override
   LlmInterface createProvider(LlmConfiguration config) {
-    final apiKey = config.apiKey ?? Platform.environment['OPENAI_API_KEY'];
-    if (apiKey == null) {
+    final apiKey = config.apiKey;
+    if (apiKey == null || apiKey.isEmpty) {
       throw StateError('API key is required for OpenAI provider');
     }
 
