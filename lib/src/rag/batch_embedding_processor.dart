@@ -19,7 +19,6 @@ class BatchEmbeddingProcessor {
     }
 
     final List<Document> processedDocuments = [];
-    final List<Future<void>> processingFutures = [];
 
     // Process in batches
     for (int i = 0; i < documents.length; i += batchSize) {
@@ -27,28 +26,13 @@ class BatchEmbeddingProcessor {
       final batch = documents.sublist(i, end);
 
       try {
-        // Filter documents that need embeddings
-        final needsEmbedding = batch
-            .where((doc) => doc.embedding == null || doc.embedding!.isEmpty)
-            .toList();
-
-        final hasEmbedding = batch
-            .where((doc) => doc.embedding != null && doc.embedding!.isNotEmpty)
-            .toList();
-
-        // Add documents that already have embeddings directly
-        processedDocuments.addAll(hasEmbedding);
-
-        // Generate embeddings only for documents that need them
-        if (needsEmbedding.isNotEmpty) {
-          final updatedBatch = await _generateEmbeddingsForBatch(needsEmbedding);
-          processedDocuments.addAll(updatedBatch);
-        }
+        // Process all documents in batch
+        final updatedBatch = await _generateEmbeddingsForBatch(batch);
+        processedDocuments.addAll(updatedBatch);
       } catch (e) {
         _logger.error('Error processing batch ${i ~/ batchSize}: $e');
 
         // Still add original documents to not lose them completely
-        // For failed documents, they'll be added without embeddings
         processedDocuments.addAll(batch);
       }
     }
@@ -64,6 +48,7 @@ class BatchEmbeddingProcessor {
     // Prepare embedding requests for each document content
     for (int i = 0; i < batch.length; i++) {
       final doc = batch[i];
+      // Important: Don't filter here - generate embeddings for all documents
       futures.add(_getEmbeddingWithIndex(doc.content, i));
     }
 
