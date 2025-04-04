@@ -1,31 +1,67 @@
-import 'dart:math';
-import '../../mcp_llm.dart';
+import '../core/llm_interface.dart';
+import '../core/models.dart';
+import '../utils/logger.dart';
+import 'document_store.dart';
+import 'embeddings.dart';
+import 'vector_store.dart';
 
-/// Manages retrieval of relevant documents for RAG
+/// ㄱRetrieval manager with external vector store support
 class RetrievalManager {
-  final DocumentStore documentStore;
   final LlmInterface llmProvider;
-  final Logger _logger = Logger.getLogger('mcp_llm.retriever');
+  final Logger _logger = Logger.getLogger('mcp_llm.retrieval_manager');
 
-  RetrievalManager({
-    required this.documentStore,
-    required this.llmProvider,
-  });
+  // Internal document store for compatibility
+  final DocumentStore? _documentStore;
+
+  // External vector store
+  final VectorStore? _vectorStore;
+
+  // Default namespace/collection for vector store operations
+  final String? _defaultNamespace;
+
+  /// Create a retrieval manager with a document store (legacy mode)
+  RetrievalManager.withDocumentStore({
+    required LlmInterface llmProvider,
+    required DocumentStore documentStore,
+  }) : llmProvider = llmProvider,
+        _documentStore = documentStore,
+        _vectorStore = null,
+        _defaultNamespace = null;
+
+  /// Create a retrieval manager with an external vector store
+  RetrievalManager.withVectorStore({
+    required LlmInterface llmProvider,
+    required VectorStore vectorStore,
+    String? defaultNamespace,
+  }) : llmProvider = llmProvider,
+        _documentStore = null,
+        _vectorStore = vectorStore,
+        _defaultNamespace = defaultNamespace;
+
+  /// Check if the manager is using an external vector store
+  bool get usesVectorStore => _vectorStore != null;
 
   /// Add a document to the store with embeddings
   Future<String> addDocument(Document document) async {
     _logger.debug('Adding document to store: ${document.id}');
 
     // If the document doesn't have an embedding, generate one
+    Document docWithEmbedding = document;
     if (document.embedding == null || document.embedding!.isEmpty) {
       _logger.debug('Generating embedding for document: ${document.id}');
       final embedding = await llmProvider.getEmbeddings(document.content);
-      final docWithEmbedding = document.withEmbedding(embedding);
-      return await documentStore.addDocument(docWithEmbedding);
+      docWithEmbedding = document.withEmbedding(embedding);
     }
 
-    // Document already has embedding
-    return await documentStore.addDocument(document);
+    if (usesVectorStore) {
+      await _vectorStore!.upsertDocument(
+        docWithEmbedding,
+        namespace: _defaultNamespace,
+      );
+      return docWithEmbedding.id;
+    } else {
+      return await _documentStore!.addDocument(docWithEmbedding);
+    }
   }
 
   /// Add multiple documents in batch
@@ -33,9 +69,32 @@ class RetrievalManager {
     _logger.debug('Adding ${documents.length} documents to store');
 
     final results = <String>[];
+    final docsWithEmbeddings = <Document>[];
+
+    // Generate embeddings for documents that don't have them
     for (final doc in documents) {
-      final id = await addDocument(doc);
-      results.add(id);
+      if (doc.embedding == null || doc.embedding!.isEmpty) {
+        final embedding = await llmProvider.getEmbeddings(doc.content);
+        docsWithEmbeddings.add(doc.withEmbedding(embedding));
+      } else {
+        docsWithEmbeddings.add(doc);
+      }
+    }
+
+    if (usesVectorStore) {
+      // Batch upsert to vector store
+      await _vectorStore!.upsertDocumentBatch(
+        docsWithEmbeddings,
+        namespace: _defaultNamespace,
+      );
+
+      results.addAll(docsWithEmbeddings.map((doc) => doc.id));
+    } else {
+      // Add documents one by one to document store
+      for (final doc in docsWithEmbeddings) {
+        final id = await _documentStore!.addDocument(doc);
+        results.add(id);
+      }
     }
 
     return results;
@@ -45,37 +104,62 @@ class RetrievalManager {
   Future<List<Document>> retrieveRelevant(String query, {
     int topK = 5,
     double? minimumScore,
+    String? namespace,
+    Map<String, dynamic> filters = const {},
   }) async {
     _logger.debug('Retrieving documents for query: $query (topK=$topK)');
 
     try {
       // Get embedding for the query
       final queryEmbedding = await llmProvider.getEmbeddings(query);
+      final embedding = Embedding(queryEmbedding);
 
-      // Retrieve similar documents
-      final results = await documentStore.findSimilar(
-        queryEmbedding,
-        limit: topK,
-        minimumScore: minimumScore,
-      );
+      if (usesVectorStore) {
+        final results = await _vectorStore!.findSimilarDocuments(
+          embedding,
+          limit: topK,
+          scoreThreshold: minimumScore,
+          namespace: namespace ?? _defaultNamespace,
+          filters: filters,
+        );
 
-      _logger.debug('Retrieved ${results.length} relevant documents');
-      return results;
+        _logger.debug('Retrieved ${results.length} relevant documents from vector store');
+        return results.map((scoredDoc) => scoredDoc.document).toList();
+      } else {
+        // Legacy document store approach
+        final results = await _documentStore!.findSimilar(
+          queryEmbedding,
+          limit: topK,
+          minimumScore: minimumScore,
+        );
+
+        _logger.debug('Retrieved ${results.length} relevant documents from document store');
+        return results;
+      }
     } catch (e) {
       _logger.error('Error retrieving documents: $e');
       throw Exception('Failed to retrieve documents: $e');
     }
   }
+
   /// Retrieve and generate a response in one call
   Future<String> retrieveAndGenerate(String query, {
     int topK = 5,
     double? minimumScore,
+    String? namespace,
+    Map<String, dynamic> filters = const {},
     Map<String, dynamic> generationParams = const {},
   }) async {
     _logger.debug('Performing RAG for query: $query');
 
     // Retrieve relevant documents
-    final docs = await _retrieveDocuments(query, topK, minimumScore);
+    final docs = await retrieveRelevant(
+      query,
+      topK: topK,
+      minimumScore: minimumScore,
+      namespace: namespace,
+      filters: filters,
+    );
 
     if (docs.isEmpty) {
       return await _generateResponseWithoutContext(query, generationParams);
@@ -83,28 +167,6 @@ class RetrievalManager {
 
     // Generate response with documents
     return await _generateResponseWithContext(query, docs, generationParams);
-  }
-
-  /// Retrieve relevant documents
-  Future<List<Document>> _retrieveDocuments(
-      String query, int topK, double? minimumScore) async {
-    try {
-      // Get embedding for the query
-      final queryEmbedding = await llmProvider.getEmbeddings(query);
-
-      // Retrieve similar documents
-      final results = await documentStore.findSimilar(
-        queryEmbedding,
-        limit: topK,
-        minimumScore: minimumScore,
-      );
-
-      _logger.debug('Retrieved ${results.length} relevant documents');
-      return results;
-    } catch (e) {
-      _logger.error('Error retrieving documents: $e');
-      throw Exception('Failed to retrieve documents: $e');
-    }
   }
 
   /// Generate a response without document context
@@ -161,97 +223,185 @@ class RetrievalManager {
     return buffer.toString();
   }
 
-  /// Search within a specific collection of documents
-  Future<List<Document>> searchCollection(String collectionId, String query, {
-    int topK = 5,
-    double? minimumScore,
-  }) async {
-    _logger.debug('Searching collection $collectionId for query: $query');
+  /// Search for documents by metadata
+  Future<List<Document>> searchByMetadata(
+      Map<String, dynamic> metadata, {
+        int limit = 5,
+        String? namespace,
+      }) async {
+    _logger.debug('Searching for documents by metadata');
 
-    // Get embedding for the query
-    final queryEmbedding = await llmProvider.getEmbeddings(query);
+    if (usesVectorStore) {
+      // With vector store, use filters
+      // We need a placeholder query, so we'll use a generic embedding
+      final genericEmbedding = Embedding(List.generate(1536, (_) => 0.0));
 
-    // Retrieve documents from the specific collection
-    return await documentStore.findSimilarInCollection(
-      collectionId,
-      queryEmbedding,
-      limit: topK,
-      minimumScore: minimumScore,
-    );
-  }
+      final results = await _vectorStore!.findSimilarDocuments(
+        genericEmbedding,
+        limit: limit,
+        namespace: namespace ?? _defaultNamespace,
+        filters: metadata,
+        // Use a very low threshold to ensure we get results
+        scoreThreshold: 0.0,
+      );
 
-  /// Retrieve and rerank documents using two-stage retrieval
-  Future<List<Document>> retrieveAndRerank(String query, {
-    int retrievalTopK = 10,
-    int rerankTopK = 5,
-  }) async {
-    // First stage: Retrieve using vector similarity
-    final candidates = await retrieveRelevant(query, topK: retrievalTopK);
+      return results.map((scoredDoc) => scoredDoc.document).toList();
+    } else {
+      // With document store, we have to do manual filtering
+      // Get all documents from the collection if specified
+      List<Document> candidates;
 
-    if (candidates.isEmpty) {
-      return [];
-    }
+      if (metadata.containsKey('collectionId')) {
+        candidates = _documentStore!.getDocumentsInCollection(
+          metadata['collectionId'] as String,
+        );
 
-    // Second stage: Rerank based on relevance scores
-    final rerankedDocs = await _rerank(query, candidates);
-
-    // Return the top documents after reranking
-    return rerankedDocs.take(rerankTopK).toList();
-  }
-
-  /// Rerank documents based on relevance to query
-  Future<List<Document>> _rerank(String query, List<Document> documents) async {
-    // Create a prompt for the LLM to score document relevance
-    final scoringPrompts = <LlmRequest>[];
-
-    for (final doc in documents) {
-      final prompt = 'Rate the relevance of the following document to the query on a scale of 0.0 to 1.0.\n\n'
-          'Query: $query\n\n'
-          'Document: ${doc.content}\n\n'
-          'Relevance score (0.0 to 1.0):';
-
-      scoringPrompts.add(LlmRequest(
-        prompt: prompt,
-        parameters: {'temperature': 0.1},
-      ));
-    }
-
-    // Process scoring in parallel
-    final scoreFutures = scoringPrompts.map((req) => llmProvider.complete(req));
-    final scoreResponses = await Future.wait(scoreFutures);
-
-    // Parse scores and pair with documents
-    final scoredDocs = <ScoredDocument>[];
-
-    for (var i = 0; i < documents.length; i++) {
-      double score;
-      try {
-        // Extract numeric score from response
-        final scoreText = scoreResponses[i].text.trim();
-        // Convert string like "0.75" to a double
-        score = double.parse(RegExp(r'([0-9]*[.])?[0-9]+').firstMatch(scoreText)?.group(0) ?? '0.0');
-        // Clamp to valid range
-        score = max(0.0, min(1.0, score));
-      } catch (e) {
-        // Default score if parsing fails
-        score = 0.5;
+        // Remove collectionId from filter criteria since we already used it
+        metadata = Map<String, dynamic>.from(metadata)
+          ..remove('collectionId');
+      } else {
+        // Without a collection, we need to fetch all documents
+        // This is inefficient but necessary for the simple document store
+        // Since we can't get all documents easily, we'll just use an empty list
+        candidates = <Document>[];
+        // In a real implementation, you would need a way to get all documents
+        _logger.warning('Searching all documents without a collection ID is not supported in the basic implementation');
       }
 
-      scoredDocs.add(ScoredDocument(documents[i], score));
+      // Filter by metadata
+      final results = candidates.where((doc) {
+        return _matchesMetadata(doc.metadata, metadata);
+      }).take(limit).toList();
+
+      return results;
+    }
+  }
+
+  /// Check if document metadata matches filter criteria
+  bool _matchesMetadata(Map<String, dynamic> docMetadata, Map<String, dynamic> filter) {
+    for (final entry in filter.entries) {
+      final key = entry.key;
+      final value = entry.value;
+
+      if (!docMetadata.containsKey(key)) {
+        return false;
+      }
+
+      final docValue = docMetadata[key];
+
+      if (docValue != value) {
+        // Handle special cases like ranges, etc. if needed
+        return false;
+      }
     }
 
-    // Sort by score in descending order
-    scoredDocs.sort((a, b) => b.score.compareTo(a.score));
-
-    // Return sorted documents
-    return scoredDocs.map((scored) => scored.document).toList();
+    return true;
   }
-}
 
-/// Helper class for document scoring
-class ScoredDocument {
-  final Document document;
-  final double score;
+  /// Delete a document
+  Future<bool> deleteDocument(String id, {String? namespace}) async {
+    if (usesVectorStore) {
+      return await _vectorStore!.deleteEmbedding(id, namespace: namespace ?? _defaultNamespace);
+    } else {
+      return await _documentStore!.deleteDocument(id);
+    }
+  }
 
-  ScoredDocument(this.document, this.score);
+  /// Delete multiple documents
+  Future<int> deleteDocuments(List<String> ids, {String? namespace}) async {
+    if (usesVectorStore) {
+      return await _vectorStore!.deleteEmbeddingBatch(ids, namespace: namespace ?? _defaultNamespace);
+    } else {
+      int count = 0;
+      for (final id in ids) {
+        if (await _documentStore!.deleteDocument(id)) {
+          count++;
+        }
+      }
+      return count;
+    }
+  }
+
+  /// Hybrid search combining keyword and vector search
+  Future<List<Document>> hybridSearch(
+      String query, {
+        int semanticResults = 5,
+        int keywordResults = 5,
+        int finalResults = 5,
+        double boostFactor = 0.25,
+        double? minimumScore,
+        String? namespace,
+      }) async {
+    // Get embedding for the query
+    final queryEmbedding = await llmProvider.getEmbeddings(query);
+    final embedding = Embedding(queryEmbedding);
+
+    // Lists to store results
+    List<ScoredDocument> semanticDocs = [];
+    List<Document> keywordDocs = [];
+
+    if (usesVectorStore) {
+      // With vector store
+      semanticDocs = await _vectorStore!.findSimilarDocuments(
+        embedding,
+        limit: semanticResults,
+        scoreThreshold: minimumScore,
+        namespace: namespace ?? _defaultNamespace,
+      );
+
+      // For keyword search, we need to implement it
+      // This depends on the vector store's capabilities
+      // For now, we'll skip this step with vector stores
+    } else {
+      // With document store
+      final semanticDocsResult = await _documentStore!.findSimilar(
+        queryEmbedding,
+        limit: semanticResults,
+        minimumScore: minimumScore,
+      );
+
+      semanticDocs = semanticDocsResult.map((doc) {
+        // Create a similarity score based on embedding distance
+        // This is a simplification; real scoring would be more complex
+        return ScoredDocument(doc, 0.8); // Placeholder score
+      }).toList();
+
+      keywordDocs = _documentStore.searchByContent(query, limit: keywordResults);
+    }
+
+    // Combine and deduplicate results
+    final combinedResults = <String, ScoredDocument>{};
+
+    // Add semantic search results
+    for (final doc in semanticDocs) {
+      combinedResults[doc.document.id] = doc;
+    }
+
+    // Add keyword search results with boosting
+    for (final doc in keywordDocs) {
+      final keywordScore = 0.7; // Placeholder score
+
+      if (combinedResults.containsKey(doc.id)) {
+        // Boost score if already included in semantic search
+        final existing = combinedResults[doc.id]!;
+        final boostedScore = existing.score + (keywordScore * boostFactor);
+        combinedResults[doc.id] = ScoredDocument(doc, boostedScore);
+      } else {
+        combinedResults[doc.id] = ScoredDocument(doc, keywordScore * (1 - boostFactor));
+      }
+    }
+
+    // Sort by score and return top results
+    final sortedResults = combinedResults.values.toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+
+    return sortedResults.take(finalResults).map((scored) => scored.document).toList();
+  }
+
+  /// Close and clean up resources
+  Future<void> close() async {
+    if (usesVectorStore) {
+      await _vectorStore!.close();
+    }
+  }
 }
