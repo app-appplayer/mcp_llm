@@ -32,9 +32,9 @@ void main() {
       );
 
       // Create retrieval manager - properly define it here
-      final retrievalManager = RetrievalManager(
-        documentStore: documentStore,
+      final retrievalManager = RetrievalManager.withDocumentStore(
         llmProvider: client.llmProvider,
+        documentStore: documentStore,
       );
 
       // Add documents to store

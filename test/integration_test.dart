@@ -183,9 +183,9 @@ void main() {
         );
 
         // Create retrieval manager
-        final retrievalManager = RetrievalManager(
-          documentStore: documentStore,
+        final retrievalManager = RetrievalManager.withDocumentStore(
           llmProvider: client.llmProvider,
+          documentStore: documentStore,
         );
 
         // Create document chunker

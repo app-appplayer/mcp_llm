@@ -1,23 +1,28 @@
+import 'package:mockito/annotations.dart';
 import 'package:test/test.dart';
 import 'package:mcp_llm/mcp_llm.dart';
-import 'package:mcp_llm/src/rag/retriever.dart';
 import 'package:mcp_llm/src/rag/batch_embedding_processor.dart';
 import 'package:mockito/mockito.dart';
 
 import 'rag_test.mocks.dart'; // Reuse mocks from rag_test
 
+@GenerateMocks([
+  DocumentStore,
+  LlmInterface,
+  LlmResponse,
+])
 void main() {
   group('EnhancedRetriever', () {
     late MockDocumentStore mockStore;
     late MockLlmInterface mockLlm;
-    late EnhancedRetriever retriever;
+    late RetrievalManager retriever;
 
     setUp(() {
       mockStore = MockDocumentStore();
       mockLlm = MockLlmInterface();
-      retriever = EnhancedRetriever(
-        documentStore: mockStore,
+      retriever =  RetrievalManager.withDocumentStore(
         llmProvider: mockLlm,
+        documentStore: mockStore,
       );
     });
 
@@ -150,20 +155,32 @@ void main() {
         Document(id: 'doc5', title: 'Doc 5', content: 'Marginally relevant'),
       ];
 
-      // Set up mocks for lightweight reranking
-      // We'll return different scores for the mock LLM responses
+      // Stub for rerank LLM call
+      when(mockLlm.complete(any)).thenAnswer((_) async {
+        return LlmResponse(text: '[4, 1, 2]'); // Assume LLM says doc4 > doc1 > doc2
+      });
+
       final query = 'test query about relevant content';
 
-      // Call reranking with lightweight method
-      final results = await retriever.rerankResults(query, candidates, topK: 3, useLightweightRanker: true);
+      final results = await retriever.rerankResults(
+        query,
+        candidates,
+        topK: 3,
+        useLightweightRanker: true,
+      );
 
       // Should return 3 results
       expect(results.length, equals(3));
 
-      // The most relevant docs should be ranked higher
-      // For our lightweight reranker, documents containing query terms should rank higher
-      expect(results[0].content, contains('relevant'));
-      expect(results.map((d) => d.id).toList(), isNot(contains('doc3')));
+      // Expected ranked order based on mock response
+      expect(results[0].id, equals('doc4'));
+      expect(results[1].id, equals('doc1'));
+      expect(results[2].id, equals('doc2'));
+
+      // Make sure excluded doc is not present
+      final resultIds = results.map((doc) => doc.id).toList();
+      expect(resultIds, isNot(contains('doc3')));
+      expect(resultIds, isNot(contains('doc5')));
     });
   });
 

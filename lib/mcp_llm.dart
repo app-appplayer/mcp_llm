@@ -45,9 +45,12 @@ export 'src/storage/memory_storage.dart';
 export 'src/storage/persistent_storage.dart';
 
 // RAG
-export 'src/rag/retriever.dart';
+export 'src/rag/retrieval_manager.dart';
 export 'src/rag/embeddings.dart';
 export 'src/rag/document_store.dart';
+export 'src/rag/vector_store.dart';
+export 'src/rag/vector_stores/pinecone_vector_store.dart';
+export 'src/rag/vector_stores/weaviate_vector_store.dart';
 
 // Utilities
 export 'src/utils/logger.dart';
@@ -66,7 +69,7 @@ import 'src/parallel/result_aggregator.dart';
 import 'src/plugins/plugin_manager.dart';
 import 'src/plugins/plugin_interface.dart';
 import 'src/providers/provider.dart';
-import 'src/rag/retriever.dart';
+import 'src/rag/retrieval_manager.dart';
 import 'src/storage/storage_manager.dart';
 import 'src/utils/performance_monitor.dart';
 

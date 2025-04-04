@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../core/llm_interface.dart';
 import '../core/models.dart';
 import '../utils/logger.dart';
@@ -298,6 +300,58 @@ class RetrievalManager {
     return true;
   }
 
+  Future<List<Document>> rerankResults(
+      String query,
+      List<Document> candidates, {
+        int topK = 5,
+        bool useLightweightRanker = false,
+      }) async {
+    _logger.debug('Reranking ${candidates.length} documents for query: $query');
+
+    final contextList = candidates.asMap().entries.map((entry) {
+      final idx = entry.key + 1;
+      final doc = entry.value;
+      return '[$idx] ${doc.title}\n${doc.content}';
+    }).join('\n\n');
+
+    final prompt = '''
+You are a ranking model. Rank the following documents based on how relevant they are to the query.
+
+Query: "$query"
+
+Documents:
+$contextList
+
+Return a JSON array of the top $topK document numbers (e.g., [1, 3, 2])
+''';
+
+    final request = LlmRequest(
+      prompt: prompt,
+      parameters: {
+        'temperature': useLightweightRanker ? 0.0 : 0.3,
+      },
+    );
+
+    final response = await llmProvider.complete(request);
+    final text = response.text.trim();
+
+    try {
+      final List<dynamic> indices = jsonDecode(text);
+      final ranked = <Document>[];
+
+      for (final index in indices) {
+        if (index is int && index > 0 && index <= candidates.length) {
+          ranked.add(candidates[index - 1]);
+        }
+      }
+
+      return ranked;
+    } catch (e) {
+      _logger.error('Failed to parse rerank response: $e\nResponse text: $text');
+      return candidates.take(topK).toList();
+    }
+  }
+
   /// Delete a document
   Future<bool> deleteDocument(String id, {String? namespace}) async {
     if (usesVectorStore) {
@@ -396,6 +450,35 @@ class RetrievalManager {
       ..sort((a, b) => b.score.compareTo(a.score));
 
     return sortedResults.take(finalResults).map((scored) => scored.document).toList();
+  }
+
+  Future<List<Document>> contextAwareSearch(
+      String query,
+      List<String> previousQueries, {
+        int topK = 5,
+        double? minimumScore,
+      }) async {
+    final expandedQuery = await _expandQueryWithContext(query, previousQueries);
+
+    return await retrieveRelevant(
+      expandedQuery,
+      topK: topK,
+      minimumScore: minimumScore,
+    );
+  }
+
+  Future<String> _expandQueryWithContext(String query, List<String> previousQueries) async {
+    final contextPrompt = 'Previous queries: ${previousQueries.join(", ")}\n'
+        'Current query: $query\n'
+        'Expand the current query by considering the context of previous queries:';
+
+    final request = LlmRequest(
+      prompt: contextPrompt,
+      parameters: {'temperature': 0.3},
+    );
+
+    final response = await llmProvider.complete(request);
+    return response.text.trim();
   }
 
   /// Close and clean up resources
