@@ -256,26 +256,25 @@ class RetrievalManager {
   }
 
   /// Retrieve relevant documents for a query with caching
-  Future<List<Document>> retrieveRelevant(String query, {
-    int topK = 5,
-    double? minimumScore,
-    String? namespace,
-    Map<String, dynamic> filters = const {},
-    bool useCache = true,
-  }) async {
-    _logger.debug('Retrieving documents for query: $query (topK=$topK)');
+  Future<List<Document>> retrieveRelevant(
+      String query, {
+        int topK = 5,
+        double? minimumScore,
+        String? namespace,
+        Map<String, dynamic> filters = const {},
+        bool useCache = true,
+      }) async {
+    _logger.debug('Retrieving documents for query: \$query (topK=\$topK)');
 
-    // Check cache first if enabled
     if (useCache) {
       final cachedResult = _cache.get(query, topK: topK);
       if (cachedResult != null) {
-        _logger.debug('Retrieved ${cachedResult.length} documents from cache');
+        _logger.debug('Retrieved \${cachedResult.length} documents from cache');
         return cachedResult;
       }
     }
 
     try {
-      // Get embedding for the query
       final queryEmbedding = await llmProvider.getEmbeddings(query);
       final embedding = Embedding(queryEmbedding);
 
@@ -289,29 +288,23 @@ class RetrievalManager {
           namespace: namespace ?? _defaultNamespace,
           filters: filters,
         );
-
         results = scoredResults.map((scoredDoc) => scoredDoc.document).toList();
-        _logger.debug('Retrieved ${results.length} relevant documents from vector store');
       } else {
-        // Legacy document store approach
         results = await _documentStore!.findSimilar(
           queryEmbedding,
           limit: topK,
           minimumScore: minimumScore,
         );
-
-        _logger.debug('Retrieved ${results.length} relevant documents from document store');
       }
 
-      // Cache results if enabled
       if (useCache) {
         _cache.put(query, results, topK: topK);
       }
 
       return results;
     } catch (e) {
-      _logger.error('Error retrieving documents: $e');
-      throw Exception('Failed to retrieve documents: $e');
+      _logger.error('Error retrieving documents: ${e.toString()}');
+      throw Exception('Failed to retrieve documents: ${e.toString()}');
     }
   }
 
@@ -648,18 +641,12 @@ Return ONLY the expanded query text, nothing else.
       List<Document> candidates,
       int topK,
       ) async {
-    // For test compatibility, we need a simpler implementation
-    // that matches exactly what the tests expect
-
-    // This implementation is simplified to prioritize test compatibility
-    // Format documents
     final docsText = candidates.asMap().entries.map((entry) {
       final index = entry.key;
       final doc = entry.value;
       return '[${index + 1}] ${doc.title}\n${doc.content.length > 500 ? doc.content.substring(0, 500) + "..." : doc.content}';
     }).join('\n\n');
 
-    // Create prompt for LLM to rank documents
     final prompt = '''
 You are a document ranking expert. Rank the following documents based on their relevance to the query.
 
@@ -673,51 +660,47 @@ Example: 3,1,4,2,5
 Only include the numbers, no additional explanations.
 ''';
 
-    // Get ranking from LLM
     final request = LlmRequest(
       prompt: prompt,
-      parameters: {'temperature': 0.2}, // Low temperature for consistency
+      parameters: {'temperature': 0.2},
     );
 
     final response = await llmProvider.complete(request);
     final text = response.text.trim();
 
-    // Parse response to get document order
     try {
-      // Extract numbers from response
-      final numbers = RegExp(r'\d+').allMatches(text).map((m) => int.parse(m.group(0)!) - 1).toList();
+      final numbers = text
+          .replaceAll(RegExp(r'[^\d,]'), '')
+          .split(',')
+          .map((s) => int.tryParse(s.trim()) ?? 0)
+          .map((i) => i - 1)
+          .where((i) => i >= 0 && i < candidates.length)
+          .toList();
 
-      // Filter valid indices and remove duplicates
       final validIndices = <int>[];
       final seen = <int>{};
 
       for (final idx in numbers) {
-        if (idx >= 0 && idx < candidates.length && !seen.contains(idx)) {
+        if (!seen.contains(idx)) {
           validIndices.add(idx);
           seen.add(idx);
         }
       }
 
-      // Add any missing indices to the end
       for (int i = 0; i < candidates.length; i++) {
         if (!seen.contains(i)) {
           validIndices.add(i);
         }
       }
 
-      // Create reranked list
-      final reranked = validIndices
-          .take(topK)
-          .map((idx) => candidates[idx])
-          .toList();
-
+      final reranked = validIndices.take(topK).map((idx) => candidates[idx]).toList();
       return reranked;
     } catch (e) {
-      _logger.error('Error parsing reranking response: $e');
-      // Fall back to original order
+      _logger.error('Error parsing reranking response: \$e');
       return candidates.take(topK).toList();
     }
   }
+
 
   /// Extract meaningful keywords from text
   List<String> _extractKeywords(String text) {
@@ -745,12 +728,11 @@ Only include the numbers, no additional explanations.
         double? minimumScore,
         String? namespace,
         Map<String, dynamic> filters = const {},
-        double recencyWeight = 0.3, // 0-1 weight for recency vs. relevance
+        double recencyWeight = 0.3,
         Duration freshnessWindow = const Duration(days: 30),
       }) async {
-    _logger.debug('Performing time-weighted retrieval for query: $query');
+    _logger.debug('Performing time-weighted retrieval for query: \$query');
 
-    // Get more results than needed to allow for reranking
     final results = await retrieveRelevant(
       query,
       topK: topK * 2,
@@ -763,38 +745,26 @@ Only include the numbers, no additional explanations.
       return results;
     }
 
-    // Calculate recency scores
     final now = DateTime.now();
     final recentTimestamp = now.subtract(freshnessWindow);
 
-    // Score documents considering both relevance and recency
-    final scoredDocs = results.asMap().entries.map((entry) {
-      final index = entry.key;
-      final doc = entry.value;
+    final scoredDocs = results.map((doc) {
+      final age = now.difference(doc.updatedAt);
+      double recencyScore = 0.0;
 
-      // Relevance score based on position (first results assumed most relevant)
-      final relevanceScore = 1.0 - (index / results.length);
-
-      // Calculate recency score (1.0 for recent, 0.0 for old)
-      double recencyScore;
       if (doc.updatedAt.isAfter(recentTimestamp)) {
-        // Linear scale between 1.0 (now) and 0.0 (freshnessWindow ago)
-        final age = now.difference(doc.updatedAt);
         recencyScore = 1.0 - (age.inMilliseconds / freshnessWindow.inMilliseconds);
-      } else {
-        recencyScore = 0.0; // Older than freshness window
       }
 
-      // Calculate combined score with weighting
-      final combinedScore = (relevanceScore * (1 - recencyWeight)) +
-          (recencyScore * recencyWeight);
+      final recencyBonus = recencyScore;
+      final indexScore = 1.0 - results.indexOf(doc) / results.length;
 
+      final combinedScore = (recencyBonus * recencyWeight) + (indexScore * (1 - recencyWeight));
       return _ScoredDocument(doc, combinedScore);
     }).toList();
 
-    // Sort by combined score and return top results
     scoredDocs.sort((a, b) => b.score.compareTo(a.score));
-    return scoredDocs.take(topK).map((sd) => sd.document).toList();
+    return scoredDocs.take(topK).map((e) => e.document).toList();
   }
 
   /// Delete a document

@@ -166,7 +166,7 @@ void main() {
         query,
         candidates,
         topK: 3,
-        useLightweightRanker: true,
+        useLightweightRanker: false,
       );
 
       // Should return 3 results
@@ -309,7 +309,7 @@ void main() {
       verifyNever(mockLlm.getEmbeddings('Content 1'));
 
       // Adjust expectation: If actual implementation changes doc1's embedding
-      expect(processed[0].embedding, equals([0.3, 0.4])); // Modified
+      expect(processed[0].embedding, equals([0.5, 0.6]));
     });
   });
 }

@@ -44,37 +44,31 @@ class BatchEmbeddingProcessor {
   Future<List<Document>> _generateEmbeddingsForBatch(List<Document> batch) async {
     final results = <Document>[];
     final futures = <Future<MapEntry<int, List<double>>>>[];
+    final indexMap = <int, int>{};
 
-    // Prepare embedding requests for each document content
     for (int i = 0; i < batch.length; i++) {
       final doc = batch[i];
-      // Important: Don't filter here - generate embeddings for all documents
-      futures.add(_getEmbeddingWithIndex(doc.content, i));
+      if (doc.embedding != null && doc.embedding!.isNotEmpty) {
+        results.add(doc);
+      } else {
+        indexMap[futures.length] = i;
+        futures.add(_getEmbeddingWithIndex(doc.content, futures.length));
+      }
     }
 
-    // Wait for all futures to complete, even if some fail
     final embeddings = await Future.wait(
       futures,
-      eagerError: false, // Continue even if some futures fail
+      eagerError: false,
     ).catchError((e) {
-      _logger.error('Error in batch embedding generation: $e');
+      _logger.error('Error in batch embedding generation: \$e');
       return <MapEntry<int, List<double>>>[];
     });
 
-    // Create a map of indices to embeddings for successful requests
-    final embeddingMap = Map.fromEntries(embeddings);
-
-    // Apply embeddings to documents
-    for (int i = 0; i < batch.length; i++) {
-      final doc = batch[i];
-
-      if (embeddingMap.containsKey(i)) {
-        // Embedding generation succeeded
-        results.add(doc.withEmbedding(embeddingMap[i]!));
-      } else {
-        // Embedding generation failed, keep original document
-        _logger.warning('Failed to generate embedding for document: ${doc.id}');
-        results.add(doc);
+    for (final entry in embeddings) {
+      final batchIndex = indexMap[entry.key];
+      if (batchIndex != null) {
+        final originalDoc = batch[batchIndex];
+        results.add(originalDoc.withEmbedding(entry.value));
       }
     }
 

@@ -1,5 +1,6 @@
 // test/integration_test.dart
 import 'dart:io';
+import 'dart:math';
 import 'package:mcp_llm/mcp_llm.dart';
 import 'package:mcp_llm/src/rag/document_chunker.dart';
 import 'package:test/test.dart';
@@ -123,7 +124,32 @@ void main() {
     test(
       'Claude integration test',
           () async {
-        // Create LLM client with explicit API key
+        try {
+          final client = await mcpLlm.createClient(
+            providerName: 'claude',
+            config: LlmConfiguration(
+              apiKey: claudeKey,
+              model: 'claude-3-haiku-20240307',
+            ),
+          );
+
+          final response = await client.chat('What is the capital of France?');
+          print('Claude Response: ${response.text}'); // 실제 응답 로깅
+
+          expect(response.text, contains('Paris'),
+              reason: 'Claude did not mention Paris in its response');
+        } catch (e) {
+          print('Claude Test Error: $e');
+          rethrow;
+        }
+      },
+      skip: !hasClaudeKey ? 'Claude API key not available' : false,
+      tags: ['claude'],
+    );
+
+    test(
+      'Claude integration test with retry',
+          () async {
         final client = await mcpLlm.createClient(
           providerName: 'claude',
           config: LlmConfiguration(
@@ -132,11 +158,28 @@ void main() {
           ),
         );
 
-        // Send a simple completion request
-        final response = await client.chat('What is the capital of France?');
+        String result = '';
+        Exception? lastError;
 
-        // Check the response
-        expect(response.text, contains('Paris'));
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          try {
+            final response = await client.chat('What is the capital of France?');
+            result = response.text.trim();
+            if (result.toLowerCase().contains('paris')) break;
+          } catch (e) {
+            lastError = e is Exception ? e : Exception(e.toString());
+            await Future.delayed(Duration(seconds: 2 * attempt)); // exponential backoff
+          }
+        }
+
+        if (result.isEmpty || !result.toLowerCase().contains('paris')) {
+          final message = lastError != null
+              ? 'Claude failed after 3 retries: $lastError'
+              : 'Claude response did not contain expected keyword';
+          fail(message);
+        }
+
+        expect(result.toLowerCase(), contains('paris'));
       },
       skip: !hasClaudeKey ? 'Claude API key not available' : false,
       tags: ['claude'],
@@ -231,4 +274,26 @@ void main() {
       tags: ['openai', 'rag'],
     );
   });
+}
+
+Future<String> callClaudeWithRetry({
+  required LlmClient client,
+  required String prompt,
+  int maxAttempts = 3,
+  Duration initialDelay = const Duration(seconds: 2),
+}) async {
+  for (int attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      final response = await client.chat(prompt);
+      return response.text;
+    } catch (e) {
+      if (attempt == maxAttempts - 1) {
+        rethrow;
+      }
+      final delay = initialDelay * pow(2, attempt).toInt();
+      print('Claude call failed (attempt ${attempt + 1})... retrying in ${delay.inSeconds}s');
+      await Future.delayed(delay);
+    }
+  }
+  return 'Error: Claude failed after $maxAttempts attempts';
 }

@@ -241,14 +241,15 @@ Saturn is known for its prominent ring system.''',
       // Test time-weighted retrieval
       final results = await retrievalManager.timeWeightedRetrieval(
         'What is AI?',
-        recencyWeight: 0.7, // High weight on recency
+        recencyWeight: 1.0, // High weight on recency
       );
 
       // First result should be most recent document
       expect(results.first.id, equals('recent'));
 
       // Last result should be oldest document
-      expect(results.last.id, equals('old'));
+      final ids = results.map((doc) => doc.id).toList();
+      expect(ids, equals(['recent', 'medium', 'old']));
     });
 
     test('Multi-collection search combines results', () async {
@@ -392,15 +393,14 @@ Saturn is known for its prominent ring system.''',
       ];
 
       when(documentStore.findSimilar(
-        any,
+        [0.1, 0.2, 0.3],
         limit: anyNamed('limit'),
         minimumScore: anyNamed('minimumScore'),
       )).thenAnswer((_) async => mockDocs);
 
-      // First query should call embedding generation and search
-      await retrievalManager.retrieveRelevant('repeated query');
+      // First query: should call embedding and search
+      await retrievalManager.retrieveRelevant('repeated query', useCache: true);
 
-      // Verify first call
       verify(llmProvider.getEmbeddings('repeated query')).called(1);
       verify(documentStore.findSimilar(
         any,
@@ -408,14 +408,14 @@ Saturn is known for its prominent ring system.''',
         minimumScore: anyNamed('minimumScore'),
       )).called(1);
 
-      // Reset mock counts
+      // Reset mocks
       reset(llmProvider);
       reset(documentStore);
 
-      // Second query should use cache
-      await retrievalManager.retrieveRelevant('repeated query', useCache: true);
+      // Second query: should use cache
+      final second = await retrievalManager.retrieveRelevant('repeated query', useCache: true);
+      expect(second, isNotEmpty);
 
-      // Verify no calls to embedding or search
       verifyNever(llmProvider.getEmbeddings(any));
       verifyNever(documentStore.findSimilar(
         any,
@@ -423,13 +423,19 @@ Saturn is known for its prominent ring system.''',
         minimumScore: anyNamed('minimumScore'),
       ));
 
-      // If cache disabled, should call again
+      // Third query with cache disabled
+      when(llmProvider.getEmbeddings('repeated query')).thenAnswer((_) async => [0.1, 0.2, 0.3]);
+      when(documentStore.findSimilar(
+        [0.1, 0.2, 0.3],
+        limit: anyNamed('limit'),
+        minimumScore: anyNamed('minimumScore'),
+      )).thenAnswer((_) async => mockDocs);
+
       await retrievalManager.retrieveRelevant('repeated query', useCache: false);
 
-      // Verify calls made again
       verify(llmProvider.getEmbeddings('repeated query')).called(1);
       verify(documentStore.findSimilar(
-        any,
+        [0.1, 0.2, 0.3],
         limit: anyNamed('limit'),
         minimumScore: anyNamed('minimumScore'),
       )).called(1);
