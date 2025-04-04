@@ -133,53 +133,35 @@ void main() {
             ),
           );
 
-          final response = await client.chat('What is the capital of France?');
-          print('Claude Response: ${response.text}'); // 실제 응답 로깅
+          String result = '';
+          Exception? lastError;
 
-          expect(response.text, contains('Paris'),
-              reason: 'Claude did not mention Paris in its response');
+          // 3번의 재시도와 지수적 백오프 전략
+          for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+              final response = await client.chat('What is the capital of France?');
+              result = response.text.trim();
+              if (result.toLowerCase().contains('paris')) break;
+            } catch (e) {
+              // 지수적 백오프: 첫 재시도는 2초, 두 번째는 4초, 세 번째는 8초 대기
+              lastError = e is Exception ? e : Exception(e.toString());
+              await Future.delayed(Duration(seconds: 2 * attempt));
+            }
+          }
+
+          // 결과가 비어있거나 'paris'를 포함하지 않으면 실패
+          if (result.isEmpty || !result.toLowerCase().contains('paris')) {
+            final message = lastError != null
+                ? 'Claude failed after 3 retries: $lastError'
+                : 'Claude response did not contain expected keyword';
+            fail(message);
+          }
+
+          expect(result.toLowerCase(), contains('paris'));
         } catch (e) {
           print('Claude Test Error: $e');
           rethrow;
         }
-      },
-      skip: !hasClaudeKey ? 'Claude API key not available' : false,
-      tags: ['claude'],
-    );
-
-    test(
-      'Claude integration test with retry',
-          () async {
-        final client = await mcpLlm.createClient(
-          providerName: 'claude',
-          config: LlmConfiguration(
-            apiKey: claudeKey,
-            model: 'claude-3-haiku-20240307',
-          ),
-        );
-
-        String result = '';
-        Exception? lastError;
-
-        for (int attempt = 1; attempt <= 3; attempt++) {
-          try {
-            final response = await client.chat('What is the capital of France?');
-            result = response.text.trim();
-            if (result.toLowerCase().contains('paris')) break;
-          } catch (e) {
-            lastError = e is Exception ? e : Exception(e.toString());
-            await Future.delayed(Duration(seconds: 2 * attempt)); // exponential backoff
-          }
-        }
-
-        if (result.isEmpty || !result.toLowerCase().contains('paris')) {
-          final message = lastError != null
-              ? 'Claude failed after 3 retries: $lastError'
-              : 'Claude response did not contain expected keyword';
-          fail(message);
-        }
-
-        expect(result.toLowerCase(), contains('paris'));
       },
       skip: !hasClaudeKey ? 'Claude API key not available' : false,
       tags: ['claude'],

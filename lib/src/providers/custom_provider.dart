@@ -25,27 +25,38 @@ abstract class CustomLlmProvider implements LlmInterface {
   /// Execute a request with retry logic
   Future<T> _executeWithRetry<T>({
     required Future<T> Function() operation,
-    int maxRetries = 3,
-    Duration retryDelay = const Duration(seconds: 1),
+    int? maxRetries,
+    Duration? retryDelay,
   }) async {
-    int attempts = 0;
+    final attempts = maxRetries ?? options.maxRetries;
+    final delay = retryDelay ?? options.retryDelay;
+
+    int currentAttempt = 0;
+    Duration currentDelay = delay;
 
     while (true) {
-      attempts++;
-
       try {
         return await operation();
       } catch (e) {
-        if (attempts > maxRetries || !options.retryOnFailure) {
-          _logger.error('Operation failed after $attempts attempts: $e');
+        currentAttempt++;
+
+        if (currentAttempt > attempts) {
+          _logger.error('Operation failed after $currentAttempt attempts: $e');
           rethrow;
         }
 
-        _logger.warning('Attempt $attempts failed, retrying in ${retryDelay.inMilliseconds}ms: $e');
-        await Future.delayed(retryDelay * attempts);
+        _logger.warning(
+            'Attempt $currentAttempt failed, retrying in ${currentDelay.inMilliseconds}ms: $e'
+        );
+
+        await Future.delayed(currentDelay);
+
+        // 지수적 백오프
+        currentDelay *= 2;
       }
     }
   }
+
 
   /// Transform a request for the specific provider
   Future<Map<String, dynamic>> transformRequest(LlmRequest request) async {
