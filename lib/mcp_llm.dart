@@ -112,7 +112,6 @@ class McpLlm {
     LlmConfiguration? config,
     dynamic mcpClient, // Type-agnostic to avoid direct dependency
     StorageManager? storageManager,
-    RetrievalManager? retrievalManager,
     String? clientId,
     Map<String, dynamic>? routingProperties,
     double loadWeight = 1.0,
@@ -131,7 +130,6 @@ class McpLlm {
       llmProvider: llmProvider,
       mcpClient: mcpClient,
       storageManager: storageManager,
-      retrievalManager: retrievalManager,
       pluginManager: _pluginManager,
     );
 

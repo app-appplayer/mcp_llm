@@ -15,9 +15,6 @@ class LlmClient {
   /// Storage manager
   final StorageManager? storageManager;
 
-  /// Retrieval manager for RAG
-  final RetrievalManager? retrievalManager;
-
   /// Plugin manager
   final PluginManager pluginManager;
 
@@ -35,7 +32,6 @@ class LlmClient {
     required this.llmProvider,
     dynamic mcpClient,
     this.storageManager,
-    this.retrievalManager,
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
   }) : _mcpClient = mcpClient,
