@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../core/llm_interface.dart';
 import '../core/models.dart';
 import '../utils/logger.dart';
@@ -7,10 +5,69 @@ import 'document_store.dart';
 import 'embeddings.dart';
 import 'vector_store.dart';
 
-/// ㄱRetrieval manager with external vector store support
+/// Cache to store retrieval results to improve performance
+class RetrievalCache {
+  final int _maxSize;
+  final Map<String, List<Document>> _cache = {};
+  final Map<String, DateTime> _lastAccessed = {};
+
+  RetrievalCache({int maxSize = 100}) : _maxSize = maxSize;
+
+  /// Get cached result for a query
+  List<Document>? get(String query, {int? topK}) {
+    final cacheKey = _getCacheKey(query, topK);
+    final result = _cache[cacheKey];
+
+    if (result != null) {
+      // Update access time
+      _lastAccessed[cacheKey] = DateTime.now();
+
+      // If topK is specified and smaller than cached result, truncate
+      if (topK != null && topK < result.length) {
+        return result.sublist(0, topK);
+      }
+      return result;
+    }
+
+    return null;
+  }
+
+  /// Cache result for a query
+  void put(String query, List<Document> results, {int? topK}) {
+    final cacheKey = _getCacheKey(query, topK);
+
+    // Check if cache is full
+    if (_cache.length >= _maxSize && !_cache.containsKey(cacheKey)) {
+      // Remove least recently used entry
+      final oldestKey = _lastAccessed.entries
+          .reduce((a, b) => a.value.isBefore(b.value) ? a : b)
+          .key;
+      _cache.remove(oldestKey);
+      _lastAccessed.remove(oldestKey);
+    }
+
+    // Add new entry
+    _cache[cacheKey] = List.from(results); // Store a copy
+    _lastAccessed[cacheKey] = DateTime.now();
+  }
+
+  /// Clear the cache
+  void clear() {
+    _cache.clear();
+    _lastAccessed.clear();
+  }
+
+  /// Get cache key for a query
+  String _getCacheKey(String query, int? topK) {
+    return '${query.toLowerCase().trim()}:${topK ?? "all"}';
+  }
+}
+
+/// Enhanced Retrieval manager with improved RAG capabilities
 class RetrievalManager {
   final LlmInterface llmProvider;
   final Logger _logger = Logger.getLogger('mcp_llm.retrieval_manager');
+  final RetrievalCache _cache = RetrievalCache();
 
   // Internal document store for compatibility
   final DocumentStore? _documentStore;
@@ -23,22 +80,43 @@ class RetrievalManager {
 
   /// Create a retrieval manager with a document store (legacy mode)
   RetrievalManager.withDocumentStore({
-    required LlmInterface llmProvider,
+    required this.llmProvider,
     required DocumentStore documentStore,
-  }) : llmProvider = llmProvider,
-        _documentStore = documentStore,
+  }) : _documentStore = documentStore,
         _vectorStore = null,
         _defaultNamespace = null;
 
   /// Create a retrieval manager with an external vector store
   RetrievalManager.withVectorStore({
-    required LlmInterface llmProvider,
+    required this.llmProvider,
     required VectorStore vectorStore,
     String? defaultNamespace,
-  }) : llmProvider = llmProvider,
-        _documentStore = null,
+  }) : _documentStore = null,
         _vectorStore = vectorStore,
         _defaultNamespace = defaultNamespace;
+
+  /// Constructor alias for convenience
+  factory RetrievalManager({
+    required LlmInterface llmProvider,
+    DocumentStore? documentStore,
+    VectorStore? vectorStore,
+    String? defaultNamespace,
+  }) {
+    if (vectorStore != null) {
+      return RetrievalManager.withVectorStore(
+        llmProvider: llmProvider,
+        vectorStore: vectorStore,
+        defaultNamespace: defaultNamespace,
+      );
+    } else if (documentStore != null) {
+      return RetrievalManager.withDocumentStore(
+        llmProvider: llmProvider,
+        documentStore: documentStore,
+      );
+    } else {
+      throw ArgumentError('Either documentStore or vectorStore must be provided');
+    }
+  }
 
   /// Check if the manager is using an external vector store
   bool get usesVectorStore => _vectorStore != null;
@@ -50,74 +128,161 @@ class RetrievalManager {
     // If the document doesn't have an embedding, generate one
     Document docWithEmbedding = document;
     if (document.embedding == null || document.embedding!.isEmpty) {
-      _logger.debug('Generating embedding for document: ${document.id}');
-      final embedding = await llmProvider.getEmbeddings(document.content);
-      docWithEmbedding = document.withEmbedding(embedding);
+      try {
+        _logger.debug('Generating embedding for document: ${document.id}');
+        final embedding = await llmProvider.getEmbeddings(document.content);
+        docWithEmbedding = document.withEmbedding(embedding);
+      } catch (e) {
+        _logger.error('Failed to generate embedding for document ${document.id}: $e');
+        // Continue with original document if embedding generation fails
+      }
     }
 
     if (usesVectorStore) {
-      await _vectorStore!.upsertDocument(
-        docWithEmbedding,
-        namespace: _defaultNamespace,
-      );
-      return docWithEmbedding.id;
+      try {
+        await _vectorStore!.upsertDocument(
+          docWithEmbedding,
+          namespace: _defaultNamespace,
+        );
+        return docWithEmbedding.id;
+      } catch (e) {
+        _logger.error('Failed to add document to vector store: $e');
+        throw Exception('Failed to add document to vector store: $e');
+      }
     } else {
-      return await _documentStore!.addDocument(docWithEmbedding);
+      try {
+        return await _documentStore!.addDocument(docWithEmbedding);
+      } catch (e) {
+        _logger.error('Failed to add document to document store: $e');
+        throw Exception('Failed to add document to document store: $e');
+      }
     }
   }
 
-  /// Add multiple documents in batch
+  /// Add multiple documents in batch with parallel processing
   Future<List<String>> addDocuments(List<Document> documents) async {
+    if (documents.isEmpty) {
+      return [];
+    }
+
     _logger.debug('Adding ${documents.length} documents to store');
 
     final results = <String>[];
     final docsWithEmbeddings = <Document>[];
+    final failedDocIds = <String>[];
 
-    // Generate embeddings for documents that don't have them
-    for (final doc in documents) {
+    // Generate embeddings for documents in parallel
+    final embedFutures = <Future<MapEntry<int, List<double>>>>[];
+
+    for (int i = 0; i < documents.length; i++) {
+      final doc = documents[i];
       if (doc.embedding == null || doc.embedding!.isEmpty) {
-        final embedding = await llmProvider.getEmbeddings(doc.content);
-        docsWithEmbeddings.add(doc.withEmbedding(embedding));
-      } else {
-        docsWithEmbeddings.add(doc);
+        embedFutures.add(_getEmbeddingWithIndex(doc.content, i));
       }
     }
 
+    // Wait for all embedding futures to complete
+    final embedResults = await Future.wait(
+      embedFutures,
+      eagerError: false, // Continue even if some fail
+    ).catchError((e) {
+      _logger.error('Error in batch embedding generation: $e');
+      return <MapEntry<int, List<double>>>[]; // Empty on complete failure
+    });
+
+    // Create index-to-embedding map for successful generations
+    final embedMap = Map.fromEntries(embedResults);
+
+    // Apply embeddings to documents
+    for (int i = 0; i < documents.length; i++) {
+      final doc = documents[i];
+
+      if (doc.embedding != null && doc.embedding!.isNotEmpty) {
+        // Document already has embedding
+        docsWithEmbeddings.add(doc);
+      } else if (embedMap.containsKey(i)) {
+        // Apply new embedding
+        docsWithEmbeddings.add(doc.withEmbedding(embedMap[i]!));
+      } else {
+        // Embedding generation failed
+        failedDocIds.add(doc.id);
+        _logger.warning('Failed to generate embedding for document: ${doc.id}');
+      }
+    }
+
+    // Store documents based on storage type
     if (usesVectorStore) {
-      // Batch upsert to vector store
-      await _vectorStore!.upsertDocumentBatch(
-        docsWithEmbeddings,
-        namespace: _defaultNamespace,
+      try {
+        // Batch upsert to vector store
+        await _vectorStore!.upsertDocumentBatch(
+          docsWithEmbeddings,
+          namespace: _defaultNamespace,
+        );
+
+        results.addAll(docsWithEmbeddings.map((doc) => doc.id));
+      } catch (e) {
+        _logger.error('Failed to batch add documents to vector store: $e');
+        throw Exception('Failed to batch add documents to vector store: $e');
+      }
+    } else {
+      // Add documents to document store with parallel processing
+      final addFutures = docsWithEmbeddings.map((doc) =>
+          _documentStore!.addDocument(doc).catchError((e) {
+            _logger.error('Failed to add document ${doc.id} to store: $e');
+            return '';
+          })
       );
 
-      results.addAll(docsWithEmbeddings.map((doc) => doc.id));
-    } else {
-      // Add documents one by one to document store
-      for (final doc in docsWithEmbeddings) {
-        final id = await _documentStore!.addDocument(doc);
-        results.add(id);
-      }
+      final addResults = await Future.wait(addFutures);
+      results.addAll(addResults.where((id) => id.isNotEmpty));
+    }
+
+    if (failedDocIds.isNotEmpty) {
+      _logger.warning('Failed to process ${failedDocIds.length} documents: ${failedDocIds.join(', ')}');
     }
 
     return results;
   }
 
-  /// Retrieve relevant documents for a query
+  /// Helper to get embedding with index for batch processing
+  Future<MapEntry<int, List<double>>> _getEmbeddingWithIndex(String content, int index) async {
+    try {
+      final embedding = await llmProvider.getEmbeddings(content);
+      return MapEntry(index, embedding);
+    } catch (e) {
+      _logger.error('Failed to get embedding for document at index $index: $e');
+      rethrow;
+    }
+  }
+
+  /// Retrieve relevant documents for a query with caching
   Future<List<Document>> retrieveRelevant(String query, {
     int topK = 5,
     double? minimumScore,
     String? namespace,
     Map<String, dynamic> filters = const {},
+    bool useCache = true,
   }) async {
     _logger.debug('Retrieving documents for query: $query (topK=$topK)');
+
+    // Check cache first if enabled
+    if (useCache) {
+      final cachedResult = _cache.get(query, topK: topK);
+      if (cachedResult != null) {
+        _logger.debug('Retrieved ${cachedResult.length} documents from cache');
+        return cachedResult;
+      }
+    }
 
     try {
       // Get embedding for the query
       final queryEmbedding = await llmProvider.getEmbeddings(query);
       final embedding = Embedding(queryEmbedding);
 
+      List<Document> results;
+
       if (usesVectorStore) {
-        final results = await _vectorStore!.findSimilarDocuments(
+        final scoredResults = await _vectorStore!.findSimilarDocuments(
           embedding,
           limit: topK,
           scoreThreshold: minimumScore,
@@ -125,43 +290,157 @@ class RetrievalManager {
           filters: filters,
         );
 
+        results = scoredResults.map((scoredDoc) => scoredDoc.document).toList();
         _logger.debug('Retrieved ${results.length} relevant documents from vector store');
-        return results.map((scoredDoc) => scoredDoc.document).toList();
       } else {
         // Legacy document store approach
-        final results = await _documentStore!.findSimilar(
+        results = await _documentStore!.findSimilar(
           queryEmbedding,
           limit: topK,
           minimumScore: minimumScore,
         );
 
         _logger.debug('Retrieved ${results.length} relevant documents from document store');
-        return results;
       }
+
+      // Cache results if enabled
+      if (useCache) {
+        _cache.put(query, results, topK: topK);
+      }
+
+      return results;
     } catch (e) {
       _logger.error('Error retrieving documents: $e');
       throw Exception('Failed to retrieve documents: $e');
     }
   }
 
-  /// Retrieve and generate a response in one call
+  /// Hybrid search combining semantic and keyword search
+  Future<List<Document>> hybridSearch(
+      String query, {
+        int semanticResults = 5,
+        int keywordResults = 5,
+        int finalResults = 5,
+        double? minimumScore,
+        double keywordBoost = 0.3,
+        String? namespace,
+        Map<String, dynamic> filters = const {},
+      }) async {
+    _logger.debug('Performing hybrid search for query: $query');
+
+    try {
+      // Get embedding for the query
+      final queryEmbedding = await llmProvider.getEmbeddings(query);
+      final embedding = Embedding(queryEmbedding);
+
+      List<Document> semanticDocs;
+      List<Document> keywordDocs;
+
+      if (usesVectorStore) {
+        // With vector store
+        final semanticScored = await _vectorStore!.findSimilarDocuments(
+          embedding,
+          limit: semanticResults,
+          scoreThreshold: minimumScore,
+          namespace: namespace ?? _defaultNamespace,
+          filters: filters,
+        );
+
+        semanticDocs = semanticScored.map((scored) => scored.document).toList();
+
+        // For keyword search with vector stores, we might need custom implementation
+        // depending on the vector store's capabilities
+        keywordDocs = []; // Default empty for vector stores that don't support keyword search
+      } else {
+        // With document store
+        semanticDocs = await _documentStore!.findSimilar(
+          queryEmbedding,
+          limit: semanticResults,
+          minimumScore: minimumScore,
+        );
+
+        keywordDocs = _documentStore.searchByContent(
+          query,
+          limit: keywordResults,
+        );
+      }
+
+      // Combine and deduplicate results
+      final Map<String, Document> uniqueDocs = {};
+
+      // Add semantic results first (considered higher quality)
+      for (final doc in semanticDocs) {
+        uniqueDocs[doc.id] = doc;
+      }
+
+      // Add keyword results
+      for (final doc in keywordDocs) {
+        if (!uniqueDocs.containsKey(doc.id)) {
+          uniqueDocs[doc.id] = doc;
+        }
+      }
+
+      // Sort results by relevance and return top results
+      final combined = uniqueDocs.values.toList();
+
+      // If we have enough results to warrant reranking, do it
+      if (combined.length > finalResults && combined.length > 1) {
+        return await rerankResults(query, combined, topK: finalResults);
+      }
+
+      return combined.take(finalResults).toList();
+    } catch (e) {
+      _logger.error('Error performing hybrid search: $e');
+      throw Exception('Failed to perform hybrid search: $e');
+    }
+  }
+
+  /// Retrieve and generate a response in one call with improved context handling
   Future<String> retrieveAndGenerate(String query, {
     int topK = 5,
     double? minimumScore,
     String? namespace,
     Map<String, dynamic> filters = const {},
     Map<String, dynamic> generationParams = const {},
+    List<String>? previousQueries,
+    bool useHybridSearch = true,
   }) async {
     _logger.debug('Performing RAG for query: $query');
 
     // Retrieve relevant documents
-    final docs = await retrieveRelevant(
-      query,
-      topK: topK,
-      minimumScore: minimumScore,
-      namespace: namespace,
-      filters: filters,
-    );
+    List<Document> docs;
+
+    // If we have previous queries, use context-aware search
+    if (previousQueries != null && previousQueries.isNotEmpty) {
+      docs = await contextAwareSearch(
+        query,
+        previousQueries,
+        topK: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
+    } else if (useHybridSearch) {
+      // Use hybrid search for better results
+      docs = await hybridSearch(
+        query,
+        semanticResults: topK,
+        keywordResults: topK,
+        finalResults: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
+    } else {
+      // Standard semantic search
+      docs = await retrieveRelevant(
+        query,
+        topK: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
+    }
 
     if (docs.isEmpty) {
       return await _generateResponseWithoutContext(query, generationParams);
@@ -178,12 +457,17 @@ class RetrievalManager {
 
     // Fall back to just answering without context
     final fallbackRequest = LlmRequest(
-      prompt: 'Answer the following question without additional context: $query',
+      prompt: 'Answer the following question to the best of your ability. If you don\'t know, say so honestly.\n\nQuestion: $query',
       parameters: Map<String, dynamic>.from(generationParams),
     );
 
-    final fallbackResponse = await llmProvider.complete(fallbackRequest);
-    return fallbackResponse.text;
+    try {
+      final fallbackResponse = await llmProvider.complete(fallbackRequest);
+      return fallbackResponse.text;
+    } catch (e) {
+      _logger.error('Error generating response without context: $e');
+      return 'I apologize, but I encountered an issue while trying to answer your question.';
+    }
   }
 
   /// Generate a response with document context
@@ -192,12 +476,23 @@ class RetrievalManager {
     // Build context from documents
     final context = _formatDocumentsAsContext(docs);
 
-    // Create RAG prompt
-    final ragPrompt = 'You are provided with some context information to help answer a question.\n\n'
-        'Context information:\n$context\n\n'
-        'Based on the information above, answer the following question:\n$query\n\n'
-        'If the information needed to answer the question is not present in the '
-        'context provided, just say "I don\'t have enough information to answer this question."';
+    // Create enhanced RAG prompt
+    final ragPrompt = '''
+You are a helpful assistant that responds to questions based on the context provided.
+
+CONTEXT INFORMATION:
+$context
+
+USER QUESTION: $query
+
+INSTRUCTIONS:
+1. Answer the question based ONLY on the context information provided.
+2. If the information needed to answer the question is not in the context, say "I don't have enough information to answer this question."
+3. Provide relevant information from the context that answers the question directly.
+4. Do not include irrelevant information.
+5. Do not make up or infer information that is not in the context.
+6. Cite specific documents when possible by referring to them as [Document X].
+''';
 
     // Generate response with the LLM
     final request = LlmRequest(
@@ -205,10 +500,14 @@ class RetrievalManager {
       parameters: Map<String, dynamic>.from(generationParams),
     );
 
-    final response = await llmProvider.complete(request);
-    _logger.debug('Generated RAG response for query: $query');
-
-    return response.text;
+    try {
+      final response = await llmProvider.complete(request);
+      _logger.debug('Generated RAG response for query: $query');
+      return response.text;
+    } catch (e) {
+      _logger.error('Error generating response with context: $e');
+      return 'I apologize, but I encountered an issue while trying to answer your question based on the information I have.';
+    }
   }
 
   /// Format retrieved documents as context for the LLM
@@ -217,274 +516,539 @@ class RetrievalManager {
 
     for (var i = 0; i < documents.length; i++) {
       final doc = documents[i];
-      buffer.writeln('[Document ${i+1}] ${doc.title}:');
-      buffer.writeln(doc.content);
+      buffer.writeln('[Document ${i+1}]');
+      buffer.writeln('Title: ${doc.title}');
+      buffer.writeln('Content: ${doc.content}');
+
+      // Add timestamp for recency context
+      buffer.writeln('Last Updated: ${doc.updatedAt.toIso8601String()}');
       buffer.writeln();
     }
 
     return buffer.toString();
   }
 
-  /// Search for documents by metadata
-  Future<List<Document>> searchByMetadata(
-      Map<String, dynamic> metadata, {
-        int limit = 5,
+  /// Context-aware search utilizing conversation history
+  Future<List<Document>> contextAwareSearch(
+      String currentQuery,
+      List<String> previousQueries, {
+        int topK = 5,
+        double? minimumScore,
         String? namespace,
+        Map<String, dynamic> filters = const {},
       }) async {
-    _logger.debug('Searching for documents by metadata');
+    _logger.debug('Performing context-aware search with ${previousQueries.length} previous queries');
 
-    if (usesVectorStore) {
-      // With vector store, use filters
-      // We need a placeholder query, so we'll use a generic embedding
-      final genericEmbedding = Embedding(List.generate(1536, (_) => 0.0));
+    if (previousQueries.isEmpty) {
+      // No context, use standard retrieval
+      return await retrieveRelevant(
+        currentQuery,
+        topK: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
+    }
 
-      final results = await _vectorStore!.findSimilarDocuments(
-        genericEmbedding,
-        limit: limit,
-        namespace: namespace ?? _defaultNamespace,
-        filters: metadata,
-        // Use a very low threshold to ensure we get results
-        scoreThreshold: 0.0,
+    try {
+      // Limit the number of previous queries to consider (avoid token limits)
+      final recentQueries = previousQueries.length <= 5
+          ? previousQueries
+          : previousQueries.sublist(previousQueries.length - 5);
+
+      // Create a prompt to expand the query using conversation context
+      final contextPrompt = '''
+You are an AI assistant helping to expand a search query based on previous conversation context.
+
+Previous queries in the conversation:
+${recentQueries.map((q) => "- $q").join('\n')}
+
+Current query: "$currentQuery"
+
+Your task is to create an expanded search query that better captures the user's intent by considering the conversation history.
+Return ONLY the expanded query text, nothing else.
+''';
+
+      // Get expanded query from LLM
+      final request = LlmRequest(
+        prompt: contextPrompt,
+        parameters: {'temperature': 0.3},
       );
 
-      return results.map((scoredDoc) => scoredDoc.document).toList();
-    } else {
-      // With document store, we have to do manual filtering
-      // Get all documents from the collection if specified
-      List<Document> candidates;
+      final response = await llmProvider.complete(request);
+      final expandedQuery = response.text.trim();
 
-      if (metadata.containsKey('collectionId')) {
-        candidates = _documentStore!.getDocumentsInCollection(
-          metadata['collectionId'] as String,
-        );
+      _logger.debug('Expanded query: $expandedQuery');
 
-        // Remove collectionId from filter criteria since we already used it
-        metadata = Map<String, dynamic>.from(metadata)
-          ..remove('collectionId');
-      } else {
-        // Without a collection, we need to fetch all documents
-        // This is inefficient but necessary for the simple document store
-        // Since we can't get all documents easily, we'll just use an empty list
-        candidates = <Document>[];
-        // In a real implementation, you would need a way to get all documents
-        _logger.warning('Searching all documents without a collection ID is not supported in the basic implementation');
-      }
+      // Use hybrid search with the expanded query for better results
+      return await hybridSearch(
+        expandedQuery,
+        semanticResults: topK,
+        keywordResults: topK,
+        finalResults: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
+    } catch (e) {
+      _logger.error('Error in query expansion: $e');
 
-      // Filter by metadata
-      final results = candidates.where((doc) {
-        return _matchesMetadata(doc.metadata, metadata);
-      }).take(limit).toList();
-
-      return results;
+      // Fall back to regular search on error
+      _logger.debug('Falling back to regular search due to error');
+      return await retrieveRelevant(
+        currentQuery,
+        topK: topK,
+        minimumScore: minimumScore,
+        namespace: namespace,
+        filters: filters,
+      );
     }
   }
 
-  /// Check if document metadata matches filter criteria
-  bool _matchesMetadata(Map<String, dynamic> docMetadata, Map<String, dynamic> filter) {
-    for (final entry in filter.entries) {
-      final key = entry.key;
-      final value = entry.value;
-
-      if (!docMetadata.containsKey(key)) {
-        return false;
-      }
-
-      final docValue = docMetadata[key];
-
-      if (docValue != value) {
-        // Handle special cases like ranges, etc. if needed
-        return false;
-      }
-    }
-
-    return true;
-  }
-
+  /// Rerank documents based on relevance to query
   Future<List<Document>> rerankResults(
       String query,
       List<Document> candidates, {
         int topK = 5,
         bool useLightweightRanker = false,
       }) async {
+    if (candidates.isEmpty || candidates.length <= 1) {
+      return candidates;
+    }
+
     _logger.debug('Reranking ${candidates.length} documents for query: $query');
 
-    final contextList = candidates.asMap().entries.map((entry) {
-      final idx = entry.key + 1;
+    try {
+      if (useLightweightRanker) {
+        // Use faster but less accurate algorithm
+        return _lightweightReranking(query, candidates, topK);
+      } else {
+        // Use LLM for better but slower reranking
+        return await _llmReranking(query, candidates, topK);
+      }
+    } catch (e) {
+      _logger.error('Error during reranking: $e');
+      // On error, return original order truncated to topK
+      return candidates.take(topK).toList();
+    }
+  }
+
+  /// Simple keyword-based reranking
+  List<Document> _lightweightReranking(
+      String query,
+      List<Document> candidates,
+      int topK,
+      ) {
+    // Extract important terms from query
+    final queryTerms = _extractKeywords(query.toLowerCase());
+
+    // Score documents based on term frequency and position
+    final scoredDocs = candidates.map((doc) {
+      double score = 0;
+      final docTitle = doc.title.toLowerCase();
+      final docContent = doc.content.toLowerCase();
+
+      // Check title matches (higher weight)
+      for (final term in queryTerms) {
+        if (docTitle.contains(term)) {
+          score += 3;
+        }
+      }
+
+      // Check content matches
+      for (final term in queryTerms) {
+        // Count occurrences
+        final matches = RegExp(term, caseSensitive: false).allMatches(docContent);
+        score += matches.length;
+
+        // Bonus for terms appearing early in content
+        if (matches.isNotEmpty && matches.first.start < 100) {
+          score += 2;
+        }
+      }
+
+      // Consider document recency
+      final age = DateTime.now().difference(doc.updatedAt).inDays;
+      if (age < 30) { // Bonus for recent documents
+        score += (30 - age) ~/ 5; // Up to 6 points for very recent docs
+      }
+
+      return _ScoredDocument(doc, score);
+    }).toList();
+
+    // Sort by score (highest first)
+    scoredDocs.sort((a, b) => b.score.compareTo(a.score));
+
+    // Return top results
+    return scoredDocs.take(topK).map((scored) => scored.document).toList();
+  }
+
+  /// Extract meaningful keywords from text
+  List<String> _extractKeywords(String text) {
+    // Common stop words to filter out
+    final stopWords = {
+      'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'with', 'by', 'about', 'as', 'of', 'is', 'are', 'was', 'were', 'be',
+      'this', 'that', 'these', 'those', 'it', 'they', 'he', 'she', 'who',
+      'what', 'when', 'where', 'how', 'why', 'which', 'do', 'does', 'did',
+      'have', 'has', 'had', 'can', 'could', 'will', 'would', 'should'
+    };
+
+    return text
+        .replaceAll(RegExp(r'[^\w\s]'), ' ') // Remove punctuation
+        .split(RegExp(r'\s+'))
+        .where((word) => word.length > 2) // Filter short words
+        .where((word) => !stopWords.contains(word)) // Remove stop words
+        .toList();
+  }
+
+  /// LLM-based reranking for higher quality
+  Future<List<Document>> _llmReranking(
+      String query,
+      List<Document> candidates,
+      int topK,
+      ) async {
+    // Format documents
+    final docsText = candidates.asMap().entries.map((entry) {
+      final index = entry.key;
       final doc = entry.value;
-      return '[$idx] ${doc.title}\n${doc.content}';
+      return '[${index + 1}] ${doc.title}\n${doc.content.length > 500 ? doc.content.substring(0, 500) + "..." : doc.content}';
     }).join('\n\n');
 
+    // Create prompt for LLM to rank documents
     final prompt = '''
-You are a ranking model. Rank the following documents based on how relevant they are to the query.
+You are a document ranking expert. Rank the following documents based on their relevance to the query.
 
 Query: "$query"
 
 Documents:
-$contextList
+$docsText
 
-Return a JSON array of the top $topK document numbers (e.g., [1, 3, 2])
+Return a comma-separated list of document numbers, ordered from most to least relevant. 
+Example: 3,1,4,2,5
+Only include the numbers, no additional explanations.
 ''';
 
+    // Get ranking from LLM
     final request = LlmRequest(
       prompt: prompt,
-      parameters: {
-        'temperature': useLightweightRanker ? 0.0 : 0.3,
-      },
+      parameters: {'temperature': 0.2}, // Low temperature for consistency
     );
 
     final response = await llmProvider.complete(request);
     final text = response.text.trim();
 
+    // Parse response to get document order
     try {
-      final List<dynamic> indices = jsonDecode(text);
-      final ranked = <Document>[];
+      // Extract numbers from response
+      final numbers = RegExp(r'\d+').allMatches(text).map((m) => int.parse(m.group(0)!) - 1).toList();
 
-      for (final index in indices) {
-        if (index is int && index > 0 && index <= candidates.length) {
-          ranked.add(candidates[index - 1]);
+      // Filter valid indices and remove duplicates
+      final validIndices = <int>[];
+      final seen = <int>{};
+
+      for (final idx in numbers) {
+        if (idx >= 0 && idx < candidates.length && !seen.contains(idx)) {
+          validIndices.add(idx);
+          seen.add(idx);
         }
       }
 
-      return ranked;
+      // Add any missing indices to the end
+      for (int i = 0; i < candidates.length; i++) {
+        if (!seen.contains(i)) {
+          validIndices.add(i);
+        }
+      }
+
+      // Create reranked list
+      final reranked = validIndices
+          .take(topK)
+          .map((idx) => candidates[idx])
+          .toList();
+
+      return reranked;
     } catch (e) {
-      _logger.error('Failed to parse rerank response: $e\nResponse text: $text');
+      _logger.error('Error parsing reranking response: $e');
+      // Fall back to original order
       return candidates.take(topK).toList();
     }
   }
 
+  /// Retrieve documents with time-based weighting
+  Future<List<Document>> timeWeightedRetrieval(
+      String query, {
+        int topK = 5,
+        double? minimumScore,
+        String? namespace,
+        Map<String, dynamic> filters = const {},
+        double recencyWeight = 0.3, // 0-1 weight for recency vs. relevance
+        Duration freshnessWindow = const Duration(days: 30),
+      }) async {
+    _logger.debug('Performing time-weighted retrieval for query: $query');
+
+    // Get more results than needed to allow for reranking
+    final results = await retrieveRelevant(
+      query,
+      topK: topK * 2,
+      minimumScore: minimumScore,
+      namespace: namespace,
+      filters: filters,
+    );
+
+    if (results.isEmpty || results.length == 1) {
+      return results;
+    }
+
+    // Calculate recency scores
+    final now = DateTime.now();
+    final recentTimestamp = now.subtract(freshnessWindow);
+
+    // Score documents considering both relevance and recency
+    final scoredDocs = results.asMap().entries.map((entry) {
+      final index = entry.key;
+      final doc = entry.value;
+
+      // Relevance score based on position (first results assumed most relevant)
+      final relevanceScore = 1.0 - (index / results.length);
+
+      // Calculate recency score (1.0 for recent, 0.0 for old)
+      double recencyScore;
+      if (doc.updatedAt.isAfter(recentTimestamp)) {
+        // Linear scale between 1.0 (now) and 0.0 (freshnessWindow ago)
+        final age = now.difference(doc.updatedAt);
+        recencyScore = 1.0 - (age.inMilliseconds / freshnessWindow.inMilliseconds);
+      } else {
+        recencyScore = 0.0; // Older than freshness window
+      }
+
+      // Calculate combined score with weighting
+      final combinedScore = (relevanceScore * (1 - recencyWeight)) +
+          (recencyScore * recencyWeight);
+
+      return _ScoredDocument(doc, combinedScore);
+    }).toList();
+
+    // Sort by combined score and return top results
+    scoredDocs.sort((a, b) => b.score.compareTo(a.score));
+    return scoredDocs.take(topK).map((sd) => sd.document).toList();
+  }
+
   /// Delete a document
   Future<bool> deleteDocument(String id, {String? namespace}) async {
-    if (usesVectorStore) {
-      return await _vectorStore!.deleteEmbedding(id, namespace: namespace ?? _defaultNamespace);
-    } else {
-      return await _documentStore!.deleteDocument(id);
+    try {
+      if (usesVectorStore) {
+        return await _vectorStore!.deleteEmbedding(id, namespace: namespace ?? _defaultNamespace);
+      } else {
+        return await _documentStore!.deleteDocument(id);
+      }
+    } catch (e) {
+      _logger.error('Error deleting document: $e');
+      return false;
     }
   }
 
   /// Delete multiple documents
   Future<int> deleteDocuments(List<String> ids, {String? namespace}) async {
-    if (usesVectorStore) {
-      return await _vectorStore!.deleteEmbeddingBatch(ids, namespace: namespace ?? _defaultNamespace);
-    } else {
-      int count = 0;
-      for (final id in ids) {
-        if (await _documentStore!.deleteDocument(id)) {
-          count++;
+    if (ids.isEmpty) {
+      return 0;
+    }
+
+    try {
+      if (usesVectorStore) {
+        return await _vectorStore!.deleteEmbeddingBatch(ids, namespace: namespace ?? _defaultNamespace);
+      } else {
+        int count = 0;
+        for (final id in ids) {
+          if (await _documentStore!.deleteDocument(id)) {
+            count++;
+          }
+        }
+        return count;
+      }
+    } catch (e) {
+      _logger.error('Error deleting documents: $e');
+      return 0;
+    }
+  }
+
+  /// Search across multiple collections
+  Future<List<Document>> multiCollectionSearch(
+      String query,
+      List<String> collectionIds, {
+        int resultsPerCollection = 3,
+        int finalResults = 5,
+        double? minimumScore,
+        bool rerankResults = true,
+      }) async {
+    if (collectionIds.isEmpty) {
+      return [];
+    }
+
+    _logger.debug('Searching across multiple collections: ${collectionIds.join(", ")}');
+
+    try {
+      // Get embedding for query
+      final queryEmbedding = await llmProvider.getEmbeddings(query);
+
+      // Search each collection in parallel
+      final futures = <Future<List<Document>>>[];
+
+      for (final collectionId in collectionIds) {
+        if (usesVectorStore) {
+          futures.add(
+              _vectorStore!.findSimilarDocuments(
+                Embedding(queryEmbedding),
+                namespace: collectionId,
+                limit: resultsPerCollection,
+                scoreThreshold: minimumScore,
+              ).then((results) => results.map((scored) => scored.document).toList())
+          );
+        } else {
+          futures.add(
+              _documentStore!.findSimilarInCollection(
+                collectionId,
+                queryEmbedding,
+                limit: resultsPerCollection,
+                minimumScore: minimumScore,
+              )
+          );
         }
       }
-      return count;
+
+      // Collect all results
+      final collectionResults = await Future.wait(futures);
+      final combinedResults = collectionResults.expand((docs) => docs).toList();
+
+      // If we have more results than needed and reranking is enabled
+      if (rerankResults && combinedResults.length > finalResults) {
+        return await this.rerankResults(
+          query,
+          combinedResults,
+          topK: finalResults,
+        );
+      }
+
+      // Otherwise just return top results
+      return combinedResults.take(finalResults).toList();
+    } catch (e) {
+      _logger.error('Error in multi-collection search: $e');
+      throw Exception('Failed to search across multiple collections: $e');
     }
   }
 
-  /// Hybrid search combining keyword and vector search
-  Future<List<Document>> hybridSearch(
+  /// Retrieve and rerank in one operation
+  Future<List<Document>> retrieveAndRerank(
       String query, {
-        int semanticResults = 5,
-        int keywordResults = 5,
-        int finalResults = 5,
-        double boostFactor = 0.25,
+        int retrievalTopK = 10,
+        int rerankTopK = 5,
         double? minimumScore,
         String? namespace,
+        Map<String, dynamic> filters = const {},
+        bool useLightweightRanker = false,
       }) async {
-    // Get embedding for the query
-    final queryEmbedding = await llmProvider.getEmbeddings(query);
-    final embedding = Embedding(queryEmbedding);
+    _logger.debug('Retrieving and reranking documents for query: $query');
 
-    // Lists to store results
-    List<ScoredDocument> semanticDocs = [];
-    List<Document> keywordDocs = [];
-
-    if (usesVectorStore) {
-      // With vector store
-      semanticDocs = await _vectorStore!.findSimilarDocuments(
-        embedding,
-        limit: semanticResults,
-        scoreThreshold: minimumScore,
-        namespace: namespace ?? _defaultNamespace,
-      );
-
-      // For keyword search, we need to implement it
-      // This depends on the vector store's capabilities
-      // For now, we'll skip this step with vector stores
-    } else {
-      // With document store
-      final semanticDocsResult = await _documentStore!.findSimilar(
-        queryEmbedding,
-        limit: semanticResults,
-        minimumScore: minimumScore,
-      );
-
-      semanticDocs = semanticDocsResult.map((doc) {
-        // Create a similarity score based on embedding distance
-        // This is a simplification; real scoring would be more complex
-        return ScoredDocument(doc, 0.8); // Placeholder score
-      }).toList();
-
-      keywordDocs = _documentStore.searchByContent(query, limit: keywordResults);
-    }
-
-    // Combine and deduplicate results
-    final combinedResults = <String, ScoredDocument>{};
-
-    // Add semantic search results
-    for (final doc in semanticDocs) {
-      combinedResults[doc.document.id] = doc;
-    }
-
-    // Add keyword search results with boosting
-    for (final doc in keywordDocs) {
-      final keywordScore = 0.7; // Placeholder score
-
-      if (combinedResults.containsKey(doc.id)) {
-        // Boost score if already included in semantic search
-        final existing = combinedResults[doc.id]!;
-        final boostedScore = existing.score + (keywordScore * boostFactor);
-        combinedResults[doc.id] = ScoredDocument(doc, boostedScore);
-      } else {
-        combinedResults[doc.id] = ScoredDocument(doc, keywordScore * (1 - boostFactor));
-      }
-    }
-
-    // Sort by score and return top results
-    final sortedResults = combinedResults.values.toList()
-      ..sort((a, b) => b.score.compareTo(a.score));
-
-    return sortedResults.take(finalResults).map((scored) => scored.document).toList();
-  }
-
-  Future<List<Document>> contextAwareSearch(
-      String query,
-      List<String> previousQueries, {
-        int topK = 5,
-        double? minimumScore,
-      }) async {
-    final expandedQuery = await _expandQueryWithContext(query, previousQueries);
-
-    return await retrieveRelevant(
-      expandedQuery,
-      topK: topK,
+    // Retrieve more documents than we need
+    final candidates = await retrieveRelevant(
+      query,
+      topK: retrievalTopK,
       minimumScore: minimumScore,
+      namespace: namespace,
+      filters: filters,
+    );
+
+    if (candidates.isEmpty || candidates.length == 1) {
+      return candidates; // No need to rerank
+    }
+
+    // Rerank the candidates
+    return await rerankResults(
+      query,
+      candidates,
+      topK: rerankTopK,
+      useLightweightRanker: useLightweightRanker,
     );
   }
 
-  Future<String> _expandQueryWithContext(String query, List<String> previousQueries) async {
-    final contextPrompt = 'Previous queries: ${previousQueries.join(", ")}\n'
-        'Current query: $query\n'
-        'Expand the current query by considering the context of previous queries:';
+  /// Create focused answer from multiple chunks
+  Future<String> multiChunkAnswer(
+      String query,
+      List<Document> chunks, {
+        Map<String, dynamic> generationParams = const {},
+        bool useDynamicChunkSelection = true,
+      }) async {
+    _logger.debug('Generating answer from multiple chunks');
 
+    if (chunks.isEmpty) {
+      return await _generateResponseWithoutContext(query, generationParams);
+    }
+
+    // If we have too many chunks, select the most relevant ones first
+    List<Document> selectedChunks = chunks;
+    if (useDynamicChunkSelection && chunks.length > 5) {
+      selectedChunks = await rerankResults(query, chunks, topK: 5);
+    }
+
+    // Create a multi-context prompt
+    final chunksText = selectedChunks.asMap().entries.map((entry) {
+      final index = entry.key;
+      final chunk = entry.value;
+      return '[Chunk ${index + 1}] ${chunk.content}';
+    }).join('\n\n');
+
+    final prompt = '''
+You are a knowledge synthesis AI that provides accurate answers based on multiple document chunks.
+
+CHUNKS:
+$chunksText
+
+USER QUESTION: $query
+
+INSTRUCTIONS:
+1. Answer the question based on information from ALL relevant chunks.
+2. Synthesize information that might be spread across multiple chunks.
+3. If the chunks contain contradictory information, acknowledge this in your answer.
+4. If the information to answer the question is not in any chunk, say "The provided information doesn't answer this question."
+5. Make your answer detailed, accurate, and comprehensive.
+''';
+
+    // Generate a comprehensive answer
     final request = LlmRequest(
-      prompt: contextPrompt,
-      parameters: {'temperature': 0.3},
+      prompt: prompt,
+      parameters: Map<String, dynamic>.from(generationParams),
     );
 
-    final response = await llmProvider.complete(request);
-    return response.text.trim();
+    try {
+      final response = await llmProvider.complete(request);
+      return response.text;
+    } catch (e) {
+      _logger.error('Error generating multi-chunk answer: $e');
+      // Fallback to single-chunk approach
+      return await _generateResponseWithContext(query, selectedChunks, generationParams);
+    }
+  }
+
+  /// Clear the retrieval cache
+  void clearCache() {
+    _cache.clear();
+    _logger.debug('Retrieval cache cleared');
   }
 
   /// Close and clean up resources
   Future<void> close() async {
+    clearCache();
+
     if (usesVectorStore) {
       await _vectorStore!.close();
     }
   }
+}
+
+/// Helper class for document scoring
+class _ScoredDocument {
+  final Document document;
+  final double score;
+
+  _ScoredDocument(this.document, this.score);
 }

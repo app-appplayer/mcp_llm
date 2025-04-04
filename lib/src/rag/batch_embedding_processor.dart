@@ -1,40 +1,54 @@
 import 'dart:math';
-
 import '../../mcp_llm.dart';
 
+/// Handles batch processing of documents for embedding generation
 class BatchEmbeddingProcessor {
   final LlmInterface llmProvider;
-  // Modified from final to mutable batchSize
   int batchSize;
+  final Logger _logger = Logger.getLogger('mcp_llm.batch_embedding_processor');
 
   BatchEmbeddingProcessor({
     required this.llmProvider,
     this.batchSize = 10, // Default batch size
   });
 
-  // Process document batch (default method)
+  /// Process document batch with improved error handling and efficiency
   Future<List<Document>> processDocumentBatch(List<Document> documents) async {
+    if (documents.isEmpty) {
+      return [];
+    }
+
     final List<Document> processedDocuments = [];
+    final List<Future<void>> processingFutures = [];
 
     // Process in batches
     for (int i = 0; i < documents.length; i += batchSize) {
       final end = min(i + batchSize, documents.length);
       final batch = documents.sublist(i, end);
 
-      // Filter documents that need embeddings
-      final needsEmbedding = batch
-          .where((doc) => doc.embedding == null || doc.embedding!.isEmpty)
-          .toList();
+      try {
+        // Filter documents that need embeddings
+        final needsEmbedding = batch
+            .where((doc) => doc.embedding == null || doc.embedding!.isEmpty)
+            .toList();
 
-      // Generate embeddings and update documents
-      if (needsEmbedding.isNotEmpty) {
-        final updatedBatch = await _generateEmbeddingsForBatch(needsEmbedding);
-        processedDocuments.addAll(updatedBatch);
+        final hasEmbedding = batch
+            .where((doc) => doc.embedding != null && doc.embedding!.isNotEmpty)
+            .toList();
 
-        // Add documents that already have embeddings
-        processedDocuments.addAll(batch.where(
-            (doc) => doc.embedding != null && doc.embedding!.isNotEmpty));
-      } else {
+        // Add documents that already have embeddings directly
+        processedDocuments.addAll(hasEmbedding);
+
+        // Generate embeddings only for documents that need them
+        if (needsEmbedding.isNotEmpty) {
+          final updatedBatch = await _generateEmbeddingsForBatch(needsEmbedding);
+          processedDocuments.addAll(updatedBatch);
+        }
+      } catch (e) {
+        _logger.error('Error processing batch ${i ~/ batchSize}: $e');
+
+        // Still add original documents to not lose them completely
+        // For failed documents, they'll be added without embeddings
         processedDocuments.addAll(batch);
       }
     }
@@ -42,59 +56,107 @@ class BatchEmbeddingProcessor {
     return processedDocuments;
   }
 
-  // Generate embeddings for batch
-  Future<List<Document>> _generateEmbeddingsForBatch(
-      List<Document> batch) async {
-    // Prepare embedding requests for each document content
-    final futures = <Future<List<double>>>[];
+  /// Generate embeddings for batch with better error handling
+  Future<List<Document>> _generateEmbeddingsForBatch(List<Document> batch) async {
+    final results = <Document>[];
+    final futures = <Future<MapEntry<int, List<double>>>>[];
 
-    for (final doc in batch) {
-      futures.add(llmProvider.getEmbeddings(doc.content));
+    // Prepare embedding requests for each document content
+    for (int i = 0; i < batch.length; i++) {
+      final doc = batch[i];
+      futures.add(_getEmbeddingWithIndex(doc.content, i));
     }
 
-    // Collect all embedding results
-    final embeddings = await Future.wait(futures);
+    // Wait for all futures to complete, even if some fail
+    final embeddings = await Future.wait(
+      futures,
+      eagerError: false, // Continue even if some futures fail
+    ).catchError((e) {
+      _logger.error('Error in batch embedding generation: $e');
+      return <MapEntry<int, List<double>>>[];
+    });
+
+    // Create a map of indices to embeddings for successful requests
+    final embeddingMap = Map.fromEntries(embeddings);
 
     // Apply embeddings to documents
-    return List.generate(batch.length, (index) {
-      return batch[index].withEmbedding(embeddings[index]);
-    });
+    for (int i = 0; i < batch.length; i++) {
+      final doc = batch[i];
+
+      if (embeddingMap.containsKey(i)) {
+        // Embedding generation succeeded
+        results.add(doc.withEmbedding(embeddingMap[i]!));
+      } else {
+        // Embedding generation failed, keep original document
+        _logger.warning('Failed to generate embedding for document: ${doc.id}');
+        results.add(doc);
+      }
+    }
+
+    return results;
   }
 
-  // Process entire document collection
+  /// Helper method to get embedding with index for error tracking
+  Future<MapEntry<int, List<double>>> _getEmbeddingWithIndex(String content, int index) async {
+    try {
+      final embedding = await llmProvider.getEmbeddings(content);
+      return MapEntry(index, embedding);
+    } catch (e) {
+      _logger.error('Failed to get embedding for document at index $index: $e');
+      rethrow; // Let the caller handle this
+    }
+  }
+
+  /// Process document collection with custom batch size
   Future<void> processCollection(
-    DocumentStore documentStore,
-    String collectionId, {
-    int? customBatchSize,
-  }) async {
+      DocumentStore documentStore,
+      String collectionId, {
+        int? customBatchSize,
+        bool skipExisting = true,
+      }) async {
     // Get all documents in collection
     final documents = documentStore.getDocumentsInCollection(collectionId);
 
-    // Generate embeddings - Fixed error: process with custom batch size
+    // Filter documents if skipping those with existing embeddings
+    final documentsToProcess = skipExisting
+        ? documents.where((doc) => doc.embedding == null || doc.embedding!.isEmpty).toList()
+        : documents;
+
+    _logger.info('Processing ${documentsToProcess.length} documents ' +
+        '(out of ${documents.length} total) in collection: $collectionId');
+
+    // Process with appropriate batch size
+    final actualBatchSize = customBatchSize ?? batchSize;
     final processedDocuments = await processDocumentBatchWithCustomSize(
-      documents,
-      customBatchSize ?? batchSize,
+      documentsToProcess,
+      actualBatchSize,
     );
 
-    // Update document store
+    // Update document store only for successfully processed documents
+    int updateCount = 0;
     for (final doc in processedDocuments) {
-      await documentStore.updateDocument(doc);
+      if (doc.embedding != null && doc.embedding!.isNotEmpty) {
+        await documentStore.updateDocument(doc);
+        updateCount++;
+      }
     }
+
+    _logger.info('Updated $updateCount documents with embeddings in collection: $collectionId');
   }
 
-  // Renamed: Method to process with custom batch size
+  /// Process with custom batch size
   Future<List<Document>> processDocumentBatchWithCustomSize(
-    List<Document> documents,
-    int customBatchSize,
-  ) async {
+      List<Document> documents,
+      int customBatchSize,
+      ) async {
     // Save original batch size
     final savedBatchSize = batchSize;
 
-    // Temporarily change batch size
-    batchSize = customBatchSize;
-
     try {
-      // Use default method
+      // Temporarily change batch size
+      batchSize = customBatchSize;
+
+      // Use standard method
       return await processDocumentBatch(documents);
     } finally {
       // Restore original batch size
