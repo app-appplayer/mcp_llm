@@ -7,6 +7,7 @@ import 'dart:async' as _i3;
 
 import 'package:mcp_llm/mcp_llm.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
+import 'package:mockito/src/dummies.dart' as _i4;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -95,12 +96,21 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
           as bool);
 
   @override
+  bool get hasRetrievalCapabilities =>
+      (super.noSuchMethod(
+            Invocation.getter(#hasRetrievalCapabilities),
+            returnValue: false,
+          )
+          as bool);
+
+  @override
   _i3.Future<_i2.LlmResponse> chat(
     String? userInput, {
     bool? enableTools = true,
     bool? enablePlugins = true,
     Map<String, dynamic>? parameters = const {},
     _i2.LlmContext? context,
+    bool? useRetrieval = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -111,6 +121,7 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
                 #enablePlugins: enablePlugins,
                 #parameters: parameters,
                 #context: context,
+                #useRetrieval: useRetrieval,
               },
             ),
             returnValue: _i3.Future<_i2.LlmResponse>.value(
@@ -124,6 +135,7 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
                     #enablePlugins: enablePlugins,
                     #parameters: parameters,
                     #context: context,
+                    #useRetrieval: useRetrieval,
                   },
                 ),
               ),
@@ -138,6 +150,7 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
     bool? enablePlugins = true,
     Map<String, dynamic>? parameters = const {},
     _i2.LlmContext? context,
+    bool? useRetrieval = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -148,11 +161,66 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
                 #enablePlugins: enablePlugins,
                 #parameters: parameters,
                 #context: context,
+                #useRetrieval: useRetrieval,
               },
             ),
             returnValue: _i3.Stream<_i2.LlmResponseChunk>.empty(),
           )
           as _i3.Stream<_i2.LlmResponseChunk>);
+
+  @override
+  _i3.Future<List<_i2.Document>> retrieveRelevantDocuments(
+    String? query, {
+    int? topK = 5,
+    double? minimumScore,
+    String? namespace,
+    Map<String, dynamic>? filters = const {},
+    bool? useCache = true,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #retrieveRelevantDocuments,
+              [query],
+              {
+                #topK: topK,
+                #minimumScore: minimumScore,
+                #namespace: namespace,
+                #filters: filters,
+                #useCache: useCache,
+              },
+            ),
+            returnValue: _i3.Future<List<_i2.Document>>.value(<_i2.Document>[]),
+          )
+          as _i3.Future<List<_i2.Document>>);
+
+  @override
+  _i3.Future<String> addDocument(_i2.Document? document) =>
+      (super.noSuchMethod(
+            Invocation.method(#addDocument, [document]),
+            returnValue: _i3.Future<String>.value(
+              _i4.dummyValue<String>(
+                this,
+                Invocation.method(#addDocument, [document]),
+              ),
+            ),
+          )
+          as _i3.Future<String>);
+
+  @override
+  _i3.Future<List<String>> addDocuments(List<_i2.Document>? documents) =>
+      (super.noSuchMethod(
+            Invocation.method(#addDocuments, [documents]),
+            returnValue: _i3.Future<List<String>>.value(<String>[]),
+          )
+          as _i3.Future<List<String>>);
+
+  @override
+  _i3.Future<List<double>> generateEmbeddings(String? text) =>
+      (super.noSuchMethod(
+            Invocation.method(#generateEmbeddings, [text]),
+            returnValue: _i3.Future<List<double>>.value(<double>[]),
+          )
+          as _i3.Future<List<double>>);
 
   @override
   _i3.Future<void> close() =>

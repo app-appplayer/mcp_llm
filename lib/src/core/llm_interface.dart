@@ -1,4 +1,4 @@
-import 'models.dart';
+import '../../mcp_llm.dart';
 
 /// Interface for LLM providers
 abstract class LlmInterface {
@@ -43,4 +43,45 @@ abstract class LlmInterface {
 
   /// Close and cleanup resources
   Future<void> close();
+}
+
+/// Extension to add retry capabilities to LLM providers
+extension RetryCapabilities on LlmInterface {
+  /// Execute request with retry logic
+  Future<T> executeWithRetry<T>({
+    required Future<T> Function() operation,
+    required LlmConfiguration config,
+    required Logger logger,
+  }) async {
+    if (!config.retryOnFailure) {
+      return await operation();
+    }
+
+    int attempts = 0;
+    Duration currentDelay = config.retryDelay;
+
+    while (true) {
+      try {
+        return await operation().timeout(config.timeout);
+      } catch (e, stackTrace) {
+        attempts++;
+
+        if (attempts >= config.maxRetries) {
+          logger.error('Operation failed after $attempts attempts: $e');
+          throw Exception('Max retry attempts reached: $e\n$stackTrace');
+        }
+
+        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        await Future.delayed(currentDelay);
+
+        // Apply exponential backoff if enabled
+        if (config.useExponentialBackoff) {
+          currentDelay = Duration(
+            milliseconds: (currentDelay.inMilliseconds * 2)
+                .clamp(0, config.maxRetryDelay.inMilliseconds),
+          );
+        }
+      }
+    }
+  }
 }

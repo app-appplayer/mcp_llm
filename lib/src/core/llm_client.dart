@@ -1,3 +1,5 @@
+// lib/src/core/llm_client.dart
+
 import '../../mcp_llm.dart';
 import '../adapter/llm_client_adapter.dart';
 
@@ -21,6 +23,9 @@ class LlmClient {
   /// Performance monitor
   final PerformanceMonitor _performanceMonitor;
 
+  /// Retrieval manager for RAG capabilities
+  final RetrievalManager? retrievalManager;
+
   /// Chat session for maintaining conversation
   late final ChatSession chatSession;
 
@@ -34,7 +39,9 @@ class LlmClient {
     this.storageManager,
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
-  }) : _mcpClient = mcpClient,
+    this.retrievalManager,
+  })
+      : _mcpClient = mcpClient,
         _clientAdapter = mcpClient != null ? LlmClientAdapter(mcpClient) : null,
         pluginManager = pluginManager ?? PluginManager(),
         _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
@@ -44,9 +51,11 @@ class LlmClient {
     );
   }
 
-
   /// Check if MCP client is available
   bool get hasMcpClient => _mcpClient != null && _clientAdapter != null;
+
+  /// Check if retrieval capabilities are available
+  bool get hasRetrievalCapabilities => retrievalManager != null;
 
   /// Send chat message and get response
   Future<LlmResponse> chat(String userInput, {
@@ -54,6 +63,7 @@ class LlmClient {
     bool enablePlugins = true,
     Map<String, dynamic> parameters = const {},
     LlmContext? context,
+    bool useRetrieval = false,
   }) async {
     final requestId = _performanceMonitor.startRequest('chat');
 
@@ -67,6 +77,21 @@ class LlmClient {
         enablePlugins: enablePlugins,
       );
 
+      // Handle retrieval-augmented generation if enabled and available
+      if (useRetrieval && retrievalManager != null) {
+        final ragResponse = await _handleRetrievalAugmentedResponse(
+            userInput,
+            parameters,
+            context
+        );
+
+        // Add assistant message to session
+        chatSession.addAssistantMessage(ragResponse.text);
+
+        _performanceMonitor.endRequest(requestId, success: true);
+        return ragResponse;
+      }
+
       // Create LLM request
       final request = LlmRequest(
         prompt: userInput,
@@ -77,7 +102,8 @@ class LlmClient {
 
       // Add tools information if available
       if (availableTools.isNotEmpty) {
-        final toolDescriptions = availableTools.map((tool) => {
+        final toolDescriptions = availableTools.map((tool) =>
+        {
           'name': tool['name'],
           'description': tool['description'],
           'parameters': tool['inputSchema'],
@@ -121,15 +147,54 @@ class LlmClient {
     }
   }
 
+  /// Handle Retrieval-Augmented Generation (RAG)
+  Future<LlmResponse> _handleRetrievalAugmentedResponse(String userInput,
+      Map<String, dynamic> parameters,
+      LlmContext? context,) async {
+    try {
+      _logger.debug(
+          'Using retrieval-augmented generation for input: $userInput');
+
+      // Get conversation history for context-aware search
+      final previousQueries = chatSession.userMessages
+          .map((msg) => msg.getTextContent())
+          .where((text) => text.isNotEmpty)
+          .toList();
+
+      // Remove current query from previous queries
+      if (previousQueries.isNotEmpty && previousQueries.last == userInput) {
+        previousQueries.removeLast();
+      }
+
+      // Generate RAG response
+      final ragText = await retrievalManager!.retrieveAndGenerate(
+        userInput,
+        topK: 5,
+        generationParams: parameters,
+        previousQueries: previousQueries,
+        useHybridSearch: true,
+      );
+
+      return LlmResponse(
+        text: ragText,
+        metadata: {
+          'rag_enabled': true,
+          'context_size': previousQueries.length,
+        },
+      );
+    } catch (e) {
+      _logger.error('Error in retrieval-augmented generation: $e');
+      throw Exception('Failed to generate retrieval-augmented response: $e');
+    }
+  }
+
   /// Handle tool calls in response
-  Future<LlmResponse> _handleToolCalls(
-      LlmResponse response,
+  Future<LlmResponse> _handleToolCalls(LlmResponse response,
       String userInput,
       bool enableTools,
       bool enablePlugins,
       Map<String, dynamic> parameters,
-      LlmContext? context,
-      ) async {
+      LlmContext? context,) async {
     for (final toolCall in response.toolCalls!) {
       try {
         // Try executing the tool
@@ -163,7 +228,8 @@ class LlmClient {
 
         // Create error response
         response = LlmResponse(
-          text: "I tried to use a tool called '${toolCall.name}', but encountered an error: $e",
+          text: "I tried to use a tool called '${toolCall
+              .name}', but encountered an error: $e",
           metadata: {'error': e.toString()},
         );
       }
@@ -210,8 +276,7 @@ class LlmClient {
   }
 
   /// Execute tool using MCP client or plugins
-  Future<dynamic> _executeTool(
-      String toolName,
+  Future<dynamic> _executeTool(String toolName,
       Map<String, dynamic> args, {
         bool enableMcpTools = true,
         bool enablePlugins = true,
@@ -251,12 +316,44 @@ class LlmClient {
     bool enablePlugins = true,
     Map<String, dynamic> parameters = const {},
     LlmContext? context,
+    bool useRetrieval = false,
   }) async* {
-    // Implementation similar to chat() but using streamComplete
-    // This is a skeleton - full implementation would be more complex
-
+    // Add user message to session
     chatSession.addUserMessage(userInput);
 
+    // Handle RAG if enabled
+    if (useRetrieval && retrievalManager != null) {
+      // Streaming not fully supported with RAG, use non-streaming version
+      try {
+        final ragResponse = await _handleRetrievalAugmentedResponse(
+            userInput,
+            parameters,
+            context
+        );
+
+        // Add assistant message to session
+        chatSession.addAssistantMessage(ragResponse.text);
+
+        // Simulate streaming with the full response
+        yield LlmResponseChunk(
+          textChunk: ragResponse.text,
+          isDone: true,
+          metadata: {'rag_enabled': true},
+        );
+
+        return;
+      } catch (e) {
+        _logger.error('Error in retrieval-augmented generation: $e');
+        yield LlmResponseChunk(
+          textChunk: 'Error with retrieval-augmented generation: $e',
+          isDone: true,
+          metadata: {'error': e.toString()},
+        );
+        return;
+      }
+    }
+
+    // Collect available tools
     final availableTools = await _collectAvailableTools(
       enableMcpTools: enableTools,
       enablePlugins: enablePlugins,
@@ -270,7 +367,8 @@ class LlmClient {
     );
 
     if (availableTools.isNotEmpty) {
-      final toolDescriptions = availableTools.map((tool) => {
+      final toolDescriptions = availableTools.map((tool) =>
+      {
         'name': tool['name'],
         'description': tool['description'],
         'parameters': tool['inputSchema'],
@@ -290,9 +388,60 @@ class LlmClient {
     chatSession.addAssistantMessage(responseBuffer.toString());
   }
 
+  /// Retrieve relevant documents for a query
+  Future<List<Document>> retrieveRelevantDocuments(String query, {
+    int topK = 5,
+    double? minimumScore,
+    String? namespace,
+    Map<String, dynamic> filters = const {},
+    bool useCache = true,
+  }) async {
+    if (retrievalManager == null) {
+      throw StateError('Retrieval manager is not configured for this client');
+    }
+
+    return await retrievalManager!.retrieveRelevant(
+      query,
+      topK: topK,
+      minimumScore: minimumScore,
+      namespace: namespace,
+      filters: filters,
+      useCache: useCache,
+    );
+  }
+
+  /// Add document to retrieval system
+  Future<String> addDocument(Document document) async {
+    if (retrievalManager == null) {
+      throw StateError('Retrieval manager is not configured for this client');
+    }
+
+    return await retrievalManager!.addDocument(document);
+  }
+
+  /// Add multiple documents to retrieval system
+  Future<List<String>> addDocuments(List<Document> documents) async {
+    if (retrievalManager == null) {
+      throw StateError('Retrieval manager is not configured for this client');
+    }
+
+    return await retrievalManager!.addDocuments(documents);
+  }
+
+  /// Generate embeddings for text
+  Future<List<double>> generateEmbeddings(String text) async {
+    return await llmProvider.getEmbeddings(text);
+  }
+
   /// Close and clean up resources
   Future<void> close() async {
     await llmProvider.close();
+
+    // Close retrieval manager if exists
+    if (retrievalManager != null) {
+      await retrievalManager!.close();
+    }
+
     _performanceMonitor.stopMonitoring();
   }
 }

@@ -1,3 +1,4 @@
+import '../../mcp_llm.dart';
 import '../core/llm_interface.dart';
 import '../core/models.dart';
 
@@ -80,4 +81,16 @@ class ProviderOptions {
       additionalOptions: additionalOptions ?? this.additionalOptions,
     );
   }
+}
+
+/// Interface for LLM providers with retry capabilities
+abstract class RetryableLlmProvider {
+  /// LLM configuration with retry settings
+  LlmConfiguration get config;
+
+  /// Logger for recording retry attempts
+  Logger get logger;
+
+  /// Execute an operation with retry logic
+  Future<T> executeWithRetry<T>(Future<T> Function() operation);
 }

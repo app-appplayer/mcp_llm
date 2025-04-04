@@ -7,26 +7,65 @@ import '../utils/logger.dart';
 import 'provider.dart';
 
 /// Implementation of LLM interface for Together AI API
-class TogetherProvider implements LlmInterface {
+class TogetherProvider implements LlmInterface, RetryableLlmProvider {
+  @override
+  final LlmConfiguration config;
+
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
-  final Logger _logger = Logger.getLogger('mcp_llm.together_provider');
+
+  @override
+  final Logger logger = Logger.getLogger('mcp_llm.together_provider');
 
   TogetherProvider({
     required this.apiKey,
     required this.model,
     this.baseUrl,
-    this.options,
+    required this.config,
   });
+
+  // Concrete implementation of the executeWithRetry method
+  @override
+  Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
+    if (!config.retryOnFailure) {
+      return await operation();
+    }
+
+    int attempts = 0;
+    Duration currentDelay = config.retryDelay;
+
+    while (true) {
+      try {
+        return await operation().timeout(config.timeout);
+      } catch (e, stackTrace) {
+        attempts++;
+
+        if (attempts >= config.maxRetries) {
+          logger.error('Operation failed after $attempts attempts: $e');
+          throw Exception('Max retry attempts reached: $e\n$stackTrace');
+        }
+
+        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        await Future.delayed(currentDelay);
+
+        // Apply exponential backoff if enabled
+        if (config.useExponentialBackoff) {
+          currentDelay = Duration(
+            milliseconds: (currentDelay.inMilliseconds * 2)
+                .clamp(0, config.maxRetryDelay.inMilliseconds),
+          );
+        }
+      }
+    }
+  }
 
   @override
   Future<LlmResponse> complete(LlmRequest request) async {
-    _logger.debug('Together AI complete request with model: $model');
+    return await executeWithRetry(() async {
+      logger.debug('Together AI complete request with model: $model');
 
-    try {
       // Build request body
       final requestBody = _buildRequestBody(request);
 
@@ -54,36 +93,26 @@ class TogetherProvider implements LlmInterface {
       } else {
         // Handle error
         final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
-
-        return LlmResponse(
-          text: 'Error: Unable to get a response from Together AI.',
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
-        );
+        logger.error(error);
+        throw Exception(error);
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error calling Together API: $e');
-      _logger.debug('Stack trace: $stackTrace');
-
-      return LlmResponse(
-        text: 'Error: Unable to get a response from Together AI.',
-        metadata: {'error': e.toString()},
-      );
-    }
+    });
   }
 
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
-    _logger.debug('Together AI stream request with model: $model');
-
     try {
+      logger.debug('Together AI stream request with model: $model');
+
       // Build request body
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
 
-      // Prepare API request
+      // Prepare API request with retry for connection phase
       final uri = Uri.parse(baseUrl ?? 'https://api.together.xyz/v1/completions');
-      final httpRequest = await _client.postUrl(uri);
+      final httpRequest = await executeWithRetry(() async {
+        return await _client.postUrl(uri);
+      });
 
       // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
@@ -92,8 +121,10 @@ class TogetherProvider implements LlmInterface {
       // Add request body
       httpRequest.write(jsonEncode(requestBody));
 
-      // Get response
-      final httpResponse = await httpRequest.close();
+      // Get response with retry
+      final httpResponse = await executeWithRetry(() async {
+        return await httpRequest.close();
+      });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
         // Handle streaming response
@@ -132,7 +163,7 @@ class TogetherProvider implements LlmInterface {
                   }
                 }
               } catch (e) {
-                _logger.error('Error parsing chunk: $e');
+                logger.error('Error parsing chunk: $e');
               }
             }
           }
@@ -141,7 +172,7 @@ class TogetherProvider implements LlmInterface {
         // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from Together AI.',
@@ -149,9 +180,8 @@ class TogetherProvider implements LlmInterface {
           metadata: {'error': error, 'status_code': httpResponse.statusCode},
         );
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error streaming from Together API: $e');
-      _logger.debug('Stack trace: $stackTrace');
+    } catch (e) {
+      logger.error('Error streaming from Together API: $e');
 
       yield LlmResponseChunk(
         textChunk: 'Error: Unable to get a streaming response from Together AI.',
@@ -163,9 +193,9 @@ class TogetherProvider implements LlmInterface {
 
   @override
   Future<List<double>> getEmbeddings(String text) async {
-    _logger.debug('Together AI embeddings request');
+    return await executeWithRetry(() async {
+      logger.debug('Together AI embeddings request');
 
-    try {
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.together.xyz/v1/embeddings');
       final httpRequest = await _client.postUrl(uri);
@@ -199,25 +229,21 @@ class TogetherProvider implements LlmInterface {
       } else {
         // Handle error
         final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        logger.error(error);
         throw Exception(error);
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error getting embeddings from Together API: $e');
-      _logger.debug('Stack trace: $stackTrace');
-      throw Exception('Failed to get embeddings: $e');
-    }
+    });
   }
 
   @override
   Future<void> initialize(LlmConfiguration config) async {
-    _logger.info('Together AI provider initialized with model: $model');
+    logger.info('Together AI provider initialized with model: $model');
   }
 
   @override
   Future<void> close() async {
     _client.close();
-    _logger.debug('Together AI provider client closed');
+    logger.debug('Together AI provider client closed');
   }
 
   // Helper method to build request body
@@ -269,7 +295,7 @@ class TogetherProvider implements LlmInterface {
     return body;
   }
 
-// Helper method to parse response
+  // Helper method to parse response
   LlmResponse _parseResponse(Map<String, dynamic> response) {
     // Extract text
     final choices = response['choices'] as List<dynamic>;
@@ -303,11 +329,11 @@ class TogetherProviderFactory implements LlmProviderFactory {
   Set<LlmCapability> get capabilities => {
     LlmCapability.completion,
     LlmCapability.streaming,
+    LlmCapability.embeddings,
   };
 
   @override
   LlmInterface createProvider(LlmConfiguration config) {
-    // Remove environment variable dependency and only use the config parameter
     final apiKey = config.apiKey;
     if (apiKey == null || apiKey.isEmpty) {
       throw StateError('API key is required for Together AI provider');
@@ -317,7 +343,7 @@ class TogetherProviderFactory implements LlmProviderFactory {
       apiKey: apiKey,
       model: config.model ?? 'together/mistralai/Mixtral-8x7B-Instruct-v0.1',
       baseUrl: config.baseUrl,
-      options: config.options,
+      config: config,
     );
   }
 }

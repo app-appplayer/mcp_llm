@@ -7,26 +7,65 @@ import '../utils/logger.dart';
 import 'provider.dart';
 
 /// Implementation of LLM interface for OpenAI API
-class OpenAiProvider implements LlmInterface {
+class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
+  @override
+  final LlmConfiguration config;
+
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
-  final Logger _logger = Logger.getLogger('mcp_llm.openai_provider');
+
+  @override
+  final Logger logger = Logger.getLogger('mcp_llm.openai_provider');
 
   OpenAiProvider({
     required this.apiKey,
-    this.model = 'gpt-4o',
+    required this.model,
     this.baseUrl,
-    this.options,
+    required this.config,
   });
+
+  // Concrete implementation of the executeWithRetry method from RetryableLlmProvider
+  @override
+  Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
+    if (!config.retryOnFailure) {
+      return await operation();
+    }
+
+    int attempts = 0;
+    Duration currentDelay = config.retryDelay;
+
+    while (true) {
+      try {
+        return await operation().timeout(config.timeout);
+      } catch (e, stackTrace) {
+        attempts++;
+
+        if (attempts >= config.maxRetries) {
+          logger.error('Operation failed after $attempts attempts: $e');
+          throw Exception('Max retry attempts reached: $e\n$stackTrace');
+        }
+
+        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        await Future.delayed(currentDelay);
+
+        // Apply exponential backoff if enabled
+        if (config.useExponentialBackoff) {
+          currentDelay = Duration(
+            milliseconds: (currentDelay.inMilliseconds * 2)
+                .clamp(0, config.maxRetryDelay.inMilliseconds),
+          );
+        }
+      }
+    }
+  }
 
   @override
   Future<LlmResponse> complete(LlmRequest request) async {
-    _logger.debug('OpenAI complete request with model: $model');
+    return await executeWithRetry(() async {
+      logger.debug('OpenAI complete request with model: $model');
 
-    try {
       // Build request body
       final requestBody = _buildRequestBody(request);
 
@@ -54,36 +93,27 @@ class OpenAiProvider implements LlmInterface {
       } else {
         // Handle error
         final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        logger.error(error);
 
-        return LlmResponse(
-          text: 'Error: Unable to get a response from OpenAI.',
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
-        );
+        throw Exception(error);
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error calling OpenAI API: $e');
-      _logger.debug('Stack trace: $stackTrace');
-
-      return LlmResponse(
-        text: 'Error: Unable to get a response from OpenAI.',
-        metadata: {'error': e.toString()},
-      );
-    }
+    });
   }
 
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
-    _logger.debug('OpenAI stream request with model: $model');
-
     try {
+      logger.debug('OpenAI stream request with model: $model');
+
       // Build request body
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
 
-      // Prepare API request
+      // Prepare API request with retry for connection phase
       final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/chat/completions');
-      final httpRequest = await _client.postUrl(uri);
+      final httpRequest = await executeWithRetry(() async {
+        return await _client.postUrl(uri);
+      });
 
       // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
@@ -92,8 +122,10 @@ class OpenAiProvider implements LlmInterface {
       // Add request body
       httpRequest.write(jsonEncode(requestBody));
 
-      // Get response
-      final httpResponse = await httpRequest.close();
+      // Get response with retry for connection phase
+      final httpResponse = await executeWithRetry(() async {
+        return await httpRequest.close();
+      });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
         // Handle streaming response
@@ -155,7 +187,7 @@ class OpenAiProvider implements LlmInterface {
                             },
                           );
                         } catch (e) {
-                          _logger.warning('Error parsing tool args: $e');
+                          logger.warning('Error parsing tool args: $e');
                         }
                       }
                     }
@@ -172,7 +204,7 @@ class OpenAiProvider implements LlmInterface {
                   }
                 }
               } catch (e) {
-                _logger.error('Error parsing chunk: $e');
+                logger.error('Error parsing chunk: $e');
               }
             }
           }
@@ -181,7 +213,7 @@ class OpenAiProvider implements LlmInterface {
         // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from OpenAI.',
@@ -189,9 +221,8 @@ class OpenAiProvider implements LlmInterface {
           metadata: {'error': error, 'status_code': httpResponse.statusCode},
         );
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error streaming from OpenAI API: $e');
-      _logger.debug('Stack trace: $stackTrace');
+    } catch (e) {
+      logger.error('Error streaming from OpenAI API: $e');
 
       yield LlmResponseChunk(
         textChunk: 'Error: Unable to get a streaming response from OpenAI.',
@@ -203,9 +234,9 @@ class OpenAiProvider implements LlmInterface {
 
   @override
   Future<List<double>> getEmbeddings(String text) async {
-    _logger.debug('OpenAI embeddings request');
+    return await executeWithRetry(() async {
+      logger.debug('OpenAI embeddings request');
 
-    try {
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/embeddings');
       final httpRequest = await _client.postUrl(uri);
@@ -239,25 +270,21 @@ class OpenAiProvider implements LlmInterface {
       } else {
         // Handle error
         final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        logger.error(error);
         throw Exception(error);
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error getting embeddings from OpenAI API: $e');
-      _logger.debug('Stack trace: $stackTrace');
-      throw Exception('Failed to get embeddings: $e');
-    }
+    });
   }
 
   @override
   Future<void> initialize(LlmConfiguration config) async {
-    _logger.info('OpenAI provider initialized with model: $model');
+    logger.info('OpenAI provider initialized with model: $model');
   }
 
   @override
   Future<void> close() async {
     _client.close();
-    _logger.debug('OpenAI provider client closed');
+    logger.debug('OpenAI provider client closed');
   }
 
   // Helper method to build request body
@@ -392,7 +419,7 @@ class OpenAiProvider implements LlmInterface {
         try {
           arguments = jsonDecode(function['arguments'] as String) as Map<String, dynamic>;
         } catch (e) {
-          _logger.warning('Error parsing tool arguments: $e');
+          logger.warning('Error parsing tool arguments: $e');
           arguments = {'_error': 'Failed to parse arguments'};
         }
 
@@ -449,7 +476,7 @@ class OpenAiProviderFactory implements LlmProviderFactory {
       apiKey: apiKey,
       model: config.model ?? 'gpt-4o',
       baseUrl: config.baseUrl,
-      options: config.options,
+      config: config,
     );
   }
 }

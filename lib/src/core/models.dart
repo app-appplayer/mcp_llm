@@ -502,19 +502,62 @@ class LlmResponseChunk {
   }
 }
 
-/// LLM configuration
+/// LLM configuration with enhanced retry capabilities
 class LlmConfiguration {
   final String? apiKey;
   final String? model;
   final String? baseUrl;
   final Map<String, dynamic>? options;
 
+  // Retry configuration
+  final bool retryOnFailure;
+  final int maxRetries;
+  final Duration retryDelay;
+  final bool useExponentialBackoff;
+  final Duration maxRetryDelay;
+
+  // Request timeout
+  final Duration timeout;
+
   LlmConfiguration({
     this.apiKey,
     this.model,
     this.baseUrl,
     this.options,
+    this.retryOnFailure = true,
+    this.maxRetries = 3,
+    this.retryDelay = const Duration(seconds: 1),
+    this.useExponentialBackoff = true,
+    this.maxRetryDelay = const Duration(seconds: 30),
+    this.timeout = const Duration(seconds: 60),
   });
+
+  /// Create a copy with modified values
+  LlmConfiguration copyWith({
+    String? apiKey,
+    String? model,
+    String? baseUrl,
+    Map<String, dynamic>? options,
+    bool? retryOnFailure,
+    int? maxRetries,
+    Duration? retryDelay,
+    bool? useExponentialBackoff,
+    Duration? maxRetryDelay,
+    Duration? timeout,
+  }) {
+    return LlmConfiguration(
+      apiKey: apiKey ?? this.apiKey,
+      model: model ?? this.model,
+      baseUrl: baseUrl ?? this.baseUrl,
+      options: options ?? this.options,
+      retryOnFailure: retryOnFailure ?? this.retryOnFailure,
+      maxRetries: maxRetries ?? this.maxRetries,
+      retryDelay: retryDelay ?? this.retryDelay,
+      useExponentialBackoff: useExponentialBackoff ?? this.useExponentialBackoff,
+      maxRetryDelay: maxRetryDelay ?? this.maxRetryDelay,
+      timeout: timeout ?? this.timeout,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     final result = <String, dynamic>{};
@@ -523,6 +566,13 @@ class LlmConfiguration {
     if (model != null) result['model'] = model;
     if (baseUrl != null) result['base_url'] = baseUrl;
     if (options != null) result['options'] = options;
+
+    result['retry_on_failure'] = retryOnFailure;
+    result['max_retries'] = maxRetries;
+    result['retry_delay_ms'] = retryDelay.inMilliseconds;
+    result['use_exponential_backoff'] = useExponentialBackoff;
+    result['max_retry_delay_ms'] = maxRetryDelay.inMilliseconds;
+    result['timeout_ms'] = timeout.inMilliseconds;
 
     return result;
   }

@@ -70,6 +70,8 @@ import 'src/plugins/plugin_manager.dart';
 import 'src/plugins/plugin_interface.dart';
 import 'src/providers/provider.dart';
 import 'src/rag/retrieval_manager.dart';
+import 'src/rag/document_store.dart';
+import 'src/rag/vector_store.dart';
 import 'src/storage/storage_manager.dart';
 import 'src/utils/performance_monitor.dart';
 
@@ -104,6 +106,9 @@ class McpLlm {
   /// [config] - Configuration for the LLM provider
   /// [mcpClient] - Optional MCP client (from mcp_client package)
   /// [storageManager] - Optional storage manager for persistence
+  /// [pluginManager] - Optional plugin manager or uses internal one if not provided
+  /// [performanceMonitor] - Optional performance monitor
+  /// [retrievalManager] - Optional retrieval manager for RAG capabilities
   /// [clientId] - Optional ID for the client
   /// [routingProperties] - Optional properties for client routing
   /// [loadWeight] - Optional weight for load balancing
@@ -112,6 +117,9 @@ class McpLlm {
     LlmConfiguration? config,
     dynamic mcpClient, // Type-agnostic to avoid direct dependency
     StorageManager? storageManager,
+    PluginManager? pluginManager,
+    PerformanceMonitor? performanceMonitor,
+    RetrievalManager? retrievalManager,
     String? clientId,
     Map<String, dynamic>? routingProperties,
     double loadWeight = 1.0,
@@ -122,15 +130,27 @@ class McpLlm {
       throw StateError('Provider not found: $providerName');
     }
 
-    // Create LLM provider
-    final llmProvider = factory.createProvider(config ?? LlmConfiguration());
+    // Use provided configuration or create default
+    final effectiveConfig = config ?? LlmConfiguration();
 
-    // Create LLM client
+    // Create LLM provider
+    final llmProvider = factory.createProvider(effectiveConfig);
+
+    // Initialize provider if needed
+    await llmProvider.initialize(effectiveConfig);
+
+    // Use provided components or internal ones
+    final effectivePluginManager = pluginManager ?? _pluginManager;
+    final effectivePerformanceMonitor = performanceMonitor ?? _performanceMonitor;
+
+    // Create LLM client with all optional components
     final client = LlmClient(
       llmProvider: llmProvider,
       mcpClient: mcpClient,
       storageManager: storageManager,
-      pluginManager: _pluginManager,
+      pluginManager: effectivePluginManager,
+      performanceMonitor: effectivePerformanceMonitor,
+      retrievalManager: retrievalManager,
     );
 
     // Generate client ID if not provided
@@ -154,12 +174,16 @@ class McpLlm {
   /// [mcpServer] - Optional MCP server (from mcp_server package)
   /// [storageManager] - Optional storage manager for persistence
   /// [retrievalManager] - Optional retrieval manager for RAG
+  /// [pluginManager] - Optional plugin manager or uses internal one if not provided
+  /// [performanceMonitor] - Optional performance monitor
   Future<LlmServer> createServer({
     required String providerName,
     LlmConfiguration? config,
     dynamic mcpServer, // Type-agnostic to avoid direct dependency
     StorageManager? storageManager,
     RetrievalManager? retrievalManager,
+    PluginManager? pluginManager,
+    PerformanceMonitor? performanceMonitor,
   }) async {
     // Get provider factory
     final factory = _llmRegistry.getProviderFactory(providerName);
@@ -167,16 +191,27 @@ class McpLlm {
       throw StateError('Provider not found: $providerName');
     }
 
-    // Create LLM provider
-    final llmProvider = factory.createProvider(config ?? LlmConfiguration());
+    // Use provided configuration or create default
+    final effectiveConfig = config ?? LlmConfiguration();
 
-    // Create LLM server
+    // Create LLM provider
+    final llmProvider = factory.createProvider(effectiveConfig);
+
+    // Initialize provider if needed
+    await llmProvider.initialize(effectiveConfig);
+
+    // Use provided components or internal ones
+    final effectivePluginManager = pluginManager ?? _pluginManager;
+    final effectivePerformanceMonitor = performanceMonitor ?? _performanceMonitor;
+
+    // Create LLM server with all components
     return LlmServer(
       llmProvider: llmProvider,
       mcpServer: mcpServer,
       storageManager: storageManager,
       retrievalManager: retrievalManager,
-      pluginManager: _pluginManager,
+      pluginManager: effectivePluginManager,
+      performanceMonitor: effectivePerformanceMonitor,
     );
   }
 
@@ -208,17 +243,22 @@ class McpLlm {
         List<String>? providerNames,
         ResultAggregator? aggregator,
         Map<String, dynamic> parameters = const {},
+        LlmConfiguration? config,
       }) async {
     // Determine which providers to use
     final providersToUse = providerNames ??
         _llmRegistry.getAvailableProviders();
+
+    // Use provided configuration or create default
+    final effectiveConfig = config ?? LlmConfiguration();
 
     // Create provider instances
     final providers = <LlmInterface>[];
     for (final providerName in providersToUse) {
       final factory = _llmRegistry.getProviderFactory(providerName);
       if (factory != null) {
-        final provider = factory.createProvider(LlmConfiguration());
+        final provider = factory.createProvider(effectiveConfig);
+        await provider.initialize(effectiveConfig);
         providers.add(provider);
       }
     }
@@ -280,6 +320,58 @@ class McpLlm {
   /// Get performance metrics
   Map<String, dynamic> getPerformanceMetrics() {
     return _performanceMonitor.getMetricsReport();
+  }
+
+  /// Create retrieval manager with document store
+  RetrievalManager createRetrievalManager({
+    required String providerName,
+    required DocumentStore documentStore,
+    LlmConfiguration? config,
+  }) {
+    // Get provider factory
+    final factory = _llmRegistry.getProviderFactory(providerName);
+    if (factory == null) {
+      throw StateError('Provider not found: $providerName');
+    }
+
+    // Use provided configuration or create default
+    final effectiveConfig = config ?? LlmConfiguration();
+
+    // Create LLM provider
+    final llmProvider = factory.createProvider(effectiveConfig);
+
+    // Create retrieval manager
+    return RetrievalManager.withDocumentStore(
+      llmProvider: llmProvider,
+      documentStore: documentStore,
+    );
+  }
+
+  /// Create retrieval manager with vector store
+  RetrievalManager createVectorRetrievalManager({
+    required String providerName,
+    required VectorStore vectorStore,
+    String? defaultNamespace,
+    LlmConfiguration? config,
+  }) {
+    // Get provider factory
+    final factory = _llmRegistry.getProviderFactory(providerName);
+    if (factory == null) {
+      throw StateError('Provider not found: $providerName');
+    }
+
+    // Use provided configuration or create default
+    final effectiveConfig = config ?? LlmConfiguration();
+
+    // Create LLM provider
+    final llmProvider = factory.createProvider(effectiveConfig);
+
+    // Create retrieval manager
+    return RetrievalManager.withVectorStore(
+      llmProvider: llmProvider,
+      vectorStore: vectorStore,
+      defaultNamespace: defaultNamespace,
+    );
   }
 
   /// Shutdown and clean up resources

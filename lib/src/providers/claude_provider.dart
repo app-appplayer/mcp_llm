@@ -6,54 +6,66 @@ import '../core/models.dart';
 import '../utils/logger.dart';
 import 'provider.dart';
 
-/// Factory for creating Claude providers
-class ClaudeProviderFactory implements LlmProviderFactory {
+/// Implementation of LLM interface for Claude (Anthropic) API
+class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
   @override
-  String get name => 'claude';
+  final LlmConfiguration config;
 
-  @override
-  Set<LlmCapability> get capabilities => {
-    LlmCapability.completion,
-    LlmCapability.streaming,
-    LlmCapability.toolUse,
-    LlmCapability.imageUnderstanding,
-  };
-
-  @override
-  LlmInterface createProvider(LlmConfiguration config) {
-    final apiKey = config.apiKey;
-    if (apiKey == null || apiKey.isEmpty) {
-      throw StateError('API key is required for Claude provider');
-    }
-
-    return ClaudeProvider(
-      apiKey: apiKey,
-      model: config.model ?? 'claude-3-5-sonnet',
-      baseUrl: config.baseUrl,
-      options: config.options,
-    );
-  }
-}
-
-/// Implementation of LLM provider (Claude)
-class ClaudeProvider implements LlmInterface {
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final Map<String, dynamic>? options;
   final HttpClient _client = HttpClient();
-  final Logger _logger = Logger.getLogger('mcp_llm.claude_provider');
+
+  @override
+  final Logger logger = Logger.getLogger('mcp_llm.claude_provider');
 
   ClaudeProvider({
     required this.apiKey,
-    this.model = 'claude-3-5-sonnet-20241022',
+    required this.model,
     this.baseUrl,
-    this.options,
+    required this.config,
   });
+
+  // Concrete implementation of the executeWithRetry method
+  @override
+  Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
+    if (!config.retryOnFailure) {
+      return await operation();
+    }
+
+    int attempts = 0;
+    Duration currentDelay = config.retryDelay;
+
+    while (true) {
+      try {
+        return await operation().timeout(config.timeout);
+      } catch (e, stackTrace) {
+        attempts++;
+
+        if (attempts >= config.maxRetries) {
+          logger.error('Operation failed after $attempts attempts: $e');
+          throw Exception('Max retry attempts reached: $e\n$stackTrace');
+        }
+
+        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        await Future.delayed(currentDelay);
+
+        // Apply exponential backoff if enabled
+        if (config.useExponentialBackoff) {
+          currentDelay = Duration(
+            milliseconds: (currentDelay.inMilliseconds * 2)
+                .clamp(0, config.maxRetryDelay.inMilliseconds),
+          );
+        }
+      }
+    }
+  }
 
   @override
   Future<LlmResponse> complete(LlmRequest request) async {
-    try {
+    return await executeWithRetry(() async {
+      logger.debug('Claude complete request with model: $model');
+
       // Configure request data
       final requestBody = _buildRequestBody(request);
 
@@ -79,38 +91,30 @@ class ClaudeProvider implements LlmInterface {
 
         // Create result
         final response = _parseResponse(responseJson);
-
         return response;
       } else {
         // Handle error
-        final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
-
-        return LlmResponse(
-          text: 'Error: Unable to get a response from Claude.',
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
-        );
+        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        logger.error(error);
+        throw Exception(error);
       }
-    } catch (e) {
-      _logger.error('Error calling Claude API: $e');
-
-      return LlmResponse(
-        text: 'Error: Unable to get a response from Claude.',
-        metadata: {'error': e.toString()},
-      );
-    }
+    });
   }
 
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
     try {
+      logger.debug('Claude stream request with model: $model');
+
       // Configure request data
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
 
-      // API request
+      // API request with retry
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
-      final httpRequest = await _client.postUrl(uri);
+      final httpRequest = await executeWithRetry(() async {
+        return await _client.postUrl(uri);
+      });
 
       // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
@@ -120,8 +124,10 @@ class ClaudeProvider implements LlmInterface {
       // Add request body
       httpRequest.write(jsonEncode(requestBody));
 
-      // Get response
-      final httpResponse = await httpRequest.close();
+      // Get response with retry
+      final httpResponse = await executeWithRetry(() async {
+        return await httpRequest.close();
+      });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
         // Process streaming response
@@ -152,8 +158,7 @@ class ClaudeProvider implements LlmInterface {
                   }
                 } else if (type == 'tool_use') {
                   // Tool use response
-                  final toolUse =
-                      chunkJson['tool_use'] as Map<String, dynamic>?;
+                  final toolUse = chunkJson['tool_use'] as Map<String, dynamic>?;
                   if (toolUse != null) {
                     yield LlmResponseChunk(
                       textChunk: '',
@@ -187,7 +192,7 @@ class ClaudeProvider implements LlmInterface {
                   );
                 }
               } catch (e) {
-                _logger.error('Error parsing chunk: $e');
+                logger.error('Error parsing chunk: $e');
               }
             }
           }
@@ -195,8 +200,8 @@ class ClaudeProvider implements LlmInterface {
       } else {
         // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
-        final error = 'API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from Claude.',
@@ -205,27 +210,23 @@ class ClaudeProvider implements LlmInterface {
         );
       }
     } catch (e) {
-      _logger.error('Error streaming from Claude API: $e');
+      logger.error('Error streaming from Claude API: $e');
 
       yield LlmResponseChunk(
         textChunk: 'Error: Unable to get a streaming response from Claude.',
         isDone: true,
         metadata: {'error': e.toString()},
       );
-    } finally {
-      // Close client
-      _client.close();
     }
   }
 
   @override
   Future<List<double>> getEmbeddings(String text) async {
-    _logger.debug('Claude embeddings request');
+    return await executeWithRetry(() async {
+      logger.debug('Claude embeddings request');
 
-    try {
       // Prepare API request
-      final uri =
-          Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/embeddings');
+      final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/embeddings');
       final httpRequest = await _client.postUrl(uri);
 
       // Set headers
@@ -235,7 +236,7 @@ class ClaudeProvider implements LlmInterface {
 
       // Add request body
       final requestBody = {
-        'model': 'claude-3-haiku-20240307', // Use appropriate embedding model
+        'model': 'claude-3-haiku-20240307', // Using appropriate embedding model
         'input': text,
         'dimensions': 1536, // Standard embedding dimensions
       };
@@ -252,27 +253,23 @@ class ClaudeProvider implements LlmInterface {
         return embedding.cast<double>();
       } else {
         // Handle error
-        final error =
-            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
-        _logger.error(error);
+        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        logger.error(error);
         throw Exception(error);
       }
-    } catch (e, stackTrace) {
-      _logger.error('Error getting embeddings from Claude API: $e');
-      _logger.debug('Stack trace: $stackTrace');
-      throw Exception('Failed to get embeddings: $e');
-    }
+    });
   }
 
   @override
   Future<void> initialize(LlmConfiguration config) async {
     // Initialization logic
-    _logger.info('Claude provider initialized with model: $model');
+    logger.info('Claude provider initialized with model: $model');
   }
 
   @override
   Future<void> close() async {
     _client.close();
+    logger.info('Claude provider resources closed');
   }
 
   // Helper method to build request body
@@ -382,6 +379,36 @@ class ClaudeProvider implements LlmInterface {
       text: text,
       metadata: metadata,
       toolCalls: toolCalls,
+    );
+  }
+}
+
+/// Factory for creating Claude providers
+class ClaudeProviderFactory implements LlmProviderFactory {
+  @override
+  String get name => 'claude';
+
+  @override
+  Set<LlmCapability> get capabilities => {
+    LlmCapability.completion,
+    LlmCapability.streaming,
+    LlmCapability.toolUse,
+    LlmCapability.imageUnderstanding,
+    LlmCapability.embeddings,
+  };
+
+  @override
+  LlmInterface createProvider(LlmConfiguration config) {
+    final apiKey = config.apiKey;
+    if (apiKey == null || apiKey.isEmpty) {
+      throw StateError('API key is required for Claude provider');
+    }
+
+    return ClaudeProvider(
+      apiKey: apiKey,
+      model: config.model ?? 'claude-3-5-sonnet-20241022',
+      baseUrl: config.baseUrl,
+      config: config,
     );
   }
 }

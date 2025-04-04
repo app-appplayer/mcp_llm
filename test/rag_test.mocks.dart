@@ -3,14 +3,12 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i5;
+import 'dart:async' as _i4;
 
-import 'package:mcp_llm/src/core/llm_interface.dart' as _i7;
-import 'package:mcp_llm/src/core/models.dart' as _i3;
-import 'package:mcp_llm/src/rag/document_store.dart' as _i4;
+import 'package:mcp_llm/mcp_llm.dart' as _i3;
 import 'package:mcp_llm/src/storage/storage_manager.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i6;
+import 'package:mockito/src/dummies.dart' as _i5;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -40,7 +38,7 @@ class _FakeLlmResponse_1 extends _i1.SmartFake implements _i3.LlmResponse {
 /// A class which mocks [DocumentStore].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockDocumentStore extends _i1.Mock implements _i4.DocumentStore {
+class MockDocumentStore extends _i1.Mock implements _i3.DocumentStore {
   MockDocumentStore() {
     _i1.throwOnMissingStub(this);
   }
@@ -67,77 +65,77 @@ class MockDocumentStore extends _i1.Mock implements _i4.DocumentStore {
           as int);
 
   @override
-  _i5.Future<void> initialize() =>
+  _i4.Future<void> initialize() =>
       (super.noSuchMethod(
             Invocation.method(#initialize, []),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i5.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i5.Future<String> addDocument(_i4.Document? document) =>
+  _i4.Future<String> addDocument(_i3.Document? document) =>
       (super.noSuchMethod(
             Invocation.method(#addDocument, [document]),
-            returnValue: _i5.Future<String>.value(
-              _i6.dummyValue<String>(
+            returnValue: _i4.Future<String>.value(
+              _i5.dummyValue<String>(
                 this,
                 Invocation.method(#addDocument, [document]),
               ),
             ),
           )
-          as _i5.Future<String>);
+          as _i4.Future<String>);
 
   @override
-  _i4.Document? getDocument(String? id) =>
+  _i3.Document? getDocument(String? id) =>
       (super.noSuchMethod(Invocation.method(#getDocument, [id]))
-          as _i4.Document?);
+          as _i3.Document?);
 
   @override
-  _i5.Future<void> updateDocument(_i4.Document? document) =>
+  _i4.Future<void> updateDocument(_i3.Document? document) =>
       (super.noSuchMethod(
             Invocation.method(#updateDocument, [document]),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i5.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i5.Future<bool> deleteDocument(String? id) =>
+  _i4.Future<bool> deleteDocument(String? id) =>
       (super.noSuchMethod(
             Invocation.method(#deleteDocument, [id]),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<String> createCollection(_i4.DocumentCollection? collection) =>
+  _i4.Future<String> createCollection(_i3.DocumentCollection? collection) =>
       (super.noSuchMethod(
             Invocation.method(#createCollection, [collection]),
-            returnValue: _i5.Future<String>.value(
-              _i6.dummyValue<String>(
+            returnValue: _i4.Future<String>.value(
+              _i5.dummyValue<String>(
                 this,
                 Invocation.method(#createCollection, [collection]),
               ),
             ),
           )
-          as _i5.Future<String>);
+          as _i4.Future<String>);
 
   @override
-  _i4.DocumentCollection? getCollection(String? id) =>
+  _i3.DocumentCollection? getCollection(String? id) =>
       (super.noSuchMethod(Invocation.method(#getCollection, [id]))
-          as _i4.DocumentCollection?);
+          as _i3.DocumentCollection?);
 
   @override
-  _i5.Future<bool> deleteCollection(String? id) =>
+  _i4.Future<bool> deleteCollection(String? id) =>
       (super.noSuchMethod(
             Invocation.method(#deleteCollection, [id]),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<List<_i4.Document>> findSimilar(
+  _i4.Future<List<_i3.Document>> findSimilar(
     List<double>? queryEmbedding, {
     int? limit = 5,
     double? minimumScore,
@@ -148,12 +146,12 @@ class MockDocumentStore extends _i1.Mock implements _i4.DocumentStore {
               [queryEmbedding],
               {#limit: limit, #minimumScore: minimumScore},
             ),
-            returnValue: _i5.Future<List<_i4.Document>>.value(<_i4.Document>[]),
+            returnValue: _i4.Future<List<_i3.Document>>.value(<_i3.Document>[]),
           )
-          as _i5.Future<List<_i4.Document>>);
+          as _i4.Future<List<_i3.Document>>);
 
   @override
-  _i5.Future<List<_i4.Document>> findSimilarInCollection(
+  _i4.Future<List<_i3.Document>> findSimilarInCollection(
     String? collectionId,
     List<double>? queryEmbedding, {
     int? limit = 5,
@@ -165,86 +163,86 @@ class MockDocumentStore extends _i1.Mock implements _i4.DocumentStore {
               [collectionId, queryEmbedding],
               {#limit: limit, #minimumScore: minimumScore},
             ),
-            returnValue: _i5.Future<List<_i4.Document>>.value(<_i4.Document>[]),
+            returnValue: _i4.Future<List<_i3.Document>>.value(<_i3.Document>[]),
           )
-          as _i5.Future<List<_i4.Document>>);
+          as _i4.Future<List<_i3.Document>>);
 
   @override
-  List<_i4.Document> getDocumentsInCollection(String? collectionId) =>
+  List<_i3.Document> getDocumentsInCollection(String? collectionId) =>
       (super.noSuchMethod(
             Invocation.method(#getDocumentsInCollection, [collectionId]),
-            returnValue: <_i4.Document>[],
+            returnValue: <_i3.Document>[],
           )
-          as List<_i4.Document>);
+          as List<_i3.Document>);
 
   @override
-  _i5.Future<int> deleteDocumentsInCollection(String? collectionId) =>
+  _i4.Future<int> deleteDocumentsInCollection(String? collectionId) =>
       (super.noSuchMethod(
             Invocation.method(#deleteDocumentsInCollection, [collectionId]),
-            returnValue: _i5.Future<int>.value(0),
+            returnValue: _i4.Future<int>.value(0),
           )
-          as _i5.Future<int>);
+          as _i4.Future<int>);
 
   @override
-  List<_i4.Document> searchByContent(String? query, {int? limit = 5}) =>
+  List<_i3.Document> searchByContent(String? query, {int? limit = 5}) =>
       (super.noSuchMethod(
             Invocation.method(#searchByContent, [query], {#limit: limit}),
-            returnValue: <_i4.Document>[],
+            returnValue: <_i3.Document>[],
           )
-          as List<_i4.Document>);
+          as List<_i3.Document>);
 }
 
 /// A class which mocks [LlmInterface].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockLlmInterface extends _i1.Mock implements _i7.LlmInterface {
+class MockLlmInterface extends _i1.Mock implements _i3.LlmInterface {
   MockLlmInterface() {
     _i1.throwOnMissingStub(this);
   }
 
   @override
-  _i5.Future<_i3.LlmResponse> complete(_i3.LlmRequest? request) =>
+  _i4.Future<_i3.LlmResponse> complete(_i3.LlmRequest? request) =>
       (super.noSuchMethod(
             Invocation.method(#complete, [request]),
-            returnValue: _i5.Future<_i3.LlmResponse>.value(
+            returnValue: _i4.Future<_i3.LlmResponse>.value(
               _FakeLlmResponse_1(this, Invocation.method(#complete, [request])),
             ),
           )
-          as _i5.Future<_i3.LlmResponse>);
+          as _i4.Future<_i3.LlmResponse>);
 
   @override
-  _i5.Stream<_i3.LlmResponseChunk> streamComplete(_i3.LlmRequest? request) =>
+  _i4.Stream<_i3.LlmResponseChunk> streamComplete(_i3.LlmRequest? request) =>
       (super.noSuchMethod(
             Invocation.method(#streamComplete, [request]),
-            returnValue: _i5.Stream<_i3.LlmResponseChunk>.empty(),
+            returnValue: _i4.Stream<_i3.LlmResponseChunk>.empty(),
           )
-          as _i5.Stream<_i3.LlmResponseChunk>);
+          as _i4.Stream<_i3.LlmResponseChunk>);
 
   @override
-  _i5.Future<List<double>> getEmbeddings(String? text) =>
+  _i4.Future<List<double>> getEmbeddings(String? text) =>
       (super.noSuchMethod(
             Invocation.method(#getEmbeddings, [text]),
-            returnValue: _i5.Future<List<double>>.value(<double>[]),
+            returnValue: _i4.Future<List<double>>.value(<double>[]),
           )
-          as _i5.Future<List<double>>);
+          as _i4.Future<List<double>>);
 
   @override
-  _i5.Future<void> initialize(_i3.LlmConfiguration? config) =>
+  _i4.Future<void> initialize(_i3.LlmConfiguration? config) =>
       (super.noSuchMethod(
             Invocation.method(#initialize, [config]),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i5.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i5.Future<void> close() =>
+  _i4.Future<void> close() =>
       (super.noSuchMethod(
             Invocation.method(#close, []),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i5.Future<void>);
+          as _i4.Future<void>);
 }
 
 /// A class which mocks [LlmResponse].
@@ -259,7 +257,7 @@ class MockLlmResponse extends _i1.Mock implements _i3.LlmResponse {
   String get text =>
       (super.noSuchMethod(
             Invocation.getter(#text),
-            returnValue: _i6.dummyValue<String>(this, Invocation.getter(#text)),
+            returnValue: _i5.dummyValue<String>(this, Invocation.getter(#text)),
           )
           as String);
 

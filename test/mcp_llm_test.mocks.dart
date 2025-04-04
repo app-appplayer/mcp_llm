@@ -3,16 +3,11 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i6;
+import 'dart:async' as _i4;
 
-import 'package:mcp_llm/src/chat/message.dart' as _i7;
-import 'package:mcp_llm/src/core/llm_context.dart' as _i8;
-import 'package:mcp_llm/src/core/llm_interface.dart' as _i2;
-import 'package:mcp_llm/src/core/models.dart' as _i3;
-import 'package:mcp_llm/src/providers/provider.dart' as _i4;
-import 'package:mcp_llm/src/storage/storage_manager.dart' as _i9;
+import 'package:mcp_llm/mcp_llm.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i5;
+import 'package:mockito/src/dummies.dart' as _i3;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -33,12 +28,12 @@ class _FakeLlmInterface_0 extends _i1.SmartFake implements _i2.LlmInterface {
     : super(parent, parentInvocation);
 }
 
-class _FakeLlmResponse_1 extends _i1.SmartFake implements _i3.LlmResponse {
+class _FakeLlmResponse_1 extends _i1.SmartFake implements _i2.LlmResponse {
   _FakeLlmResponse_1(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
-class _FakeLlmRequest_2 extends _i1.SmartFake implements _i3.LlmRequest {
+class _FakeLlmRequest_2 extends _i1.SmartFake implements _i2.LlmRequest {
   _FakeLlmRequest_2(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
@@ -47,13 +42,13 @@ class _FakeLlmRequest_2 extends _i1.SmartFake implements _i3.LlmRequest {
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockLlmProviderFactory extends _i1.Mock
-    implements _i4.LlmProviderFactory {
+    implements _i2.LlmProviderFactory {
   @override
   String get name =>
       (super.noSuchMethod(
             Invocation.getter(#name),
-            returnValue: _i5.dummyValue<String>(this, Invocation.getter(#name)),
-            returnValueForMissingStub: _i5.dummyValue<String>(
+            returnValue: _i3.dummyValue<String>(this, Invocation.getter(#name)),
+            returnValueForMissingStub: _i3.dummyValue<String>(
               this,
               Invocation.getter(#name),
             ),
@@ -61,16 +56,16 @@ class MockLlmProviderFactory extends _i1.Mock
           as String);
 
   @override
-  Set<_i3.LlmCapability> get capabilities =>
+  Set<_i2.LlmCapability> get capabilities =>
       (super.noSuchMethod(
             Invocation.getter(#capabilities),
-            returnValue: <_i3.LlmCapability>{},
-            returnValueForMissingStub: <_i3.LlmCapability>{},
+            returnValue: <_i2.LlmCapability>{},
+            returnValueForMissingStub: <_i2.LlmCapability>{},
           )
-          as Set<_i3.LlmCapability>);
+          as Set<_i2.LlmCapability>);
 
   @override
-  _i2.LlmInterface createProvider(_i3.LlmConfiguration? config) =>
+  _i2.LlmInterface createProvider(_i2.LlmConfiguration? config) =>
       (super.noSuchMethod(
             Invocation.method(#createProvider, [config]),
             returnValue: _FakeLlmInterface_0(
@@ -90,70 +85,70 @@ class MockLlmProviderFactory extends _i1.Mock
 /// See the documentation for Mockito's code generation for more information.
 class MockLlmInterface extends _i1.Mock implements _i2.LlmInterface {
   @override
-  _i6.Future<_i3.LlmResponse> complete(_i3.LlmRequest? request) =>
+  _i4.Future<_i2.LlmResponse> complete(_i2.LlmRequest? request) =>
       (super.noSuchMethod(
             Invocation.method(#complete, [request]),
-            returnValue: _i6.Future<_i3.LlmResponse>.value(
+            returnValue: _i4.Future<_i2.LlmResponse>.value(
               _FakeLlmResponse_1(this, Invocation.method(#complete, [request])),
             ),
-            returnValueForMissingStub: _i6.Future<_i3.LlmResponse>.value(
+            returnValueForMissingStub: _i4.Future<_i2.LlmResponse>.value(
               _FakeLlmResponse_1(this, Invocation.method(#complete, [request])),
             ),
           )
-          as _i6.Future<_i3.LlmResponse>);
+          as _i4.Future<_i2.LlmResponse>);
 
   @override
-  _i6.Stream<_i3.LlmResponseChunk> streamComplete(_i3.LlmRequest? request) =>
+  _i4.Stream<_i2.LlmResponseChunk> streamComplete(_i2.LlmRequest? request) =>
       (super.noSuchMethod(
             Invocation.method(#streamComplete, [request]),
-            returnValue: _i6.Stream<_i3.LlmResponseChunk>.empty(),
-            returnValueForMissingStub: _i6.Stream<_i3.LlmResponseChunk>.empty(),
+            returnValue: _i4.Stream<_i2.LlmResponseChunk>.empty(),
+            returnValueForMissingStub: _i4.Stream<_i2.LlmResponseChunk>.empty(),
           )
-          as _i6.Stream<_i3.LlmResponseChunk>);
+          as _i4.Stream<_i2.LlmResponseChunk>);
 
   @override
-  _i6.Future<List<double>> getEmbeddings(String? text) =>
+  _i4.Future<List<double>> getEmbeddings(String? text) =>
       (super.noSuchMethod(
             Invocation.method(#getEmbeddings, [text]),
-            returnValue: _i6.Future<List<double>>.value(<double>[]),
-            returnValueForMissingStub: _i6.Future<List<double>>.value(
+            returnValue: _i4.Future<List<double>>.value(<double>[]),
+            returnValueForMissingStub: _i4.Future<List<double>>.value(
               <double>[],
             ),
           )
-          as _i6.Future<List<double>>);
+          as _i4.Future<List<double>>);
 
   @override
-  _i6.Future<void> initialize(_i3.LlmConfiguration? config) =>
+  _i4.Future<void> initialize(_i2.LlmConfiguration? config) =>
       (super.noSuchMethod(
             Invocation.method(#initialize, [config]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i6.Future<void> close() =>
+  _i4.Future<void> close() =>
       (super.noSuchMethod(
             Invocation.method(#close, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 }
 
 /// A class which mocks [LlmRequest].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
+class MockLlmRequest extends _i1.Mock implements _i2.LlmRequest {
   @override
   String get prompt =>
       (super.noSuchMethod(
             Invocation.getter(#prompt),
-            returnValue: _i5.dummyValue<String>(
+            returnValue: _i3.dummyValue<String>(
               this,
               Invocation.getter(#prompt),
             ),
-            returnValueForMissingStub: _i5.dummyValue<String>(
+            returnValueForMissingStub: _i3.dummyValue<String>(
               this,
               Invocation.getter(#prompt),
             ),
@@ -161,13 +156,13 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
           as String);
 
   @override
-  List<_i7.LlmMessage> get history =>
+  List<_i2.LlmMessage> get history =>
       (super.noSuchMethod(
             Invocation.getter(#history),
-            returnValue: <_i7.LlmMessage>[],
-            returnValueForMissingStub: <_i7.LlmMessage>[],
+            returnValue: <_i2.LlmMessage>[],
+            returnValueForMissingStub: <_i2.LlmMessage>[],
           )
-          as List<_i7.LlmMessage>);
+          as List<_i2.LlmMessage>);
 
   @override
   Map<String, dynamic> get parameters =>
@@ -179,11 +174,11 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
           as Map<String, dynamic>);
 
   @override
-  _i3.LlmRequest copyWith({
+  _i2.LlmRequest copyWith({
     String? prompt,
-    List<_i7.LlmMessage>? history,
+    List<_i2.LlmMessage>? history,
     Map<String, dynamic>? parameters,
-    _i8.LlmContext? context,
+    _i2.LlmContext? context,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#copyWith, [], {
@@ -211,10 +206,10 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
               }),
             ),
           )
-          as _i3.LlmRequest);
+          as _i2.LlmRequest);
 
   @override
-  _i3.LlmRequest withSystemInstruction(String? instruction) =>
+  _i2.LlmRequest withSystemInstruction(String? instruction) =>
       (super.noSuchMethod(
             Invocation.method(#withSystemInstruction, [instruction]),
             returnValue: _FakeLlmRequest_2(
@@ -226,10 +221,10 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
               Invocation.method(#withSystemInstruction, [instruction]),
             ),
           )
-          as _i3.LlmRequest);
+          as _i2.LlmRequest);
 
   @override
-  _i3.LlmRequest withMaxTokens(int? maxTokens) =>
+  _i2.LlmRequest withMaxTokens(int? maxTokens) =>
       (super.noSuchMethod(
             Invocation.method(#withMaxTokens, [maxTokens]),
             returnValue: _FakeLlmRequest_2(
@@ -241,10 +236,10 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
               Invocation.method(#withMaxTokens, [maxTokens]),
             ),
           )
-          as _i3.LlmRequest);
+          as _i2.LlmRequest);
 
   @override
-  _i3.LlmRequest withTemperature(double? temperature) =>
+  _i2.LlmRequest withTemperature(double? temperature) =>
       (super.noSuchMethod(
             Invocation.method(#withTemperature, [temperature]),
             returnValue: _FakeLlmRequest_2(
@@ -256,10 +251,10 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
               Invocation.method(#withTemperature, [temperature]),
             ),
           )
-          as _i3.LlmRequest);
+          as _i2.LlmRequest);
 
   @override
-  _i3.LlmRequest withMessage(_i7.LlmMessage? message) =>
+  _i2.LlmRequest withMessage(_i2.LlmMessage? message) =>
       (super.noSuchMethod(
             Invocation.method(#withMessage, [message]),
             returnValue: _FakeLlmRequest_2(
@@ -271,7 +266,7 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
               Invocation.method(#withMessage, [message]),
             ),
           )
-          as _i3.LlmRequest);
+          as _i2.LlmRequest);
 
   @override
   Map<String, dynamic> toJson() =>
@@ -286,13 +281,13 @@ class MockLlmRequest extends _i1.Mock implements _i3.LlmRequest {
 /// A class which mocks [LlmResponse].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockLlmResponse extends _i1.Mock implements _i3.LlmResponse {
+class MockLlmResponse extends _i1.Mock implements _i2.LlmResponse {
   @override
   String get text =>
       (super.noSuchMethod(
             Invocation.getter(#text),
-            returnValue: _i5.dummyValue<String>(this, Invocation.getter(#text)),
-            returnValueForMissingStub: _i5.dummyValue<String>(
+            returnValue: _i3.dummyValue<String>(this, Invocation.getter(#text)),
+            returnValueForMissingStub: _i3.dummyValue<String>(
               this,
               Invocation.getter(#text),
             ),
@@ -321,97 +316,97 @@ class MockLlmResponse extends _i1.Mock implements _i3.LlmResponse {
 /// A class which mocks [StorageManager].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockStorageManager extends _i1.Mock implements _i9.StorageManager {
+class MockStorageManager extends _i1.Mock implements _i2.StorageManager {
   @override
-  _i6.Future<void> saveString(String? key, String? value) =>
+  _i4.Future<void> saveString(String? key, String? value) =>
       (super.noSuchMethod(
             Invocation.method(#saveString, [key, value]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i6.Future<String?> loadString(String? key) =>
+  _i4.Future<String?> loadString(String? key) =>
       (super.noSuchMethod(
             Invocation.method(#loadString, [key]),
-            returnValue: _i6.Future<String?>.value(),
-            returnValueForMissingStub: _i6.Future<String?>.value(),
+            returnValue: _i4.Future<String?>.value(),
+            returnValueForMissingStub: _i4.Future<String?>.value(),
           )
-          as _i6.Future<String?>);
+          as _i4.Future<String?>);
 
   @override
-  _i6.Future<void> saveData(String? key, List<int>? data) =>
+  _i4.Future<void> saveData(String? key, List<int>? data) =>
       (super.noSuchMethod(
             Invocation.method(#saveData, [key, data]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i6.Future<List<int>?> loadData(String? key) =>
+  _i4.Future<List<int>?> loadData(String? key) =>
       (super.noSuchMethod(
             Invocation.method(#loadData, [key]),
-            returnValue: _i6.Future<List<int>?>.value(),
-            returnValueForMissingStub: _i6.Future<List<int>?>.value(),
+            returnValue: _i4.Future<List<int>?>.value(),
+            returnValueForMissingStub: _i4.Future<List<int>?>.value(),
           )
-          as _i6.Future<List<int>?>);
+          as _i4.Future<List<int>?>);
 
   @override
-  _i6.Future<void> saveObject(String? key, Map<String, dynamic>? object) =>
+  _i4.Future<void> saveObject(String? key, Map<String, dynamic>? object) =>
       (super.noSuchMethod(
             Invocation.method(#saveObject, [key, object]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i6.Future<Map<String, dynamic>?> loadObject(String? key) =>
+  _i4.Future<Map<String, dynamic>?> loadObject(String? key) =>
       (super.noSuchMethod(
             Invocation.method(#loadObject, [key]),
-            returnValue: _i6.Future<Map<String, dynamic>?>.value(),
+            returnValue: _i4.Future<Map<String, dynamic>?>.value(),
             returnValueForMissingStub:
-                _i6.Future<Map<String, dynamic>?>.value(),
+                _i4.Future<Map<String, dynamic>?>.value(),
           )
-          as _i6.Future<Map<String, dynamic>?>);
+          as _i4.Future<Map<String, dynamic>?>);
 
   @override
-  _i6.Future<bool> exists(String? key) =>
+  _i4.Future<bool> exists(String? key) =>
       (super.noSuchMethod(
             Invocation.method(#exists, [key]),
-            returnValue: _i6.Future<bool>.value(false),
-            returnValueForMissingStub: _i6.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
+            returnValueForMissingStub: _i4.Future<bool>.value(false),
           )
-          as _i6.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i6.Future<bool> delete(String? key) =>
+  _i4.Future<bool> delete(String? key) =>
       (super.noSuchMethod(
             Invocation.method(#delete, [key]),
-            returnValue: _i6.Future<bool>.value(false),
-            returnValueForMissingStub: _i6.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
+            returnValueForMissingStub: _i4.Future<bool>.value(false),
           )
-          as _i6.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i6.Future<void> clear() =>
+  _i4.Future<void> clear() =>
       (super.noSuchMethod(
             Invocation.method(#clear, []),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i6.Future<void>);
+          as _i4.Future<void>);
 
   @override
-  _i6.Future<List<String>> listKeys([String? prefix]) =>
+  _i4.Future<List<String>> listKeys([String? prefix]) =>
       (super.noSuchMethod(
             Invocation.method(#listKeys, [prefix]),
-            returnValue: _i6.Future<List<String>>.value(<String>[]),
-            returnValueForMissingStub: _i6.Future<List<String>>.value(
+            returnValue: _i4.Future<List<String>>.value(<String>[]),
+            returnValueForMissingStub: _i4.Future<List<String>>.value(
               <String>[],
             ),
           )
-          as _i6.Future<List<String>>);
+          as _i4.Future<List<String>>);
 }

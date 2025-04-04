@@ -33,6 +33,18 @@ class ChatSession {
   /// Get current chat history
   List<LlmMessage> get messages => _history.messages;
 
+  /// Get all user messages
+  List<LlmMessage> get userMessages => _history.userMessages;
+
+  /// Get all assistant messages
+  List<LlmMessage> get assistantMessages => _history.assistantMessages;
+
+  /// Get all system messages
+  List<LlmMessage> get systemMessages => _history.systemMessages;
+
+  /// Get all tool messages
+  List<LlmMessage> get toolMessages => _history.toolMessages;
+
   /// Get the number of messages in history
   int get messageCount => _history.length;
 
