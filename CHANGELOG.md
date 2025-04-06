@@ -1,6 +1,6 @@
-## 0.0.1
+## 0.1.0
 
-* Initial alpha release
+* Initial release
 * Features:
     * Multiple LLM provider support (Claude, OpenAI, Together AI)
     * Multi-client management with routing and load balancing
