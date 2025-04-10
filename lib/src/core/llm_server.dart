@@ -284,7 +284,7 @@ class LlmServer {
       final systemPrompt = args['systemPrompt'] as String?;
 
       _logger.debug('Handling LLM streaming: $prompt');
-      final requestId = _performanceMonitor.startRequest('streaming_tool');
+      //final requestId = _performanceMonitor.startRequest('streaming_tool');
 
       // Create request
       final request = LlmRequest(
@@ -298,7 +298,7 @@ class LlmServer {
       }
 
       // Get streaming response
-      final responseStream = llmProvider.streamComplete(request);
+      //final responseStream = llmProvider.streamComplete(request);
 
       // 스트리밍 컨텐츠 생성
       final contents = [LlmTextContent(text: 'Streaming started...')];
