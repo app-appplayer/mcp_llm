@@ -38,7 +38,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  mcp_llm: ^0.1.0
+  mcp_llm: ^0.2.0
 ```
 
 Or install via command line:
@@ -255,6 +255,35 @@ final llmServer = await mcpLlm.createServer(
 await llmServer.registerLlmTools();
 ```
 
+You can connect multiple mcp_clients to a single MCPLlm.
+
+```dart
+// Single client approach
+final llmClient = await mcpLlm.createClient(
+  providerName: 'openai',
+  mcpClient: singleMcpClient
+);
+
+// Multiple clients approach
+final llmClient = await mcpLlm.createClient(
+  providerName: 'claude',
+  mcpClients: {
+    'search': searchMcpClient,
+    'database': dbMcpClient,
+    'filestore': fileMcpClient
+  }
+);
+
+// Adding a client later
+await mcpLlm.addMcpClientToLlmClient('client_id', 'new_tool', newMcpClient);
+
+// Setting the default MCP client
+await mcpLlm.setDefaultMcpClient('client_id', 'database');
+
+// Getting a list of MCP client IDs
+final mcpIds = mcpLlm.getMcpClientIds('client_id');
+```
+
 ## Issues and Feedback
 
 Please file any issues, bugs, or feature requests in our [issue tracker](https://github.com/app-appplayer/mcp_llm/issues).
@@ -262,3 +291,5 @@ Please file any issues, bugs, or feature requests in our [issue tracker](https:/
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+`

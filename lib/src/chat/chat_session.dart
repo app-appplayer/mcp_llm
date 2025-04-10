@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../core/llm_interface.dart';
 import '../storage/storage_manager.dart';
 import '../utils/logger.dart';
@@ -90,54 +92,48 @@ class ChatSession {
     _logger.debug('Added system message to chat session');
   }
 
-  /// Add a tool result to the chat
-  void addToolResult(String toolName, Map<String, dynamic> arguments, List<dynamic> result) {
-    // Create tool call message
-    final toolCallMessage = LlmMessage(
-      role: 'assistant',
-      content: {
-        'type': 'tool_call',
-        'tool': toolName,
-        'arguments': arguments,
-      },
-      timestamp: DateTime.now(),
-    );
+// Method to add tool result
+  void addToolResult(String toolName, Map<String, dynamic> arguments, List<dynamic> results, {String? toolCallId}) {
+    final callId = toolCallId ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Create tool result message
-    final toolResultMessage = LlmMessage(
-      role: 'tool',
-      content: {
-        'type': 'tool_result',
-        'tool': toolName,
-        'content': result,
-      },
-      timestamp: DateTime.now(),
-    );
+    // Convert tool results to text
+    String resultContent = '';
+    if (results.isNotEmpty) {
+      if (results.first is Map) {
+        resultContent = jsonEncode(results.first);
+      } else {
+        resultContent = results.first.toString();
+      }
+    }
 
-    // Add both messages
-    _history.addMessage(toolCallMessage);
-    _history.addMessage(toolResultMessage);
-    _persistHistory();
+    // Convert tool call message to plain text
+    final toolCallText = "Using tool: $toolName with arguments: ${jsonEncode(arguments)}";
 
-    _logger.debug('Added tool result to chat session: $toolName');
+    // Add as regular assistant message
+    addAssistantMessage(toolCallText);
+
+    // Convert tool result message to plain text and add
+    final resultText = "Tool result: $resultContent";
+    addAssistantMessage(resultText);
+
+    _logger.debug('Added tool result to chat session: $toolName (ID: $callId)');
   }
 
-  /// Add a tool error to the chat
-  void addToolError(String toolName, String error) {
-    final message = LlmMessage(
-      role: 'tool',
-      content: {
-        'type': 'tool_error',
-        'tool': toolName,
-        'error': error,
-      },
-      timestamp: DateTime.now(),
-    );
+// Method to add tool error
+  void addToolError(String toolName, String errorMessage, {String? toolCallId}) {
+    final callId = toolCallId ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
-    _history.addMessage(message);
-    _persistHistory();
+    // Convert tool call message to plain text
+    final toolCallText = "Attempting to use tool: $toolName";
 
-    _logger.debug('Added tool error to chat session: $toolName - $error');
+    // Add as regular assistant message
+    addAssistantMessage(toolCallText);
+
+    // Convert error message to plain text and add
+    final errorText = "Tool error: $errorMessage";
+    addAssistantMessage(errorText);
+
+    _logger.debug('Added tool error to chat session: $toolName - $errorMessage (ID: $callId)');
   }
 
   /// Get messages formatted for LLM context

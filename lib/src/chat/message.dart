@@ -71,16 +71,17 @@ class LlmMessage {
     );
   }
 
+
   /// Create a tool message
   static LlmMessage tool(String toolName, dynamic result, {Map<String, dynamic>? metadata}) {
     return LlmMessage(
-      role: 'tool',
+      role: 'function',
       content: {
         'type': 'tool_result',
         'tool': toolName,
         'content': result,
       },
-      metadata: metadata ?? {},
+      metadata: metadata ?? {'tool_name': toolName},
     );
   }
 

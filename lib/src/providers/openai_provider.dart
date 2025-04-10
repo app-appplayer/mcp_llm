@@ -78,7 +78,10 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       httpRequest.headers.set('Authorization', 'Bearer $apiKey');
 
       // Add request body
-      httpRequest.write(jsonEncode(requestBody));
+      final jsonString = jsonEncode(requestBody);
+      final encodedBody = utf8.encode(jsonString);
+      httpRequest.contentLength = encodedBody.length;
+      httpRequest.add(encodedBody);
 
       // Get response
       final httpResponse = await httpRequest.close();
@@ -120,7 +123,10 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       httpRequest.headers.set('Authorization', 'Bearer $apiKey');
 
       // Add request body
-      httpRequest.write(jsonEncode(requestBody));
+      final jsonString = jsonEncode(requestBody);
+      final encodedBody = utf8.encode(jsonString);
+      httpRequest.contentLength = encodedBody.length;
+      httpRequest.add(encodedBody);
 
       // Get response with retry for connection phase
       final httpResponse = await executeWithRetry(() async {
@@ -250,7 +256,11 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
         'input': text,
         'model': 'text-embedding-3-large',
       };
-      httpRequest.write(jsonEncode(requestBody));
+      //httpRequest.write(jsonEncode(requestBody));
+      final jsonString = jsonEncode(requestBody);
+      final encodedBody = utf8.encode(jsonString);
+      httpRequest.contentLength = encodedBody.length;
+      httpRequest.add(encodedBody);
 
       // Get response
       final httpResponse = await httpRequest.close();
@@ -291,26 +301,80 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
   Map<String, dynamic> _buildRequestBody(LlmRequest request) {
     // Build messages
     final List<Map<String, dynamic>> messages = [];
+    String? systemContent;
 
-    // Add history
-    for (final message in request.history) {
-      messages.add({
-        'role': message.role,
-        'content': _convertContentToOpenAiFormat(message.content),
-      });
-    }
-
-    // Add system message if provided in parameters
+    // Check for system message in parameters
     if (request.parameters.containsKey('system') ||
         request.parameters.containsKey('system_instructions')) {
-      final systemContent = request.parameters['system'] ??
+      systemContent = request.parameters['system'] ??
           request.parameters['system_instructions'];
-      if (systemContent != null && systemContent.isNotEmpty) {
-        messages.insert(0, {
-          'role': 'system',
-          'content': systemContent,
+    }
+
+    // Extract system message from history
+    for (final message in request.history) {
+      if (message.role == 'system') {
+        // Use system message from history if none in parameters
+        if (systemContent == null || systemContent.isEmpty) {
+          systemContent = message.content.toString();
+        }
+        // Skip adding system message here (will be added later)
+        continue;
+      } else if (message.role == 'tool') {
+        // Process tool message
+        final toolContent = message.content;
+        dynamic toolResult = '';
+        String toolCallId = '';
+
+        if (toolContent is Map) {
+          if (toolContent.containsKey('content')) {
+            toolResult = toolContent['content'];
+          }
+          // Use tool_call_id if available
+          if (message.metadata.containsKey('tool_call_id')) {
+            toolCallId = message.metadata['tool_call_id'].toString();
+          } else if (toolContent.containsKey('tool_call_id')) {
+            toolCallId = toolContent['tool_call_id'].toString();
+          } else {
+            // Generate random ID if not in metadata
+            toolCallId = 'call_${DateTime.now().millisecondsSinceEpoch}';
+          }
+        }
+
+        messages.add({
+          'role': 'tool', // Use OpenAI's 'tool' role
+          'tool_call_id': toolCallId,
+          'content': toolResult.toString(),
+        });
+      } else if (message.role == 'assistant' && message.metadata.containsKey('tool_call')) {
+        // Process assistant message with tool call
+        final toolCallContent = message.content;
+        if (toolCallContent is Map && toolCallContent.containsKey('tool_calls')) {
+          messages.add({
+            'role': 'assistant',
+            'content': null,
+            'tool_calls': toolCallContent['tool_calls'],
+          });
+        } else {
+          messages.add({
+            'role': message.role,
+            'content': _convertContentToOpenAiFormat(message.content),
+          });
+        }
+      } else {
+        // Process regular message
+        messages.add({
+          'role': message.role,
+          'content': _convertContentToOpenAiFormat(message.content),
         });
       }
+    }
+
+    // Add system message if present
+    if (systemContent != null && systemContent.isNotEmpty) {
+      messages.insert(0, {
+        'role': 'system',
+        'content': systemContent,
+      });
     }
 
     // Add current prompt
@@ -323,16 +387,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     final Map<String, dynamic> body = {
       'model': model,
       'messages': messages,
+      'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      'temperature': request.parameters['temperature'] ?? 0.7,
     };
-
-    // Add parameters
-    if (request.parameters.containsKey('max_tokens')) {
-      body['max_tokens'] = request.parameters['max_tokens'];
-    }
-
-    if (request.parameters.containsKey('temperature')) {
-      body['temperature'] = request.parameters['temperature'];
-    }
 
     if (request.parameters.containsKey('top_p')) {
       body['top_p'] = request.parameters['top_p'];
@@ -356,6 +413,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       body['tool_choice'] = 'auto';
     }
 
+    logger.debug('OpenAI API request body prepared: ${body.keys.join(', ')}');
     return body;
   }
 
@@ -423,8 +481,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           arguments = {'_error': 'Failed to parse arguments'};
         }
 
+        // ID를 반드시 포함
         return LlmToolCall(
-          id: id,
+          id: id,  // ID 유지하여 반환
           name: name,
           arguments: arguments,
         );
@@ -440,6 +499,11 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     // Add usage info if available
     if (response.containsKey('usage')) {
       metadata['usage'] = response['usage'];
+    }
+
+    // 도구 호출 ID 정보도 메타데이터에 추가
+    if (toolCalls != null && toolCalls.isNotEmpty) {
+      metadata['tool_call_ids'] = toolCalls.map((tc) => tc.id).toList();
     }
 
     return LlmResponse(

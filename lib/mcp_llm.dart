@@ -1,6 +1,9 @@
 /// Main library for integrating Large Language Models with MCP
 library;
 
+// Multi-MCP Client Integration
+export 'src/adapter/mcp_client_manager.dart';
+
 // Core components
 export 'src/core/llm_interface.dart';
 export 'src/core/llm_client.dart';
@@ -74,6 +77,7 @@ import 'src/rag/document_store.dart';
 import 'src/rag/vector_store.dart';
 import 'src/storage/storage_manager.dart';
 import 'src/utils/performance_monitor.dart';
+import 'src/utils/logger.dart';
 
 typedef MCPLlm = McpLlm;
 /// Main class for MCPLlm functionality
@@ -90,6 +94,9 @@ class McpLlm {
   /// Performance monitor
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
 
+  /// Logger instance
+  final Logger _logger = Logger.getLogger('mcp_llm.mcpllm');
+
   /// Create a new MCPLlm instance
   McpLlm() {
     // Initialize any necessary components
@@ -105,6 +112,7 @@ class McpLlm {
   /// [providerName] - Name of the registered provider to use
   /// [config] - Configuration for the LLM provider
   /// [mcpClient] - Optional MCP client (from mcp_client package)
+  /// [mcpClients] - Optional map of MCP clients (for multi-client support)
   /// [storageManager] - Optional storage manager for persistence
   /// [pluginManager] - Optional plugin manager or uses internal one if not provided
   /// [performanceMonitor] - Optional performance monitor
@@ -112,10 +120,12 @@ class McpLlm {
   /// [clientId] - Optional ID for the client
   /// [routingProperties] - Optional properties for client routing
   /// [loadWeight] - Optional weight for load balancing
+  /// [systemPrompt] - Optional system prompt for the LLM
   Future<LlmClient> createClient({
     required String providerName,
     LlmConfiguration? config,
-    dynamic mcpClient, // Type-agnostic to avoid direct dependency
+    dynamic mcpClient, // Single client (backward compatibility)
+    Map<String, dynamic>? mcpClients, // Multiple clients (new feature)
     StorageManager? storageManager,
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
@@ -123,6 +133,7 @@ class McpLlm {
     String? clientId,
     Map<String, dynamic>? routingProperties,
     double loadWeight = 1.0,
+    String? systemPrompt,
   }) async {
     // Get provider factory
     final factory = _llmRegistry.getProviderFactory(providerName);
@@ -147,11 +158,17 @@ class McpLlm {
     final client = LlmClient(
       llmProvider: llmProvider,
       mcpClient: mcpClient,
+      mcpClients: mcpClients,
       storageManager: storageManager,
       pluginManager: effectivePluginManager,
       performanceMonitor: effectivePerformanceMonitor,
       retrievalManager: retrievalManager,
     );
+
+    // 시스템 프롬프트가 제공된 경우 채팅 세션에 추가
+    if (systemPrompt != null && systemPrompt.isNotEmpty) {
+      client.chatSession.addSystemMessage(systemPrompt);
+    }
 
     // Generate client ID if not provided
     final id = clientId ?? 'llm_client_${DateTime.now().millisecondsSinceEpoch}';
@@ -165,6 +182,93 @@ class McpLlm {
     );
 
     return client;
+  }
+
+  /// Add an MCP client to an existing LLM client
+  ///
+  /// [llmClientId] - ID of the LLM client
+  /// [mcpClientId] - ID for the new MCP client
+  /// [mcpClient] - MCP client instance to add
+  Future<bool> addMcpClientToLlmClient(
+      String llmClientId,
+      String mcpClientId,
+      dynamic mcpClient
+      ) async {
+    final llmClient = _clientManager.getClient(llmClientId);
+    if (llmClient == null) {
+      _logger.warning('LLM client not found: $llmClientId');
+      return false;
+    }
+
+    try {
+      llmClient.addMcpClient(mcpClientId, mcpClient);
+      _logger.info('Added MCP client "$mcpClientId" to LLM client "$llmClientId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to add MCP client to LLM client: $e');
+      return false;
+    }
+  }
+
+  /// Remove an MCP client from an existing LLM client
+  ///
+  /// [llmClientId] - ID of the LLM client
+  /// [mcpClientId] - ID of the MCP client to remove
+  Future<bool> removeMcpClientFromLlmClient(
+      String llmClientId,
+      String mcpClientId
+      ) async {
+    final llmClient = _clientManager.getClient(llmClientId);
+    if (llmClient == null) {
+      _logger.warning('LLM client not found: $llmClientId');
+      return false;
+    }
+
+    try {
+      llmClient.removeMcpClient(mcpClientId);
+      _logger.info('Removed MCP client "$mcpClientId" from LLM client "$llmClientId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to remove MCP client from LLM client: $e');
+      return false;
+    }
+  }
+
+  /// Set the default MCP client for an LLM client
+  ///
+  /// [llmClientId] - ID of the LLM client
+  /// [mcpClientId] - ID of the MCP client to set as default
+  Future<bool> setDefaultMcpClient(
+      String llmClientId,
+      String mcpClientId
+      ) async {
+    final llmClient = _clientManager.getClient(llmClientId);
+    if (llmClient == null) {
+      _logger.warning('LLM client not found: $llmClientId');
+      return false;
+    }
+
+    try {
+      llmClient.setDefaultMcpClient(mcpClientId);
+      _logger.info('Set default MCP client to "$mcpClientId" for LLM client "$llmClientId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to set default MCP client: $e');
+      return false;
+    }
+  }
+
+  /// Get all MCP client IDs for an LLM client
+  ///
+  /// [llmClientId] - ID of the LLM client
+  List<String> getMcpClientIds(String llmClientId) {
+    final llmClient = _clientManager.getClient(llmClientId);
+    if (llmClient == null) {
+      _logger.warning('LLM client not found: $llmClientId');
+      return [];
+    }
+
+    return llmClient.getMcpClientIds();
   }
 
   /// Create an LLM server

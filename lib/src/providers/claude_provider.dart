@@ -6,7 +6,7 @@ import '../core/models.dart';
 import '../utils/logger.dart';
 import 'provider.dart';
 
-/// Implementation of LLM interface for Claude (Anthropic) API
+/// Implementation of LLM interface for Claude API
 class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
   @override
   final LlmConfiguration config;
@@ -26,7 +26,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
-  // Concrete implementation of the executeWithRetry method
+  // Concrete implementation of the executeWithRetry method from RetryableLlmProvider
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
     if (!config.retryOnFailure) {
@@ -47,7 +47,8 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
           throw Exception('Max retry attempts reached: $e\n$stackTrace');
         }
 
-        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        logger.warning(
+            'Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
         await Future.delayed(currentDelay);
 
         // Apply exponential backoff if enabled
@@ -66,10 +67,11 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     return await executeWithRetry(() async {
       logger.debug('Claude complete request with model: $model');
 
-      // Configure request data
+      // Build request body
       final requestBody = _buildRequestBody(request);
+      logger.debug('Claude API request body structure created');
 
-      // API request
+      // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
       final httpRequest = await _client.postUrl(uri);
 
@@ -79,23 +81,28 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       httpRequest.headers.set('anthropic-version', '2023-06-01');
 
       // Add request body
-      httpRequest.write(jsonEncode(requestBody));
+      final jsonString = jsonEncode(requestBody);
+      final encodedBody = utf8.encode(jsonString);
+      httpRequest.contentLength = encodedBody.length;
+      httpRequest.add(encodedBody);
 
       // Get response
       final httpResponse = await httpRequest.close();
       final responseBody = await utf8.decoder.bind(httpResponse).join();
 
-      // Parse response
+      // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
         final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        logger.debug('Claude API response received successfully');
 
-        // Create result
-        final response = _parseResponse(responseJson);
-        return response;
+        // Parse response
+        return _parseResponse(responseJson);
       } else {
         // Handle error
-        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        final error =
+            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
         logger.error(error);
+
         throw Exception(error);
       }
     });
@@ -106,11 +113,12 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     try {
       logger.debug('Claude stream request with model: $model');
 
-      // Configure request data
+      // Build request body
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
+      logger.debug('Claude API request body structure created');
 
-      // API request with retry
+      // Prepare API request with retry for connection phase
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
       final httpRequest = await executeWithRetry(() async {
         return await _client.postUrl(uri);
@@ -122,15 +130,18 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       httpRequest.headers.set('anthropic-version', '2023-06-01');
 
       // Add request body
-      httpRequest.write(jsonEncode(requestBody));
+      final jsonString = jsonEncode(requestBody);
+      final encodedBody = utf8.encode(jsonString);
+      httpRequest.contentLength = encodedBody.length;
+      httpRequest.add(encodedBody);
 
-      // Get response with retry
+      // Get response with retry for connection phase
       final httpResponse = await executeWithRetry(() async {
         return await httpRequest.close();
       });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        // Process streaming response
+        // Handle streaming response
         await for (final chunk in utf8.decoder.bind(httpResponse)) {
           // Parse SSE format
           for (final line in chunk.split('\n')) {
@@ -143,53 +154,80 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
 
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
-                final type = chunkJson['type'] as String?;
+                logger.debug('Streaming chunk type: ${chunkJson['type']}');
 
-                if (type == 'content_block_delta') {
+                // Check for different chunk types based on API docs
+                final chunkType = chunkJson['type'] as String?;
+
+                if (chunkType == 'content_block_start') {
+                  final blockType = chunkJson['content_block']?['type'] as String?;
+                  logger.debug('Content block start: $blockType');
+
+                  // If this is a tool_use block start, emit a special chunk
+                  if (blockType == 'tool_use') {
+                    final toolUse = chunkJson['content_block'] as Map<String, dynamic>?;
+                    if (toolUse != null) {
+                      final toolName = toolUse['name'] as String? ?? 'unknown';
+                      final toolId = toolUse['id'] as String? ?? 'unknown';
+
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: false,
+                        metadata: {
+                          'is_tool_call': true,
+                          'tool_name': toolName,
+                          'tool_id': toolId
+                        },
+                      );
+                    }
+                  }
+                } else if (chunkType == 'content_block_delta') {
                   final delta = chunkJson['delta'] as Map<String, dynamic>?;
-                  if (delta != null && delta.containsKey('text')) {
+                  if (delta != null && delta['type'] == 'text_delta') {
                     final text = delta['text'] as String? ?? '';
-
                     yield LlmResponseChunk(
                       textChunk: text,
                       isDone: false,
                       metadata: {},
                     );
                   }
-                } else if (type == 'tool_use') {
-                  // Tool use response
-                  final toolUse = chunkJson['tool_use'] as Map<String, dynamic>?;
-                  if (toolUse != null) {
-                    yield LlmResponseChunk(
-                      textChunk: '',
-                      isDone: false,
-                      metadata: {
-                        'tool_call_start': true,
-                        'tool_name': toolUse['name'],
-                        'tool_call_id': toolUse['id'],
-                      },
-                    );
+                } else if (chunkType == 'message_delta') {
+                  // Handle stop reason changes
+                  final stopReason = chunkJson['delta']?['stop_reason'] as String?;
+                  if (stopReason != null && stopReason.isNotEmpty) {
+                    // If stop_reason is tool_use, indicate this in metadata
+                    if (stopReason == 'tool_use') {
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: true,
+                        metadata: {'stop_reason': stopReason, 'expects_tool_result': true},
+                      );
+                    } else {
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: true,
+                        metadata: {'stop_reason': stopReason},
+                      );
+                    }
                   }
-                } else if (type == 'tool_use_input_delta') {
-                  // Tool input data
-                  final delta = chunkJson['delta'] as Map<String, dynamic>?;
-                  final inputDelta = delta?['input'] as Map<String, dynamic>?;
-                  if (inputDelta != null) {
-                    yield LlmResponseChunk(
-                      textChunk: '',
-                      isDone: false,
-                      metadata: {
-                        'tool_call_args': inputDelta,
-                      },
-                    );
-                  }
-                } else if (type == 'message_stop') {
-                  // Message stop
+                } else if (chunkJson.containsKey('content')) {
+                  // Handle legacy format (may be removed in future)
+                  final content = chunkJson['content'] as String? ?? '';
                   yield LlmResponseChunk(
-                    textChunk: '',
-                    isDone: true,
-                    metadata: {'complete': true},
+                    textChunk: content,
+                    isDone: false,
+                    metadata: {},
                   );
+
+                  // Check for completion reason
+                  final completeReason = chunkJson['stop_reason'] as String?;
+                  if (completeReason != null && completeReason.isNotEmpty) {
+                    yield LlmResponseChunk(
+                      textChunk: '',
+                      isDone: true,
+                      metadata: {'stop_reason': completeReason},
+                    );
+                  }
                 }
               } catch (e) {
                 logger.error('Error parsing chunk: $e');
@@ -200,7 +238,8 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       } else {
         // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
-        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+        final error =
+            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
         logger.error(error);
 
         yield LlmResponseChunk(
@@ -222,70 +261,102 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   Future<List<double>> getEmbeddings(String text) async {
-    return await executeWithRetry(() async {
-      logger.debug('Claude embeddings request');
-
-      // Prepare API request
-      final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/embeddings');
-      final httpRequest = await _client.postUrl(uri);
-
-      // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('x-api-key', apiKey);
-      httpRequest.headers.set('anthropic-version', '2023-06-01');
-
-      // Add request body
-      final requestBody = {
-        'model': 'claude-3-haiku-20240307', // Using appropriate embedding model
-        'input': text,
-        'dimensions': 1536, // Standard embedding dimensions
-      };
-      httpRequest.write(jsonEncode(requestBody));
-
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
-
-      // Handle response
-      if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
-        final embedding = responseJson['embedding'] as List<dynamic>;
-        return embedding.cast<double>();
-      } else {
-        // Handle error
-        final error = 'Claude API Error: ${httpResponse.statusCode} - $responseBody';
-        logger.error(error);
-        throw Exception(error);
-      }
-    });
+    throw UnimplementedError('Embeddings are not yet supported for Claude.');
   }
 
   @override
   Future<void> initialize(LlmConfiguration config) async {
-    // Initialization logic
     logger.info('Claude provider initialized with model: $model');
   }
 
   @override
   Future<void> close() async {
     _client.close();
-    logger.info('Claude provider resources closed');
+    logger.debug('Claude provider client closed');
   }
 
-  // Helper method to build request body
+// Helper method to build request body
   Map<String, dynamic> _buildRequestBody(LlmRequest request) {
     // Build messages
     final List<Map<String, dynamic>> messages = [];
+    String? systemContent;
 
-    // Add history
-    for (final message in request.history) {
-      messages.add({
-        'role': message.role,
-        'content': _convertContentToClaudeFormat(message.content),
-      });
+    // Separate system message - Claude API requires it as a separate parameter
+    if (request.parameters.containsKey('system') ||
+        request.parameters.containsKey('system_instructions')) {
+      systemContent = request.parameters['system'] ??
+          request.parameters['system_instructions'];
     }
 
-    // Add current message
+    // Extract system messages from history
+    for (final message in request.history) {
+      if (message.role == 'system') {
+        // System messages are provided as a separate parameter (skip)
+        if (systemContent == null || systemContent.isEmpty) {
+          systemContent = message.content.toString();
+        }
+        continue;
+      } else if (message.role == 'tool') {
+        // Tool result message handling
+        final toolContent = message.content;
+        dynamic toolResult = '';
+        String toolName = '';
+
+        if (toolContent is Map) {
+          if (toolContent.containsKey('content')) {
+            toolResult = toolContent['content'];
+          }
+          if (toolContent.containsKey('tool')) {
+            toolName = toolContent['tool'];
+          } else if (message.metadata.containsKey('tool_name')) {
+            toolName = message.metadata['tool_name'];
+          }
+        }
+
+        // For Claude, we'll format tool results as user messages to ensure they're recognized
+        messages.add({
+          'role': 'user',
+          'content': "Here's the result from the $toolName tool: $toolResult",
+        });
+      } else if (message.role == 'assistant' && message.metadata.containsKey('tool_call')) {
+        // Handle tool calls from assistant
+        final toolCallContent = message.content;
+
+        if (toolCallContent is Map && toolCallContent.containsKey('tool_calls')) {
+          // For Claude, we need to format the tool calls in a way it understands
+          final toolCalls = toolCallContent['tool_calls'] as List;
+          String formattedContent = "";
+
+          for (final toolCall in toolCalls) {
+            final name = toolCall['name'] ?? '';
+            final args = toolCall['arguments'] ?? {};
+
+            formattedContent += "<function>\n";
+            formattedContent += '{"name": "$name", "parameters": ${jsonEncode(args)}}';
+            formattedContent += "\n</function>\n";
+          }
+
+          messages.add({
+            'role': 'assistant',
+            'content': formattedContent,
+          });
+        } else {
+          // Regular assistant message
+          messages.add({
+            'role': 'assistant',
+            'content': message.content,
+          });
+        }
+      } else {
+        // Regular message handling (user 또는 assistant)
+        messages.add({
+          'role': message.role,
+          'content': message.content,
+        });
+      }
+    }
+
+    // Add current prompt
     messages.add({
       'role': 'user',
       'content': request.prompt,
@@ -296,90 +367,128 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      'temperature': request.parameters['temperature'] ?? 0.7,
     };
 
-    // Add system prompt if present
-    if (request.parameters.containsKey('system')) {
-      body['system'] = request.parameters['system'];
+    if (request.parameters.containsKey('top_p')) {
+      body['top_p'] = request.parameters['top_p'];
     }
 
-    // Add tool information if present
+    // Add tool configuration if provided
     if (request.parameters.containsKey('tools')) {
-      body['tools'] = request.parameters['tools'];
+      final tools = request.parameters['tools'] as List<dynamic>;
+
+      // Convert to Claude's tool format
+      final claudeTools = tools.map((tool) {
+        return {
+          'name': tool['name'],
+          'description': tool['description'],
+          'input_schema': tool['parameters'],
+        };
+      }).toList();
+
+      body['tools'] = claudeTools;
     }
 
-    // Apply additional parameters
-    if (request.parameters.containsKey('temperature')) {
-      body['temperature'] = request.parameters['temperature'];
+    if (systemContent != null && systemContent.isNotEmpty) {
+      body['system'] = systemContent;
     }
 
+    logger.debug('Claude API request body prepared: ${body.keys.join(', ')}');
     return body;
   }
 
-  // Convert content to Claude format
-  dynamic _convertContentToClaudeFormat(dynamic content) {
-    // Return as is if simple text
-    if (content is String) {
-      return content;
-    }
-
-    // Convert message structure
-    if (content is Map) {
-      // Convert image content
-      if (content['type'] == 'image') {
-        return {
-          'type': 'image',
-          'source': {
-            'type': 'base64',
-            'media_type': content['mimeType'] ?? 'image/jpeg',
-            'data': content['data'] ?? content['base64'],
-          }
-        };
-      }
-
-      // Convert text content
-      if (content['type'] == 'text') {
-        return content['text'];
-      }
-    }
-
-    // Default to string conversion
-    return content.toString();
-  }
-
-  // Helper method to parse response
+  // In claude_provider.dart, simplified _parseResponse method
   LlmResponse _parseResponse(Map<String, dynamic> response) {
-    // Extract response content
-    final content = response['content'] as List<dynamic>;
-    final text = content
-        .where((item) => item['type'] == 'text')
-        .map<String>((item) => item['text'] as String)
-        .join('\n');
+    try {
+      // Log the received response structure for debugging
+      logger.debug('Claude response structure: ${response.keys.join(', ')}');
 
-    // Extract tool calls
-    List<LlmToolCall>? toolCalls;
-    final toolUses = response['tool_uses'] as List<dynamic>?;
-    if (toolUses != null && toolUses.isNotEmpty) {
-      toolCalls = toolUses.map((tool) {
-        return LlmToolCall(
-          name: tool['name'] as String,
-          arguments: tool['input'] as Map<String, dynamic>,
-        );
-      }).toList();
+      // Initialize variables
+      String text = '';
+      List<LlmToolCall>? toolCalls;
+
+      // Check if this is a tool use response
+      final stopReason = response['stop_reason'] as String?;
+      final isToolUseResponse = stopReason == 'tool_use';
+
+      if (isToolUseResponse) {
+        logger.debug('Response has stop_reason "tool_use", indicating a tool call');
+      }
+
+      // Process content blocks
+      if (response.containsKey('content') && response['content'] is List) {
+        final contentList = response['content'] as List;
+        logger.debug('Content blocks: ${contentList.length}');
+
+        // Extract all text from text blocks
+        for (final item in contentList) {
+          if (item is Map<String, dynamic> && item['type'] == 'text') {
+            text += item['text'] as String? ?? '';
+          }
+        }
+
+        // Extract all tool calls from tool_use blocks
+        toolCalls = [];
+        for (final item in contentList) {
+          if (item is Map<String, dynamic> && item['type'] == 'tool_use') {
+            final name = item['name'] as String? ?? 'unknown';
+            final id = item['id'] as String? ?? 'claude_tool_${DateTime.now().millisecondsSinceEpoch}';
+
+            Map<String, dynamic> arguments = {};
+            if (item.containsKey('input') && item['input'] is Map<String, dynamic>) {
+              arguments = item['input'] as Map<String, dynamic>;
+            }
+
+            logger.debug('Tool use block: name=$name, id=$id');
+
+            toolCalls.add(LlmToolCall(
+              id: id,
+              name: name,
+              arguments: arguments,
+            ));
+          }
+        }
+
+        // If no tool calls were found, set to null
+        if (toolCalls.isEmpty) {
+          toolCalls = null;
+        }
+      } else if (response.containsKey('content') && response['content'] is String) {
+        // Handle simple string content (less common with newer API versions)
+        text = response['content'] as String;
+      }
+
+      // Build metadata
+      final metadata = <String, dynamic>{
+        'model': response['model'] ?? 'unknown',
+      };
+
+      // Include stop_reason in metadata
+      if (stopReason != null) {
+        metadata['stop_reason'] = stopReason;
+      }
+
+      // Add tool call IDs to metadata
+      if (toolCalls != null && toolCalls.isNotEmpty) {
+        metadata['tool_call_ids'] = toolCalls.map((tc) => tc.id).toList();
+        logger.debug('Added ${toolCalls.length} tool calls to response');
+      }
+
+      return LlmResponse(
+        text: text,
+        metadata: metadata,
+        toolCalls: toolCalls,
+      );
+    } catch (e, stackTrace) {
+      // Log the error and return a basic response
+      logger.error('Error parsing Claude response: $e\n$stackTrace');
+      return LlmResponse(
+        text: "Error parsing the API response. Please try again.",
+        metadata: {'error': e.toString()},
+        toolCalls: null,
+      );
     }
-
-    // Build metadata
-    final metadata = <String, dynamic>{
-      'model': response['model'],
-      'stop_reason': response['stop_reason'],
-      'usage': response['usage'],
-    };
-
-    return LlmResponse(
-      text: text,
-      metadata: metadata,
-      toolCalls: toolCalls,
-    );
   }
 }
 
@@ -392,9 +501,8 @@ class ClaudeProviderFactory implements LlmProviderFactory {
   Set<LlmCapability> get capabilities => {
     LlmCapability.completion,
     LlmCapability.streaming,
+    // LlmCapability.embeddings, // 아직 지원하지 않음
     LlmCapability.toolUse,
-    LlmCapability.imageUnderstanding,
-    LlmCapability.embeddings,
   };
 
   @override
@@ -406,7 +514,7 @@ class ClaudeProviderFactory implements LlmProviderFactory {
 
     return ClaudeProvider(
       apiKey: apiKey,
-      model: config.model ?? 'claude-3-5-sonnet-20241022',
+      model: config.model ?? 'claude-3-sonnet-20240229',
       baseUrl: config.baseUrl,
       config: config,
     );
