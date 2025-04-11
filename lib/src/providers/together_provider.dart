@@ -192,6 +192,36 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
   }
 
   @override
+  bool hasToolCallMetadata(Map<String, dynamic> metadata) {
+    // Together 모델은 현재 도구 호출을 지원하지 않으므로 false 반환
+    return false;
+  }
+
+  @override
+  LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
+    // Together 모델은 현재 도구 호출을 지원하지 않으므로 null 반환
+    return null;
+  }
+
+  @override
+  Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
+    // Together의 메타데이터를 표준화된 형식으로 변환
+    final standardizedMetadata = Map<String, dynamic>.from(metadata);
+
+    // finish_reason 필드가 있으면 유지
+    if (metadata.containsKey('finish_reason')) {
+      // 이미 표준 형식이므로 변경 불필요
+    }
+
+    // error 필드가 있으면 유지
+    if (metadata.containsKey('error')) {
+      // 이미 표준 형식이므로 변경 불필요
+    }
+
+    return standardizedMetadata;
+  }
+
+  @override
   Future<List<double>> getEmbeddings(String text) async {
     return await executeWithRetry(() async {
       logger.debug('Together AI embeddings request');

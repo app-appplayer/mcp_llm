@@ -286,7 +286,7 @@ class LlmResource {
   final String uri;
   final String name;
   final String description;
-  final String mimeType;
+  final String? mimeType;
   final String? uriTemplate;
 
   LlmResource({
@@ -302,7 +302,7 @@ class LlmResource {
       'uri': uri,
       'name': name,
       'description': description,
-      'mimeType': mimeType,
+      if (mimeType != null) 'mimeType': mimeType,
       if (uriTemplate != null) 'uriTemplate' : uriTemplate
     };
 
@@ -505,11 +505,13 @@ class LlmResponseChunk {
   final String textChunk;
   final bool isDone;
   final Map<String, dynamic> metadata;
+  final List<LlmToolCall>? toolCalls;
 
   LlmResponseChunk({
     required this.textChunk,
     this.isDone = false,
     this.metadata = const {},
+    this.toolCalls,
   });
 
   Map<String, dynamic> toJson() {
@@ -517,6 +519,7 @@ class LlmResponseChunk {
       'textChunk': textChunk,
       'isDone': isDone,
       'metadata': metadata,
+      'toolCalls': toolCalls?.map((tc) => tc.toJson()).toList(),
     };
   }
 }

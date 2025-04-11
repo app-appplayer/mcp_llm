@@ -1,10 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../core/llm_interface.dart';
-import '../core/models.dart';
-import '../utils/logger.dart';
-import 'provider.dart';
+import '../../mcp_llm.dart';
 
 /// Implementation of LLM interface for OpenAI API
 class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
@@ -108,115 +105,253 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     try {
       logger.debug('OpenAI stream request with model: $model');
 
-      // Build request body
+      // 요청 본문 생성
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
+      logger.debug('OpenAI API request body structure created');
 
-      // Prepare API request with retry for connection phase
-      final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/chat/completions');
+      // API 요청 준비 - 재시도 메커니즘 적용
+      final uri = Uri.parse('${baseUrl ?? 'https://api.openai.com'}/v1/chat/completions');
       final httpRequest = await executeWithRetry(() async {
         return await _client.postUrl(uri);
       });
 
-      // Set headers
+      // 헤더 설정
       httpRequest.headers.set('Content-Type', 'application/json');
       httpRequest.headers.set('Authorization', 'Bearer $apiKey');
 
-      // Add request body
+      // 요청 본문 추가
       final jsonString = jsonEncode(requestBody);
       final encodedBody = utf8.encode(jsonString);
       httpRequest.contentLength = encodedBody.length;
       httpRequest.add(encodedBody);
 
-      // Get response with retry for connection phase
+      // 응답 받기 - 재시도 메커니즘 적용
       final httpResponse = await executeWithRetry(() async {
         return await httpRequest.close();
       });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        // Handle streaming response
+        // 도구 호출 정보를 추적하기 위한 변수들
+        final Map<String, Map<String, dynamic>> toolCallsMap = {}; // id -> 도구 호출 정보
+        List<LlmToolCall>? toolCalls;
+        String currentToolCallId = '';
+
+        // 응답 청크의 누적을 위한 변수
+        final StringBuffer responseText = StringBuffer();
+        String? finishReason;
+
+        // 도구 정의 캐시
+        final Map<String, Map<String, dynamic>> toolDefinitionCache = {};
+
+        // 요청에서 도구 정의 캐싱
+        if (request.parameters.containsKey('tools')) {
+          final tools = request.parameters['tools'] as List<dynamic>;
+          for (final tool in tools) {
+            if (tool is Map<String, dynamic> && tool.containsKey('name')) {
+              final toolName = tool['name'] as String;
+              toolDefinitionCache[toolName] = Map<String, dynamic>.from(tool);
+            }
+          }
+        }
+
+        // 스트리밍 응답 처리
         await for (final chunk in utf8.decoder.bind(httpResponse)) {
-          // Parse SSE format
+          // SSE 형식 파싱
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
               final data = line.substring(6);
               if (data == '[DONE]') {
-                // Streaming complete
+                // 스트리밍 완료
+                if (toolCalls != null && toolCalls.isNotEmpty) {
+                  // 필수 인자가 비어있는지 확인하고 필요시 기본값 적용
+                  _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
+                }
+
+                yield LlmResponseChunk(
+                  textChunk: '',
+                  isDone: true,
+                  metadata: {'finish_reason': finishReason ?? 'stop'},
+                  toolCalls: toolCalls,
+                );
                 break;
               }
 
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
-                final choices = chunkJson['choices'] as List<dynamic>?;
 
+                // 응답 청크에서 정보 추출
+                final choices = chunkJson['choices'] as List<dynamic>?;
                 if (choices != null && choices.isNotEmpty) {
-                  final choice = choices.first as Map<String, dynamic>;
+                  final choice = choices[0] as Map<String, dynamic>;
+                  finishReason = choice['finish_reason'] as String?;
                   final delta = choice['delta'] as Map<String, dynamic>?;
 
-                  if (delta != null && delta.containsKey('content')) {
-                    final content = delta['content'] as String? ?? '';
+                  if (delta != null) {
+                    // 텍스트 콘텐츠 처리
+                    if (delta.containsKey('content') && delta['content'] != null) {
+                      final content = delta['content'] as String;
+                      responseText.write(content);
 
-                    yield LlmResponseChunk(
-                      textChunk: content,
-                      isDone: false,
-                      metadata: {},
-                    );
-                  } else if (delta != null && delta.containsKey('tool_calls')) {
-                    // Handle tool calls in streaming
-                    final toolCalls = delta['tool_calls'] as List<dynamic>?;
-                    if (toolCalls != null && toolCalls.isNotEmpty) {
-                      final toolCall = toolCalls.first as Map<String, dynamic>;
-                      final toolName = toolCall['function']?['name'] as String?;
+                      yield LlmResponseChunk(
+                        textChunk: content,
+                        isDone: false,
+                        metadata: {},
+                        toolCalls: toolCalls,
+                      );
+                    }
 
-                      if (toolName != null) {
-                        yield LlmResponseChunk(
-                          textChunk: '',
-                          isDone: false,
-                          metadata: {
-                            'tool_call_start': true,
-                            'tool_name': toolName,
-                            'tool_call_id': toolCall['id'],
-                          },
-                        );
-                      }
+                    // 도구 호출 처리
+                    if (delta.containsKey('tool_calls')) {
+                      final deltaToolCalls = delta['tool_calls'] as List<dynamic>?;
 
-                      // Handle tool arguments
-                      final args = toolCall['function']?['arguments'] as String?;
-                      if (args != null && args.isNotEmpty) {
-                        try {
-                          final argsMap = jsonDecode(args) as Map<String, dynamic>;
-                          yield LlmResponseChunk(
-                            textChunk: '',
-                            isDone: false,
-                            metadata: {
-                              'tool_call_args': argsMap,
-                            },
-                          );
-                        } catch (e) {
-                          logger.warning('Error parsing tool args: $e');
+                      if (deltaToolCalls != null && deltaToolCalls.isNotEmpty) {
+                        toolCalls ??= [];
+
+                        for (final deltaToolCall in deltaToolCalls) {
+                          final function = deltaToolCall['function'] as Map<String, dynamic>?;
+
+                          // 도구 호출 ID 처리
+                          if (deltaToolCall.containsKey('id')) {
+                            currentToolCallId = deltaToolCall['id'] as String;
+                          }
+
+                          // 도구 이름 처리
+                          if (function != null && function.containsKey('name')) {
+                            final toolName = function['name'] as String;
+
+                            // 새 도구 호출 생성
+                            if (!toolCallsMap.containsKey(currentToolCallId)) {
+                              toolCallsMap[currentToolCallId] = {
+                                'name': toolName,
+                                'arguments': '',
+                              };
+
+                              // 도구 호출 목록에 추가
+                              final toolIndex = toolCalls.indexWhere((tc) => tc.id == currentToolCallId);
+                              if (toolIndex == -1) {
+                                toolCalls.add(LlmToolCall(
+                                  id: currentToolCallId,
+                                  name: toolName,
+                                  arguments: <String, dynamic>{},
+                                ));
+                              }
+
+                              // 도구 호출 시작 이벤트 발생
+                              yield LlmResponseChunk(
+                                textChunk: '',
+                                isDone: false,
+                                metadata: {
+                                  'tool_call_start': true,
+                                  'tool_name': toolName,
+                                  'tool_call_id': currentToolCallId,
+                                },
+                                toolCalls: toolCalls,
+                              );
+                            }
+                          }
+
+                          // 도구 인자 처리
+                          if (function != null && function.containsKey('arguments')) {
+                            final args = function['arguments'] as String;
+
+                            if (toolCallsMap.containsKey(currentToolCallId)) {
+                              // 인자 문자열 누적
+                              toolCallsMap[currentToolCallId]!['arguments'] += args;
+                              final argsStr = toolCallsMap[currentToolCallId]!['arguments'] as String;
+
+                              try {
+                                // 누적된 인자가 완전한 JSON인지 확인하고 파싱
+                                if (_isValidJson(argsStr)) {
+                                  final toolArgs = jsonDecode(argsStr) as Map<String, dynamic>;
+
+                                  // 도구 호출 업데이트
+                                  final toolIndex = toolCalls.indexWhere((tc) => tc.id == currentToolCallId);
+                                  if (toolIndex >= 0) {
+                                    toolCalls[toolIndex] = LlmToolCall(
+                                      id: currentToolCallId,
+                                      name: toolCallsMap[currentToolCallId]!['name'] as String,
+                                      arguments: toolArgs,
+                                    );
+                                  }
+
+                                  // 도구 인자 업데이트 이벤트 발생
+                                  yield LlmResponseChunk(
+                                    textChunk: '',
+                                    isDone: false,
+                                    metadata: {
+                                      'tool_call_update': true,
+                                      'tool_call_id': currentToolCallId,
+                                    },
+                                    toolCalls: toolCalls,
+                                  );
+                                }
+                              } catch (e) {
+                                // 아직 불완전한 JSON - 계속 누적
+                                logger.debug('Accumulating arguments for tool call: $currentToolCallId');
+                              }
+                            }
+                          }
                         }
                       }
                     }
                   }
 
-                  // Check for finish reason
-                  final finishReason = choice['finish_reason'] as String?;
-                  if (finishReason != null && finishReason != 'null') {
-                    yield LlmResponseChunk(
-                      textChunk: '',
-                      isDone: true,
-                      metadata: {'finish_reason': finishReason},
-                    );
+                  // 완료 시 처리
+                  if (finishReason != null && finishReason.isNotEmpty) {
+                    if (finishReason == 'tool_calls') {
+                      // 모든 도구 호출에 대해 인자 문자열을 JSON으로 파싱
+                      for (final entry in toolCallsMap.entries) {
+                        final toolId = entry.key;
+                        final toolInfo = entry.value;
+                        final argsStr = toolInfo['arguments'] as String;
+
+                        try {
+                          if (argsStr.isNotEmpty) {
+                            final toolArgs = jsonDecode(argsStr) as Map<String, dynamic>;
+
+                            // 도구 호출 목록 업데이트
+                            final toolIndex = toolCalls!.indexWhere((tc) => tc.id == toolId);
+                            if (toolIndex >= 0) {
+                              toolCalls[toolIndex] = LlmToolCall(
+                                id: toolId,
+                                name: toolInfo['name'] as String,
+                                arguments: toolArgs,
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          logger.warning('Failed to parse tool arguments: $e');
+                        }
+                      }
+
+                      // 도구 인자 검증 및 채우기
+                      if (toolCalls != null) {
+                        _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
+                      }
+
+                      // 최종 도구 호출 이벤트 발생
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: true,
+                        metadata: {
+                          'finish_reason': 'tool_calls',
+                          'expects_tool_result': true,
+                        },
+                        toolCalls: toolCalls,
+                      );
+                      return;
+                    }
                   }
                 }
               } catch (e) {
-                logger.error('Error parsing chunk: $e');
+                logger.warning('Error parsing chunk: $e');
               }
             }
           }
         }
       } else {
-        // Handle error
+        // 오류 처리
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
         logger.error(error);
@@ -227,8 +362,8 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           metadata: {'error': error, 'status_code': httpResponse.statusCode},
         );
       }
-    } catch (e) {
-      logger.error('Error streaming from OpenAI API: $e');
+    } catch (e, stackTrace) {
+      logger.error('Error streaming from OpenAI API: $e\n$stackTrace');
 
       yield LlmResponseChunk(
         textChunk: 'Error: Unable to get a streaming response from OpenAI.',
@@ -236,6 +371,233 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
         metadata: {'error': e.toString()},
       );
     }
+  }
+
+// JSON 문자열이 유효한지 확인하는 헬퍼 메서드
+  bool _isValidJson(String jsonString) {
+    try {
+      jsonDecode(jsonString);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+// 도구 호출 인자 검증 및 채우기
+  void _validateAndFillToolCallArguments(List<LlmToolCall> toolCalls,
+      Map<String, Map<String, dynamic>> toolDefinitionCache) {
+    for (int i = 0; i < toolCalls.length; i++) {
+      final toolCall = toolCalls[i];
+      final toolName = toolCall.name;
+
+      // 도구 정의 가져오기
+      if (toolDefinitionCache.containsKey(toolName)) {
+        final toolDef = toolDefinitionCache[toolName]!;
+        final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
+
+        if (inputSchema != null && inputSchema.containsKey('required')) {
+          final required = inputSchema['required'] as List<dynamic>;
+          final args = toolCall.arguments;
+          final propertyDefs = inputSchema.containsKey('properties') &&
+              inputSchema['properties'] is Map<String, dynamic> ?
+          inputSchema['properties'] as Map<String, dynamic> : {};
+
+          // 빠진 인자 확인
+          bool needsUpdate = false;
+          final updatedArgs = Map<String, dynamic>.from(args);
+
+          for (final req in required) {
+            final argName = req.toString();
+            if (!args.containsKey(argName) || args[argName] == null) {
+              needsUpdate = true;
+
+              // 속성 정의에서 기본값 추출
+              dynamic defaultValue;
+              String? type = 'string';
+
+              if (propertyDefs.containsKey(argName)) {
+                final propDef = propertyDefs[argName] as Map<String, dynamic>;
+
+                if (propDef.containsKey('default')) {
+                  defaultValue = propDef['default'];
+                }
+
+                if (propDef.containsKey('type')) {
+                  type = propDef['type'] as String?;
+                }
+              }
+
+              // 기본값 생성
+              if (defaultValue == null) {
+                switch (type) {
+                  case 'number':
+                  case 'integer':
+                    defaultValue = 0;
+                    break;
+                  case 'boolean':
+                    defaultValue = false;
+                    break;
+                  case 'array':
+                    defaultValue = [];
+                    break;
+                  case 'object':
+                    defaultValue = {};
+                    break;
+                  case 'string':
+                  default:
+                    if (propertyDefs.containsKey(argName) &&
+                        propertyDefs[argName] is Map<String, dynamic> &&
+                        propertyDefs[argName].containsKey('enum') &&
+                        propertyDefs[argName]['enum'] is List &&
+                        (propertyDefs[argName]['enum'] as List).isNotEmpty) {
+                      defaultValue = (propertyDefs[argName]['enum'] as List).first;
+                    } else {
+                      defaultValue = '';
+                    }
+                    break;
+                }
+              }
+
+              // 생성된 기본값 적용
+              updatedArgs[argName] = defaultValue;
+            }
+          }
+
+          // 업데이트가 필요한 경우
+          if (needsUpdate) {
+            toolCalls[i] = LlmToolCall(
+              id: toolCall.id,
+              name: toolCall.name,
+              arguments: updatedArgs,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  bool hasToolCallMetadata(Map<String, dynamic> metadata) {
+    // OpenAI 스타일의 메타데이터 검사
+    if (metadata.containsKey('tool_call_start') && metadata['tool_call_start'] == true) {
+      logger.debug('Tool call metadata detected: OpenAI style (tool_call_start)');
+      return true;
+    }
+
+    if (metadata.containsKey('finish_reason') && metadata['finish_reason'] == 'tool_calls') {
+      logger.debug('Tool call metadata detected: OpenAI style (finish_reason=tool_calls)');
+      return true;
+    }
+
+    // OpenAI 관련 도구 키 검사
+    final openaiToolKeys = ['tool_call_id', 'tool_calls', 'tool_call_update'];
+    for (final key in openaiToolKeys) {
+      if (metadata.containsKey(key)) {
+        logger.debug('Tool call metadata detected: OpenAI related key ($key)');
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  @override
+  LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
+    logger.debug('Extracting tool call from OpenAI metadata');
+
+    // 도구 호출 시작 또는 업데이트 메타데이터
+    if ((metadata.containsKey('tool_call_start') || metadata.containsKey('tool_call_update')) &&
+        (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
+
+      final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
+      final toolId = metadata['tool_call_id'] as String? ??
+          'openai_tool_${DateTime.now().millisecondsSinceEpoch}';
+
+      // 인수 추출
+      Map<String, dynamic> arguments = {};
+
+      // 'tool_call_args' 필드 확인
+      if (metadata.containsKey('tool_call_args') &&
+          metadata['tool_call_args'] is Map<String, dynamic>) {
+        arguments = metadata['tool_call_args'] as Map<String, dynamic>;
+      }
+
+      logger.debug('Extracted OpenAI tool call: name=$toolName, id=$toolId, args=${jsonEncode(arguments)}');
+
+      return LlmToolCall(
+        id: toolId,
+        name: toolName,
+        arguments: arguments,
+      );
+    }
+
+    // tool_calls 배열이 있는 경우
+    if (metadata.containsKey('tool_calls') &&
+        metadata['tool_calls'] is List &&
+        (metadata['tool_calls'] as List).isNotEmpty) {
+
+      final toolCalls = metadata['tool_calls'] as List;
+      final firstToolCall = toolCalls.first;
+
+      if (firstToolCall is Map<String, dynamic>) {
+        final toolName = firstToolCall['name'] as String? ?? 'unknown_tool';
+        final toolId = firstToolCall['id'] as String? ??
+            'openai_tool_${DateTime.now().millisecondsSinceEpoch}';
+
+        Map<String, dynamic> arguments = {};
+
+        // arguments 필드 확인
+        if (firstToolCall.containsKey('arguments')) {
+          // JSON 문자열인 경우 파싱
+          if (firstToolCall['arguments'] is String) {
+            try {
+              arguments = jsonDecode(firstToolCall['arguments'] as String) as Map<String, dynamic>;
+            } catch (e) {
+              logger.warning('Failed to parse arguments JSON: $e');
+            }
+          }
+          // 이미 Map인 경우 그대로 사용
+          else if (firstToolCall['arguments'] is Map) {
+            arguments = Map<String, dynamic>.from(firstToolCall['arguments'] as Map);
+          }
+        }
+
+        logger.debug('Extracted OpenAI tool call from array: name=$toolName, id=$toolId, args=${jsonEncode(arguments)}');
+
+        return LlmToolCall(
+          id: toolId,
+          name: toolName,
+          arguments: arguments,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
+    // OpenAI 메타데이터를 표준 형식으로 변환
+    final standardMetadata = Map<String, dynamic>.from(metadata);
+
+    // 도구 호출 관련 필드 표준화
+    if (metadata.containsKey('finish_reason') && metadata['finish_reason'] == 'tool_calls') {
+      if (!standardMetadata.containsKey('expects_tool_result')) {
+        standardMetadata['expects_tool_result'] = true;
+      }
+    }
+
+    // tool_call_start를 is_tool_call로 변환
+    if (metadata.containsKey('tool_call_start') && metadata['tool_call_start'] == true) {
+      standardMetadata['is_tool_call'] = true;
+    }
+
+    // tool_call_id를 tool_id로 변환
+    if (metadata.containsKey('tool_call_id') && !standardMetadata.containsKey('tool_id')) {
+      standardMetadata['tool_id'] = metadata['tool_call_id'];
+    }
+
+    return standardMetadata;
   }
 
   @override
@@ -410,7 +772,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       }).toList();
 
       // Enable tool calling
-      body['tool_choice'] = 'auto';
+      if (request.parameters.containsKey('tool_choice')) {
+        body['tool_choice'] = request.parameters['tool_choice'];
+      }
     }
 
     logger.debug('OpenAI API request body prepared: ${body.keys.join(', ')}');

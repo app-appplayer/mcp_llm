@@ -111,4 +111,22 @@ class MockLlmProvider implements LlmInterface {
       }
     }
   }
+
+  @override
+  LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
+    // TODO: implement extractToolCallFromMetadata
+    throw UnimplementedError();
+  }
+
+  @override
+  bool hasToolCallMetadata(Map<String, dynamic> metadata) {
+    // TODO: implement hasToolCallMetadata
+    throw UnimplementedError();
+  }
+
+  @override
+  Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
+    // TODO: implement standardizeMetadata
+    throw UnimplementedError();
+  }
 }

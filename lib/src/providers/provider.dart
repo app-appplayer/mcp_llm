@@ -1,6 +1,4 @@
 import '../../mcp_llm.dart';
-import '../core/llm_interface.dart';
-import '../core/models.dart';
 
 /// Abstract base class for LLM providers
 abstract class LlmProvider implements LlmInterface {

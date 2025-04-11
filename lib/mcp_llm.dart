@@ -413,19 +413,40 @@ class McpLlm {
     return _llmRegistry.getProvidersWithCapability(capability);
   }
 
-  /// Enable performance monitoring
-  void enablePerformanceMonitoring({Duration interval = const Duration(seconds: 10)}) {
+  /// 성능 모니터링 활성화
+  void enablePerformanceMonitoring({
+    Duration interval = const Duration(seconds: 10),
+    bool resetMetricsOnStart = false
+  }) {
+    // 시작 전 메트릭 초기화 옵션
+    if (resetMetricsOnStart) {
+      _performanceMonitor.resetMetrics();
+    }
+
     _performanceMonitor.startMonitoring(interval);
+    _logger.info('Performance monitoring enabled with interval: ${interval.inSeconds}s');
   }
 
-  /// Disable performance monitoring
+  /// 성능 모니터링 비활성화
   void disablePerformanceMonitoring() {
     _performanceMonitor.stopMonitoring();
+    _logger.info('Performance monitoring disabled');
   }
 
-  /// Get performance metrics
+  /// 성능 메트릭 초기화
+  void resetPerformanceMetrics() {
+    _performanceMonitor.resetMetrics();
+    _logger.info('Performance metrics have been reset');
+  }
+
+  /// 성능 메트릭 가져오기
   Map<String, dynamic> getPerformanceMetrics() {
     return _performanceMonitor.getMetricsReport();
+  }
+
+  /// PerformanceMonitor 인스턴스 가져오기 (플러그인 등에서 사용)
+  PerformanceMonitor getPerformanceMonitor() {
+    return _performanceMonitor;
   }
 
   /// Create retrieval manager with document store
@@ -482,13 +503,17 @@ class McpLlm {
 
   /// Shutdown and clean up resources
   Future<void> shutdown() async {
-    // Close all clients
+    _logger.info('Shutting down MCPLlm system...');
+
+    // 성능 모니터링 중지
+    disablePerformanceMonitoring();
+
+    // 모든 클라이언트 종료
     await _clientManager.closeAll();
 
-    // Shutdown plugins
+    // 플러그인 시스템 종료
     await _pluginManager.shutdown();
 
-    // Stop performance monitoring
-    _performanceMonitor.stopMonitoring();
+    _logger.info('MCPLlm system shutdown completed');
   }
 }

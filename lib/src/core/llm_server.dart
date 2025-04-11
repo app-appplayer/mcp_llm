@@ -221,11 +221,14 @@ class LlmServer {
           return pluginResult;
         }
 
+        // Ensure the MIME type is not null (use default if necessary)
+        final mimeType = resourceDef.mimeType ?? 'application/octet-stream';
+
         final result = await _serverAdapter!.registerResource(
           uri: resourceDef.uri,
           name: resourceDef.name,
           description: resourceDef.description,
-          mimeType: resourceDef.mimeType,
+          mimeType: mimeType,
           handler: serverHandler,
         );
 
@@ -638,7 +641,7 @@ class LlmServer {
       final resourceName = resourceDefinition['name'] as String;
       final resourceDescription = resourceDefinition['description'] as String;
       final resourceUri = resourceDefinition['uri'] as String;
-      final resourceMimeType = resourceDefinition['mimeType'] as String;
+      final resourceMimeType = resourceDefinition['mimeType'] as String?;
       final resourceType = resourceDefinition['type'] as String;
       final resourceContent = resourceDefinition['content'] as String?;
 
@@ -703,7 +706,7 @@ class LlmServer {
           uri: resourceUri,
           name: resourceName,
           description: resourceDescription,
-          mimeType: resourceMimeType,
+          mimeType: resourceMimeType ?? 'application/octet-stream',
           handler: (uri, params) async => await dynamicResourcePlugin.read(params),
         );
 
@@ -1310,10 +1313,10 @@ class DynamicResourcePlugin extends BaseResourcePlugin {
     required super.name,
     required super.description,
     required super.uri,
-    required super.mimeType,
     required this.content,
     required this.llmServer,
     required this.sessionId,
+    super.mimeType,
     super.uriTemplate,
   }) : super(
     version: '1.0.0',
@@ -1325,7 +1328,7 @@ class DynamicResourcePlugin extends BaseResourcePlugin {
     if (parameters.isEmpty || (parameters.length == 1 && parameters.containsKey('format'))) {
       return LlmReadResourceResult(
         content: content,
-        mimeType: mimeType,
+        mimeType: mimeType ?? 'application/octet-stream',
         contents: [LlmTextContent(text: content)],
       );
     }
@@ -1350,7 +1353,7 @@ class DynamicResourcePlugin extends BaseResourcePlugin {
       final handlerResponse = await llmServer.askLlm(handlerPrompt, sessionId: sessionId);
       return LlmReadResourceResult(
         content: handlerResponse.text,
-        mimeType: mimeType,
+        mimeType: mimeType ?? 'application/octet-stream',
         contents: [LlmTextContent(text: handlerResponse.text)],
       );
     } catch (e) {
@@ -1375,10 +1378,10 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
     required super.name,
     required super.description,
     required super.uri,
-    required super.mimeType,
     required this.content,
     required this.llmServer,
     required this.sessionId,
+    super.mimeType,
     super.uriTemplate,
   }) : super(
     version: '1.0.0',
@@ -1394,7 +1397,7 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
     if (targetFormat.isEmpty && path.isEmpty) {
       return LlmReadResourceResult(
         content: content,
-        mimeType: mimeType,
+        mimeType: mimeType ?? 'application/octet-stream',
         contents: [LlmTextContent(text: content)],
       );
     }
@@ -1433,7 +1436,7 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
       // Default case (shouldn't happen but for safety)
       return LlmReadResourceResult(
         content: content,
-        mimeType: mimeType,
+        mimeType: mimeType ?? 'application/octet-stream',
         contents: [LlmTextContent(text: content)],
       );
     }
@@ -1443,7 +1446,7 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
       final handlerResponse = await llmServer.askLlm(handlerPrompt, sessionId: sessionId);
 
       // Determine appropriate MIME type for format conversion
-      String effectiveMimeType = mimeType;
+      String effectiveMimeType = mimeType ?? 'application/octet-stream';
       if (targetFormat.isNotEmpty) {
         effectiveMimeType = _getMimeTypeForFormat(targetFormat);
       }
@@ -1478,6 +1481,6 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
       'yml': 'application/x-yaml',
     };
 
-    return formatMap[format.toLowerCase()] ?? mimeType;
+    return formatMap[format.toLowerCase()] ?? (mimeType ?? 'application/octet-stream');
   }
 }

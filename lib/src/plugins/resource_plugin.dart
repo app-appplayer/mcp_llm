@@ -19,7 +19,7 @@ abstract class BaseResourcePlugin implements ResourcePlugin {
   final String uri;
 
   /// Resource MIME type
-  final String mimeType;
+  final String? mimeType;
 
   /// Resource URI template
   final String? uriTemplate;
@@ -38,7 +38,7 @@ abstract class BaseResourcePlugin implements ResourcePlugin {
     required this.version,
     required this.description,
     required this.uri,
-    required this.mimeType,
+    this.mimeType,
     this.uriTemplate,
   });
 
@@ -156,13 +156,12 @@ class FileResourcePlugin extends BaseResourcePlugin {
     required super.description,
     required this.baseDirectory,
     required super.uri,
-    required String mimeType,
-    String? uriTemplate,
+    String? mimeType,
+    super.uriTemplate,
     this.allowOutsideBaseDir = false,
     super.version = '1.0.0',
   }) : super(
-    mimeType: mimeType,
-    uriTemplate: uriTemplate,
+    mimeType: mimeType ?? 'application/octet-stream',
   );
 
   @override
@@ -228,7 +227,7 @@ class FileResourcePlugin extends BaseResourcePlugin {
         ? filePath.substring(filePath.lastIndexOf('.'))
         : '';
 
-    return _extensionMimeTypes[extension.toLowerCase()] ?? mimeType;
+    return _extensionMimeTypes[extension.toLowerCase()] ?? (mimeType ?? 'application/octet-stream');
   }
 }
 
@@ -262,7 +261,7 @@ class DocumentationResourcePlugin extends BaseResourcePlugin {
         final content = 'Section "$sectionName" not found. Here\'s the index instead:\n\n$indexContent';
         return LlmReadResourceResult(
           content: content,
-          mimeType: mimeType,
+          mimeType: mimeType ?? 'text/markdown',
           contents: [LlmTextContent(text: content)],
         );
       } else {
@@ -281,11 +280,12 @@ class DocumentationResourcePlugin extends BaseResourcePlugin {
     final content = _sections[sectionName]!;
     return LlmReadResourceResult(
       content: content,
-      mimeType: mimeType,
+      mimeType: mimeType ?? 'text/markdown',
       contents: [LlmTextContent(text: content)],
     );
   }
 }
+
 
 /// Exception thrown for security-related issues
 class SecurityException implements Exception {

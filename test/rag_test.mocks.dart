@@ -243,6 +243,31 @@ class MockLlmInterface extends _i1.Mock implements _i3.LlmInterface {
             returnValueForMissingStub: _i4.Future<void>.value(),
           )
           as _i4.Future<void>);
+
+  @override
+  bool hasToolCallMetadata(Map<String, dynamic>? metadata) =>
+      (super.noSuchMethod(
+            Invocation.method(#hasToolCallMetadata, [metadata]),
+            returnValue: false,
+          )
+          as bool);
+
+  @override
+  _i3.LlmToolCall? extractToolCallFromMetadata(
+    Map<String, dynamic>? metadata,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#extractToolCallFromMetadata, [metadata]),
+          )
+          as _i3.LlmToolCall?);
+
+  @override
+  Map<String, dynamic> standardizeMetadata(Map<String, dynamic>? metadata) =>
+      (super.noSuchMethod(
+            Invocation.method(#standardizeMetadata, [metadata]),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 }
 
 /// A class which mocks [LlmResponse].

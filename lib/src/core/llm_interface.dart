@@ -43,6 +43,28 @@ abstract class LlmInterface {
 
   /// Close and cleanup resources
   Future<void> close();
+
+  /// Checks if a metadata map contains tool call information
+  ///
+  /// [metadata] The metadata map to check
+  ///
+  /// Returns true if the metadata contains tool call information
+  bool hasToolCallMetadata(Map<String, dynamic> metadata);
+
+  /// Extracts a tool call from metadata if present
+  ///
+  /// [metadata] The metadata map to extract from
+  ///
+  /// Returns a tool call if one could be extracted, null otherwise
+  LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata);
+
+  /// Standardizes the provider-specific metadata to a common format
+  /// This can be used to ensure consistent metadata across different providers
+  ///
+  /// [metadata] The original provider-specific metadata
+  ///
+  /// Returns a standardized metadata map
+  Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata);
 }
 
 /// Extension to add retry capabilities to LLM providers

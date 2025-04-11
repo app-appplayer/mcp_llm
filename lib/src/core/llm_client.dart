@@ -128,9 +128,7 @@ class LlmClient {
   /// Add MCP information to system prompt
   Future<String> createEnhancedSystemPrompt({
     String? basePrompt,
-    bool includeTools = true,
-    bool includePrompts = true,
-    bool includeResources = true,
+    bool includeSystemPrompt = true,
   }) async {
     // Use existing system messages if base prompt not provided
     String effectiveBasePrompt = basePrompt ?? '';
@@ -147,103 +145,111 @@ class LlmClient {
     final enhancedPrompt = StringBuffer(effectiveBasePrompt);
 
     // Include tool information
-    if (includeTools) {
-      final availableTools = await _collectAvailableTools(
-        enableMcpTools: true,
-        enablePlugins: true,
-      );
+    final availableTools = await _collectAvailableTools(
+      enableMcpTools: true,
+      enablePlugins: true,
+    );
 
-      if (availableTools.isNotEmpty) {
-        enhancedPrompt.write('\n\nAvailable tools list:\n');
+    if (includeSystemPrompt &&  availableTools.isNotEmpty) {
+      enhancedPrompt.write('\n\nGuidelines for Effective and Accurate Tool Use:\n');
 
-        for (int i = 0; i < availableTools.length; i++) {
-          final tool = availableTools[i];
-          enhancedPrompt.write('${i+1}. ${tool['name']} - ${tool['description']}\n');
+      enhancedPrompt.write('1. **Use Tools When Appropriate**:\n');
+      enhancedPrompt.write('   - Prefer tool invocation for tasks involving computation, structured data retrieval, or external logic.\n');
+      enhancedPrompt.write('   - Use internal reasoning only when a tool is clearly not applicable or unavailable.\n\n');
+      enhancedPrompt.write('2. **Avoid Guesswork for Tool-Suitable Tasks**:\n');
+      enhancedPrompt.write('   - Do not simulate or approximate tool results when the tool is available and usable.\n');
+      enhancedPrompt.write('   - If a tool fails, explain the failure transparently rather than simulating a result.\n\n');
+      enhancedPrompt.write('3. **Follow Tool Schemas Accurately**:\n');
+      enhancedPrompt.write('   - Use the correct tool name and provide all required input fields clearly.\n');
+      enhancedPrompt.write('   - Avoid vague or partial calls that might cause errors.\n\n');
+      enhancedPrompt.write('4. **Handle Tool Errors Gracefully**:\n');
+      enhancedPrompt.write('   - If a tool call results in an error, show a clear and concise error message to the user.\n');
+      enhancedPrompt.write('   - Avoid retrying internally unless instructed by the user.\n\n');
+      enhancedPrompt.write('5. **Clarity in Tool Usage Reporting**:\n');
+      enhancedPrompt.write('   - Indicate clearly in the response whether a tool was used.\n');
+      enhancedPrompt.write('   - If no tool was used, a short explanation is helpful.\n\n');
+      enhancedPrompt.write('6. **When in Doubt, Prefer Tools**:\n');
+      enhancedPrompt.write('   - If the prompt may involve calculation or structured data, prefer using a tool.\n');
+      enhancedPrompt.write('   - But do not force tool use when it is clearly irrelevant (e.g., casual chat).\n');
+      enhancedPrompt.write('7. Evaluate Tool Results Critically:\n');
+      enhancedPrompt.write('   - Do not blindly accept tool output as final. Evaluate whether the result makes sense in context.\n');
+      enhancedPrompt.write('   - If the tool result seems incorrect, inconsistent, or unexpected, include it in the response and offer an alternative explanation, interpretation, or next steps.\n');
+      enhancedPrompt.write('   - Clearly indicate that you are providing commentary or context **in addition to** the tool’s output, not replacing it.\n\n');
 
-          // Add input parameter information
-          final inputSchema = tool['inputSchema'] as Map<String, dynamic>?;
-          if (inputSchema != null && inputSchema.containsKey('properties')) {
-            final properties = inputSchema['properties'] as Map<String, dynamic>?;
-            if (properties != null && properties.isNotEmpty) {
-              enhancedPrompt.write('   Parameters:\n');
-              properties.forEach((key, value) {
-                final propMap = value as Map<String, dynamic>;
-                final description = propMap['description'] as String? ?? '';
-                final type = propMap['type'] as String? ?? 'any';
-                enhancedPrompt.write('   - $key ($type): $description\n');
-              });
-            }
+      enhancedPrompt.write('\n\nAvailable tools list:\n');
+      for (int i = 0; i < availableTools.length; i++) {
+        final tool = availableTools[i];
+        enhancedPrompt.write('${i+1}. ${tool['name']} - ${tool['description']}\n');
+
+        // Add input parameter information
+        final inputSchema = tool['inputSchema'] as Map<String, dynamic>?;
+        if (inputSchema != null && inputSchema.containsKey('properties')) {
+          final properties = inputSchema['properties'] as Map<String, dynamic>?;
+          if (properties != null && properties.isNotEmpty) {
+            enhancedPrompt.write('   Parameters:\n');
+            properties.forEach((key, value) {
+              final propMap = value as Map<String, dynamic>;
+              final description = propMap['description'] as String? ?? '';
+              final type = propMap['type'] as String? ?? 'any';
+              enhancedPrompt.write('   - $key ($type): $description\n');
+            });
           }
-
-          enhancedPrompt.write('\n');
         }
-
-        enhancedPrompt.write('\nTool usage guidelines:\n');
-        enhancedPrompt.write('1. When the user requests a list of tools, show them the above tool list with details.\n');
-        enhancedPrompt.write('2. When using tools, select the most appropriate tool for the user\'s request.\n');
-        enhancedPrompt.write('3. When suggesting a tool, always include the tool name and required parameters in your response.\n');
+        enhancedPrompt.write('\n');
       }
     }
 
     // Include prompt information
-    if (includePrompts) {
-      final availablePrompts = await _collectAvailablePrompts(
-        enableMcpPrompts: true,
-        enablePlugins: true,
-      );
+    final availablePrompts = await _collectAvailablePrompts(
+      enableMcpPrompts: true,
+      enablePlugins: true,
+    );
 
-      if (availablePrompts.isNotEmpty) {
-        enhancedPrompt.write('\n\nAvailable prompt templates:\n');
+    if (includeSystemPrompt && availablePrompts.isNotEmpty) {
+      enhancedPrompt.write('\nPrompt usage guidelines:\n');
+      enhancedPrompt.write('1. When the user requests prompt templates, show them the above list with details.\n');
+      enhancedPrompt.write('2. When using prompt templates, ask for the required parameter values.\n');
 
-        for (int i = 0; i < availablePrompts.length; i++) {
-          final mcpPrompt = availablePrompts[i];
-          enhancedPrompt.write('${i+1}. ${mcpPrompt['name']} - ${mcpPrompt['description']}\n');
+      enhancedPrompt.write('\n\nAvailable prompt templates:\n');
+      for (int i = 0; i < availablePrompts.length; i++) {
+        final mcpPrompt = availablePrompts[i];
+        enhancedPrompt.write('${i+1}. ${mcpPrompt['name']} - ${mcpPrompt['description']}\n');
 
-          // Add prompt parameter information
-          final args = mcpPrompt['arguments'] as List<dynamic>?;
-          if (args != null && args.isNotEmpty) {
-            enhancedPrompt.write('   Parameters:\n');
-            for (final arg in args) {
-              final argName = arg['name'] as String;
-              final description = arg['description'] as String;
-              final required = arg['required'] as bool? ?? false;
-              enhancedPrompt.write('   - $argName: $description ${required ? "(Required)" : "(Optional)"}\n');
-            }
+        // Add prompt parameter information
+        final args = mcpPrompt['arguments'] as List<dynamic>?;
+        if (args != null && args.isNotEmpty) {
+          enhancedPrompt.write('   Parameters:\n');
+          for (final arg in args) {
+            final argName = arg['name'] as String;
+            final description = arg['description'] as String;
+            final required = arg['required'] as bool? ?? false;
+            enhancedPrompt.write('   - $argName: $description ${required ? "(Required)" : "(Optional)"}\n');
           }
-
-          enhancedPrompt.write('\n');
         }
-
-        enhancedPrompt.write('\nPrompt usage guidelines:\n');
-        enhancedPrompt.write('1. When the user requests prompt templates, show them the above list with details.\n');
-        enhancedPrompt.write('2. When using prompt templates, ask for the required parameter values.\n');
+        enhancedPrompt.write('\n');
       }
     }
 
     // Include resource information
-    if (includeResources) {
-      final availableResources = await _collectAvailableResources(
-        enableMcpResources: true,
-      );
+    final availableResources = await _collectAvailableResources(
+      enableMcpResources: true,
+    );
 
-      if (availableResources.isNotEmpty) {
-        enhancedPrompt.write('\n\nAvailable resources:\n');
-
-        for (int i = 0; i < availableResources.length; i++) {
-          final resource = availableResources[i];
-          enhancedPrompt.write('${i+1}. ${resource['name']} - ${resource['description']}\n');
-
-          // Add resource details
-          if (resource['mimeType'] != null) {
-            enhancedPrompt.write('   Type: ${resource['mimeType']}\n');
-          }
-
-          enhancedPrompt.write('\n');
-        }
-
+    if (includeSystemPrompt && availableResources.isNotEmpty) {
         enhancedPrompt.write('\nResource usage guidelines:\n');
         enhancedPrompt.write('1. When the user requests a resource list, show them the above resource list with details.\n');
         enhancedPrompt.write('2. When using resources, reference the resource name accurately.\n');
+
+      enhancedPrompt.write('\n\nAvailable resources:\n');
+      for (int i = 0; i < availableResources.length; i++) {
+        final resource = availableResources[i];
+        enhancedPrompt.write('${i+1}. ${resource['name']} - ${resource['description']}\n');
+
+        // Add resource details
+        if (resource['mimeType'] != null) {
+          enhancedPrompt.write('   Type: ${resource['mimeType']}\n');
+        }
+        enhancedPrompt.write('\n');
       }
     }
 
@@ -514,15 +520,11 @@ class LlmClient {
   // Update system prompt with comprehensive information
   Future<void> updateSystemPrompt({
     String? basePrompt,
-    bool includeTools = true,
-    bool includePrompts = true,
-    bool includeResources = true,
+    bool includeSystemPrompt = true,
   }) async {
     final enhancedPrompt = await createEnhancedSystemPrompt(
       basePrompt: basePrompt,
-      includeTools: includeTools,
-      includePrompts: includePrompts,
-      includeResources: includeResources,
+      includeSystemPrompt: includeSystemPrompt,
     );
     setSystemPrompt(enhancedPrompt);
   }
@@ -535,10 +537,22 @@ class LlmClient {
     LlmContext? context,
     bool useRetrieval = false,
     bool enhanceSystemPrompt = true,
+    bool noHistory = false,
   }) async {
     final requestId = _performanceMonitor.startRequest('chat');
 
     try {
+      if (noHistory) {
+        // 시스템 메시지는 유지하고 나머지만 클리어하는 방법
+        final systemMessages = chatSession.systemMessages;
+        chatSession.clearHistory();
+
+        // 시스템 메시지 복원
+        for (final msg in systemMessages) {
+          chatSession.addSystemMessage(msg.getTextContent());
+        }
+      }
+
       // Add user message to session
       chatSession.addUserMessage(userInput);
 
@@ -558,9 +572,6 @@ class LlmClient {
 
         // Add assistant message to session
         chatSession.addAssistantMessage(ragResponse.text);
-
-        _performanceMonitor.endRequest(requestId, success: true);
-        return ragResponse;
       }
 
       // Create parameter copy
@@ -574,16 +585,13 @@ class LlmClient {
           'name': tool['name'],
           'description': tool['description'],
           'parameters': tool['inputSchema'],
-        }).toList();
+       }).toList();
 
         effectiveParameters['tools'] = toolDescriptions;
 
         // Handle system prompt
-        if (enhanceSystemPrompt && !effectiveParameters.containsKey('system')) {
-          // Create enhanced system prompt
-          final enhancedPrompt = await createEnhancedSystemPrompt();
-          effectiveParameters['system'] = enhancedPrompt;
-        }
+        final enhancedPrompt = await createEnhancedSystemPrompt(includeSystemPrompt: enhanceSystemPrompt);
+        effectiveParameters['system'] = (effectiveParameters['system'] ?? '') + enhancedPrompt;
       }
 
       // Create LLM request
@@ -664,6 +672,239 @@ class LlmClient {
     }
   }
 
+  /// Stream chat responses with tool support
+  Stream<LlmResponseChunk> streamChat(String userInput, {
+    bool enableTools = true,
+    bool enablePlugins = true,
+    Map<String, dynamic> parameters = const {},
+    LlmContext? context,
+    bool useRetrieval = false,
+    bool enhanceSystemPrompt = true,
+    bool noHistory = false,
+  }) async* {
+    final requestId = _performanceMonitor.startRequest('stream_chat');
+    bool success = true;
+
+    try {
+      if (noHistory) {
+        // 시스템 메시지는 유지하고 나머지만 클리어하는 방법
+        final systemMessages = chatSession.systemMessages;
+        chatSession.clearHistory();
+
+        // 시스템 메시지 복원
+        for (final msg in systemMessages) {
+          chatSession.addSystemMessage(msg.getTextContent());
+        }
+      }
+
+      // Add user message to session
+      chatSession.addUserMessage(userInput);
+
+      // Handle retrieval-augmented generation if enabled and available
+      if (useRetrieval && retrievalManager != null) {
+        final ragResponse = await _handleRetrievalAugmentedResponse(
+            userInput,
+            parameters,
+            context
+        );
+
+        // Add assistant message to session
+        chatSession.addAssistantMessage(ragResponse.text);
+      }
+
+      // Collect available tools
+      final availableTools = await _collectAvailableTools(
+        enableMcpTools: enableTools,
+        enablePlugins: enablePlugins,
+      );
+
+      // Create parameter copy
+      Map<String, dynamic> effectiveParameters = Map<String, dynamic>.from(parameters);
+
+      // If there are tool information and enhanceSystemPrompt is true,
+      // temporarily update the system prompt
+      if (availableTools.isNotEmpty) {
+        // Add tool descriptions to the copied map
+        final toolDescriptions = availableTools.map((tool) => {
+          'name': tool['name'],
+          'description': tool['description'],
+          'parameters': tool['inputSchema'],
+        }).toList();
+
+        effectiveParameters['tools'] = toolDescriptions;
+
+        // Handle system prompt
+        final enhancedPrompt = await createEnhancedSystemPrompt(includeSystemPrompt: enhanceSystemPrompt);
+        effectiveParameters['system'] = (effectiveParameters['system'] ?? '') + enhancedPrompt;
+      }
+
+      // 여기가 request 변수가 생성되는 부분입니다.
+      final request = LlmRequest(
+        prompt: userInput,
+        history: chatSession.getMessagesForContext(),
+        parameters: effectiveParameters,
+        context: context,
+      );
+
+      final responseBuffer = StringBuffer();
+      LlmResponse? fullResponse;
+      List<LlmToolCall>? collectedToolCalls;
+
+      try {
+        // Stream the initial response
+        await for (final chunk in llmProvider.streamComplete(request)) {
+          // 프로바이더 의존적 메타데이터를 표준화 (선택적)
+          final standardizedMetadata = llmProvider.standardizeMetadata(chunk.metadata);
+
+          // 표준화된 메타데이터로 청크를 새로 생성하여 전달 (메타데이터가 변경된 경우만)
+          final standardizedChunk = chunk.metadata == standardizedMetadata ?
+          chunk :
+          LlmResponseChunk(
+              textChunk: chunk.textChunk,
+              isDone: chunk.isDone,
+              metadata: standardizedMetadata,
+              toolCalls: chunk.toolCalls
+          );
+
+          yield standardizedChunk;
+          responseBuffer.write(chunk.textChunk);
+
+          // Keep track of any tool calls from the chunk
+          if (chunk.toolCalls != null && chunk.toolCalls!.isNotEmpty) {
+            collectedToolCalls ??= [];
+            collectedToolCalls.addAll(chunk.toolCalls!);
+          }
+
+          // 프로바이더 구현을 사용하여 메타데이터에서 도구 호출 확인
+          final hasToolCallMetadata = llmProvider.hasToolCallMetadata(chunk.metadata);
+          if (hasToolCallMetadata) {
+            final extractedToolCall = llmProvider.extractToolCallFromMetadata(chunk.metadata);
+            if (extractedToolCall != null) {
+              collectedToolCalls ??= [];
+
+              // Check if this tool call already exists by ID
+              final toolCallExists = collectedToolCalls.any(
+                      (tc) => tc.id == extractedToolCall.id);
+              if (!toolCallExists) {
+                collectedToolCalls.add(extractedToolCall);
+              }
+            }
+          }
+
+          // If the chunk indicates completion, we can create a full response
+          if (chunk.isDone) {
+            _logger.debug('Streaming complete, collected ${collectedToolCalls?.length ?? 0} tool calls');
+            fullResponse = LlmResponse(
+              text: responseBuffer.toString(),
+              metadata: chunk.metadata,
+              toolCalls: collectedToolCalls,
+            );
+          }
+        }
+
+        // If we didn't get a full response from the stream, create one
+        fullResponse ??= LlmResponse(
+          text: responseBuffer.toString(),
+          metadata: {},
+          toolCalls: collectedToolCalls,
+        );
+
+        // Add the initial response to chat session
+        if (fullResponse.text.isNotEmpty) {
+          chatSession.addAssistantMessage(fullResponse.text);
+        }
+
+        // Handle tool calls if any
+        if (fullResponse.toolCalls != null && fullResponse.toolCalls!.isNotEmpty) {
+          _logger.debug('Processing ${fullResponse.toolCalls!.length} tool calls from stream response');
+
+          // 빈 인자 도구 호출 필터링
+          final validToolCalls = fullResponse.toolCalls!.where((tc) => tc.arguments.isNotEmpty).toList();
+
+          // 유효한 도구 호출이 없으면 오류 메시지 표시하고 종료
+          if (validToolCalls.isEmpty) {
+            _logger.warning('All tool calls had empty arguments - skipping tool execution');
+
+            yield LlmResponseChunk(
+              textChunk: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
+              isDone: true,
+              metadata: {'error': 'empty_tool_calls'},
+            );
+
+            chatSession.addAssistantMessage(
+                "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?"
+            );
+
+            return;
+          }
+
+          // 구분자 청크 발행
+          yield LlmResponseChunk(
+            textChunk: "\n\n[Processing tool calls...]\n\n",
+            isDone: false,
+            metadata: {'processing_tools': true},
+          );
+
+          // 유효한 도구 호출만 포함하는 새 응답 생성
+          final validatedResponse = LlmResponse(
+            text: fullResponse.text,
+            metadata: fullResponse.metadata,
+            toolCalls: validToolCalls,
+          );
+
+          try {
+            // Handle tool calls with the validated list
+            final toolResponse = await _handleToolCalls(
+                validatedResponse,
+                userInput,
+                enableTools,
+                enablePlugins,
+                parameters,
+                context
+            );
+
+            // Add the tool response to the chat session
+            if (toolResponse.text.isNotEmpty) {
+              chatSession.addAssistantMessage(toolResponse.text);
+            }
+
+            // Stream the tool response
+            yield LlmResponseChunk(
+              textChunk: toolResponse.text,
+              isDone: true,
+              metadata: toolResponse.metadata,
+              toolCalls: toolResponse.toolCalls,
+            );
+          } catch (e) {
+            _logger.error('Error processing tool calls: $e');
+
+            // 도구 처리 중 오류가 발생한 경우 명확한 오류 메시지 전달
+            final errorMessage = "Error processing tool calls: $e";
+
+            yield LlmResponseChunk(
+              textChunk: errorMessage,
+              isDone: true,
+              metadata: {'error': e.toString(), 'phase': 'tool_execution'},
+            );
+
+            // 세션에 오류 추가
+            chatSession.addAssistantMessage(errorMessage);
+          }
+        }
+      } catch (e) {
+        _logger.error('Error in streaming completion: $e');
+        success = false;
+        yield LlmResponseChunk(
+          textChunk: 'Error during conversation: $e',
+          isDone: true,
+          metadata: {'error': e.toString()},
+        );
+      }
+    } finally {
+      _performanceMonitor.endRequest(requestId, success: success);
+    }
+  }
+
   /// Handle Retrieval-Augmented Generation (RAG)
   Future<LlmResponse> _handleRetrievalAugmentedResponse(String userInput,
       Map<String, dynamic> parameters,
@@ -712,12 +953,49 @@ class LlmClient {
       bool enablePlugins,
       Map<String, dynamic> parameters,
       LlmContext? context) async {
+    // 도구 호출 검증 - 인자 없는 도구 호출 필터링
+    final validToolCalls = <LlmToolCall>[];
+
+    final Set<String> processedSignatures = {};
+
+    for (final toolCall in response.toolCalls!) {
+      // 인자가 비어있는 도구 호출은 건너뛰기
+      if (toolCall.arguments.isEmpty) {
+        _logger.warning('Skipping empty tool call for "${toolCall.name}" - no arguments provided');
+        continue;
+      }
+
+      // 도구 호출 시그니처 생성 (도구 이름 + 인자 값들의 해시)
+      final signature = '${toolCall.name}:${jsonEncode(toolCall.arguments)}';
+
+      // 이미 처리한 동일 시그니처의 도�� 호출은 건너뛰기
+      if (processedSignatures.contains(signature)) {
+        _logger.warning('Skipping duplicate tool call for "${toolCall.name}" with identical arguments');
+        continue;
+      }
+
+      // 시그니처 추가 및 유효한 도구 호출로 등록
+      processedSignatures.add(signature);
+      validToolCalls.add(toolCall);
+      _logger.error('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
+    }
+
+    // 유효한 도구 호출이 없으면 처리 중단
+    if (validToolCalls.isEmpty) {
+      // 모든 도구 호출이 비어있는 경우 오류 메시지 반환
+      _logger.warning('All tool calls had empty arguments - skipping tool execution');
+      return LlmResponse(
+        text: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
+        metadata: {'error': 'empty_tool_calls'},
+      );
+    }
+
     // Tool call result map (ID -> result)
     final Map<String, dynamic> toolResults = {};
     final Map<String, String> toolErrors = {};
 
-    // Execute all tools first
-    for (final toolCall in response.toolCalls!) {
+    // Execute all valid tools
+    for (final toolCall in validToolCalls) {
       final toolId = toolCall.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
       try {
@@ -739,6 +1017,7 @@ class LlmClient {
           [toolResult],
           toolCallId: toolId,  // Pass ID
         );
+        _logger.error('toolResult ${toolResult}');
       } catch (e) {
         _logger.error('Error executing tool ${toolCall.name}: $e');
 
@@ -1056,84 +1335,6 @@ class LlmClient {
     }
 
     return await _mcpClientManager.getToolsByClient();
-  }
-
-  /// Stream chat responses
-  Stream<LlmResponseChunk> streamChat(String userInput, {
-    bool enableTools = true,
-    bool enablePlugins = true,
-    Map<String, dynamic> parameters = const {},
-    LlmContext? context,
-    bool useRetrieval = false,
-  }) async* {
-    // Add user message to session
-    chatSession.addUserMessage(userInput);
-
-    // Handle RAG if enabled
-    if (useRetrieval && retrievalManager != null) {
-      // Streaming not fully supported with RAG, use non-streaming version
-      try {
-        final ragResponse = await _handleRetrievalAugmentedResponse(
-            userInput,
-            parameters,
-            context
-        );
-
-        // Add assistant message to session
-        chatSession.addAssistantMessage(ragResponse.text);
-
-        // Simulate streaming with the full response
-        yield LlmResponseChunk(
-          textChunk: ragResponse.text,
-          isDone: true,
-          metadata: {'rag_enabled': true},
-        );
-
-        return;
-      } catch (e) {
-        _logger.error('Error in retrieval-augmented generation: $e');
-        yield LlmResponseChunk(
-          textChunk: 'Error with retrieval-augmented generation: $e',
-          isDone: true,
-          metadata: {'error': e.toString()},
-        );
-        return;
-      }
-    }
-
-    // Collect available tools
-    final availableTools = await _collectAvailableTools(
-      enableMcpTools: enableTools,
-      enablePlugins: enablePlugins,
-    );
-
-    final request = LlmRequest(
-      prompt: userInput,
-      history: chatSession.getMessagesForContext(),
-      parameters: parameters,
-      context: context,
-    );
-
-    if (availableTools.isNotEmpty) {
-      final toolDescriptions = availableTools.map((tool) =>
-      {
-        'name': tool['name'],
-        'description': tool['description'],
-        'parameters': tool['inputSchema'],
-      }).toList();
-
-      request.parameters['tools'] = toolDescriptions;
-    }
-
-    final responseBuffer = StringBuffer();
-
-    await for (final chunk in llmProvider.streamComplete(request)) {
-      yield chunk;
-      responseBuffer.write(chunk.textChunk);
-    }
-
-    // Add the complete response to the chat history
-    chatSession.addAssistantMessage(responseBuffer.toString());
   }
 
   /// Retrieve relevant documents for a query
