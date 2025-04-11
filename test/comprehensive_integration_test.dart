@@ -151,7 +151,7 @@ void main() {
 
     test('Plugin system integration', () async {
       // Register a plugin with the system
-      final plugin = EchoToolPlugin();
+      final plugin = SampleEchoToolPlugin();
       await mcpLlm.registerPlugin(plugin);
 
       // Create client with plugin-enabled LLM

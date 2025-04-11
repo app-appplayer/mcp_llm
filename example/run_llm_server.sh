@@ -1,5 +1,5 @@
 #!/bin/bash
-# LLM MCP 서버 실행 스크립트
+# LLM MCP server execution script
 
 PORT=8999
 AUTH_TOKEN="test_token"
@@ -18,32 +18,32 @@ wait_for_text() {
   local file=$1
   local text=$2
   local timeout=${3:-30}
-  echo "[$file]에서 \"$text\" 대기 중..."
+  echo "Waiting for \"$text\" in [$file]..."
   local end_time=$(( $(date +%s) + timeout ))
 
   while [ $(date +%s) -lt $end_time ]; do
     if grep -q "$text" "$file"; then
-      echo "\"$text\" 발견됨!"
+      echo "\"$text\" found!"
       return 0
     fi
     sleep 0.5
   done
 
-  echo "타임아웃 발생!"
+  echo "Timeout occurred!"
   return 1
 }
 
 cleanup() {
-  echo "서버 종료 중..."
+  echo "Shutting down server..."
   if [ ! -z "$SERVER_PID" ]; then
     kill $SERVER_PID 2>/dev/null || true
   fi
-  echo "종료 완료"
+  echo "Shutdown complete"
 }
 trap cleanup EXIT
 
-echo "===== LLM 서버 시작 ====="
-echo "모드: $MODE / 포트: $PORT / LLM: $LLM_PROVIDER"
+echo "===== Starting LLM server ====="
+echo "Mode: $MODE / Port: $PORT / LLM: $LLM_PROVIDER"
 
 dart test_llm_server.dart \
   --port $PORT \
@@ -54,12 +54,12 @@ dart test_llm_server.dart \
   > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
-echo "서버 PID: $SERVER_PID"
+echo "Server PID: $SERVER_PID"
 
 if ! wait_for_text "$SERVER_LOG" "SSE server running at:" $SERVER_WAIT; then
-  echo "서버 시작 실패! 로그 확인: $SERVER_LOG"
+  echo "Server startup failed! Check log: $SERVER_LOG"
   exit 1
 fi
 
-echo "서버 실행 중. 로그 출력 중..."
+echo "Server running. Showing log output..."
 tail -f "$SERVER_LOG"

@@ -3,9 +3,10 @@ import '../adapter/llm_server_adapter.dart';
 import 'dart:convert';
 import 'dart:io';
 
+import '../plugins/resource_plugin.dart';
+
 /// Server for providing LLM capabilities
-/// Enhanced with local tool registration, direct LLM interaction,
-/// and dynamic capability generation
+/// Enhanced with plugin-based tool management
 class LlmServer {
   /// LLM provider
   final LlmInterface llmProvider;
@@ -32,10 +33,10 @@ class LlmServer {
   final Logger _logger = Logger.getLogger('mcp_llm.llm_server');
 
   /// Registered local tools (name -> handler function)
-  final Map<String, Function> _localTools = {};
+  final Map<String, Function> localTools = {};
 
   /// Chat sessions for different contexts
-  final Map<String, ChatSession> _chatSessions = {};
+  final Map<String, ChatSession> chatSessions = {};
 
   /// Create a new LLM server
   LlmServer({
@@ -49,13 +50,14 @@ class LlmServer {
         _serverAdapter = mcpServer != null ? LlmServerAdapter(mcpServer) : null,
         _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
     // Initialize default chat session
-    _chatSessions['default'] = ChatSession(
+      chatSessions['default'] = ChatSession(
       llmProvider: llmProvider,
       storageManager: storageManager,
       id: 'default',
     );
   }
 
+  /// Public accessor for server adapter
   LlmServerAdapter? get serverAdapter => _serverAdapter;
 
   /// Check if MCP server is available
@@ -66,345 +68,180 @@ class LlmServer {
 
   /// Get or create a chat session for a specific context
   ChatSession _getChatSession(String sessionId) {
-    if (!_chatSessions.containsKey(sessionId)) {
-      _chatSessions[sessionId] = ChatSession(
+    if (!chatSessions.containsKey(sessionId)) {
+      chatSessions[sessionId] = ChatSession(
         llmProvider: llmProvider,
         storageManager: storageManager,
         id: sessionId,
       );
     }
-    return _chatSessions[sessionId]!;
+    return chatSessions[sessionId]!;
   }
 
-  /// Register LLM capabilities as tools
-  Future<bool> registerLlmTools() async {
+  /// Register all plugins as server tools
+  Future<bool> registerPluginsWithServer({
+    bool includeToolPlugins = true,
+    bool includePromptPlugins = true,
+    bool includeResourcePlugins = true,
+  }) async {
     if (!hasMcpServer) {
-      _logger.warning('Cannot register LLM tools: MCP server is not available');
+      _logger.warning('Cannot register plugins: MCP server is not available');
       return false;
     }
 
-    try {
-      bool success = true;
+    bool success = true;
 
-      // Register completion tool
-      success = success && await _registerCompletionTool();
+    if (includeToolPlugins) {
+      success = success && await registerToolPluginsWithServer();
+    }
 
-      // Register streaming tool
-      success = success && await _registerStreamingTool();
+    if (includePromptPlugins) {
+      success = success && await registerPromptPluginsWithServer();
+    }
 
-      // Register embedding tool
-      success = success && await _registerEmbeddingTool();
+    if (includeResourcePlugins) {
+      success = success && await registerResourcePluginsWithServer();
+    }
 
-      // Register retrieval tools if retrieval manager is available
-      if (hasRetrievalCapabilities) {
-        success = success && await _registerRetrievalTools();
+    return success;
+  }
+
+  /// Register tool plugins with the server
+  Future<bool> registerToolPluginsWithServer() async {
+    if (!hasMcpServer) {
+      _logger.warning('Cannot register tool plugins: MCP server is not available');
+      return false;
+    }
+
+    bool success = true;
+    final toolPlugins = pluginManager.getAllToolPlugins();
+
+    for (final plugin in toolPlugins) {
+      try {
+        final toolDef = plugin.getToolDefinition();
+
+        // Create adapter function that converts between plugin and server formats
+        serverHandler(Map<String, dynamic> args) async {
+          final pluginResult = await plugin.execute(args);
+          // Plugin result is already in the correct format with dynamic typing
+          return pluginResult;
+        }
+
+        final result = await _serverAdapter!.registerTool(
+          name: toolDef.name,
+          description: toolDef.description,
+          inputSchema: toolDef.inputSchema,
+          handler: serverHandler,
+        );
+
+        if (result) {
+          _logger.info('Registered tool plugin with server: ${toolDef.name}');
+        } else {
+          _logger.warning('Failed to register tool plugin with server: ${toolDef.name}');
+          success = false;
+        }
+      } catch (e) {
+        _logger.error('Error registering tool plugin ${plugin.name} with server: $e');
+        success = false;
       }
+    }
 
-      if (success) {
-        _logger.info('Successfully registered LLM tools with MCP server');
-      } else {
-        _logger.warning('Some tools failed to register');
+    return success;
+  }
+
+  /// Register prompt plugins with the server
+  Future<bool> registerPromptPluginsWithServer() async {
+    if (!hasMcpServer) {
+      _logger.warning('Cannot register prompt plugins: MCP server is not available');
+      return false;
+    }
+
+    bool success = true;
+    final promptPlugins = pluginManager.getAllPromptPlugins();
+
+    for (final plugin in promptPlugins) {
+      try {
+        final promptDef = plugin.getPromptDefinition();
+
+        // Create adapter function for prompt execution
+        serverHandler(Map<String, dynamic> args) async {
+          final pluginResult = await plugin.execute(args);
+          // Plugin result is already in the correct format with dynamic typing
+          return pluginResult;
+        }
+
+        // Convert arguments to the expected format
+        final arguments = promptDef.arguments.map((arg) => {
+          'name': arg.name,
+          'description': arg.description,
+          'required': arg.required,
+          if (arg.defaultValue != null) 'default': arg.defaultValue,
+        }).toList();
+
+        final result = await _serverAdapter!.registerPrompt(
+          name: promptDef.name,
+          description: promptDef.description,
+          arguments: arguments,
+          handler: serverHandler,
+        );
+
+        if (result) {
+          _logger.info('Registered prompt plugin with server: ${promptDef.name}');
+        } else {
+          _logger.warning('Failed to register prompt plugin with server: ${promptDef.name}');
+          success = false;
+        }
+      } catch (e) {
+        _logger.error('Error registering prompt plugin ${plugin.name} with server: $e');
+        success = false;
       }
-
-      return success;
-    } catch (e) {
-      _logger.error('Error registering LLM tools: $e');
-      return false;
     }
+
+    return success;
   }
 
-  /// Register LLM completion tool
-  Future<bool> _registerCompletionTool() async {
-    try {
-      final requestId = _performanceMonitor.startRequest('completion_tool_registration');
-
-      final result = await _serverAdapter!.registerTool(
-        name: 'llm-complete',
-        description: 'Generate text completion using the LLM',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'prompt': {'type': 'string', 'description': 'The prompt to complete'},
-            'parameters': {'type': 'object', 'description': 'Optional parameters'},
-            'systemPrompt': {'type': 'string', 'description': 'Optional system prompt'},
-          },
-          'required': ['prompt']
-        },
-        handler: _handleLlmCompleteTool,
-      );
-
-      _performanceMonitor.endRequest(requestId, success: result);
-      return result;
-    } catch (e) {
-      _logger.error('Failed to register completion tool: $e');
+  /// Register resource plugins with the server
+  Future<bool> registerResourcePluginsWithServer() async {
+    if (!hasMcpServer) {
+      _logger.warning('Cannot register resource plugins: MCP server is not available');
       return false;
     }
-  }
 
-  /// Register LLM streaming tool
-  Future<bool> _registerStreamingTool() async {
-    try {
-      final requestId = _performanceMonitor.startRequest('streaming_tool_registration');
+    bool success = true;
+    final resourcePlugins = pluginManager.getAllResourcePlugins();
 
-      final result = await _serverAdapter!.registerTool(
-        name: 'llm-stream',
-        description: 'Generate streaming text completion using the LLM',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'prompt': {'type': 'string', 'description': 'The prompt to complete'},
-            'parameters': {'type': 'object', 'description': 'Optional parameters'},
-            'systemPrompt': {'type': 'string', 'description': 'Optional system prompt'},
-          },
-          'required': ['prompt']
-        },
-        handler: _handleLlmStreamingTool,
-      );
+    for (final plugin in resourcePlugins) {
+      try {
+        final resourceDef = plugin.getResourceDefinition();
 
-      _performanceMonitor.endRequest(requestId, success: result);
-      return result;
-    } catch (e) {
-      _logger.error('Failed to register streaming tool: $e');
-      return false;
-    }
-  }
+        // Create adapter function that converts between plugin and server formats
+        serverHandler(String uri, Map<String, dynamic> params) async {
+          final pluginResult = await plugin.read(params);
+          // Plugin result is already in the correct format
+          return pluginResult;
+        }
 
-  /// Register LLM embedding tool
-  Future<bool> _registerEmbeddingTool() async {
-    try {
-      final requestId = _performanceMonitor.startRequest('embedding_tool_registration');
+        final result = await _serverAdapter!.registerResource(
+          uri: resourceDef.uri,
+          name: resourceDef.name,
+          description: resourceDef.description,
+          mimeType: resourceDef.mimeType,
+          handler: serverHandler,
+        );
 
-      final result = await _serverAdapter!.registerTool(
-        name: 'llm-embed',
-        description: 'Generate embeddings for text using the LLM',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'text': {'type': 'string', 'description': 'The text to embed'},
-          },
-          'required': ['text']
-        },
-        handler: _handleLlmEmbeddingTool,
-      );
-
-      _performanceMonitor.endRequest(requestId, success: result);
-      return result;
-    } catch (e) {
-      _logger.error('Failed to register embedding tool: $e');
-      return false;
-    }
-  }
-
-  /// Register retrieval-related tools
-  Future<bool> _registerRetrievalTools() async {
-    try {
-      bool success = true;
-
-      // Register document retrieval tool
-      success = success && await _serverAdapter!.registerTool(
-        name: 'llm-retrieve',
-        description: 'Retrieve relevant documents for a query',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': 'The query to search for'},
-            'topK': {'type': 'integer', 'description': 'Number of documents to return'},
-            'namespace': {'type': 'string', 'description': 'Optional namespace/collection'},
-            'filters': {'type': 'object', 'description': 'Optional filters'},
-          },
-          'required': ['query']
-        },
-        handler: _handleDocumentRetrievalTool,
-      );
-
-      // Register RAG tool
-      success = success && await _serverAdapter.registerTool(
-        name: 'llm-rag',
-        description: 'Retrieve documents and generate a response',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'query': {'type': 'string', 'description': 'The query to answer'},
-            'topK': {'type': 'integer', 'description': 'Number of documents to use'},
-            'namespace': {'type': 'string', 'description': 'Optional namespace/collection'},
-            'parameters': {'type': 'object', 'description': 'Generation parameters'},
-          },
-          'required': ['query']
-        },
-        handler: _handleRagTool,
-      );
-
-      return success;
-    } catch (e) {
-      _logger.error('Failed to register retrieval tools: $e');
-      return false;
-    }
-  }
-
-  /// Handle LLM completion tool calls
-  Future<LlmCallToolResult> _handleLlmCompleteTool(Map<String, dynamic> args) async {
-    try {
-      final prompt = args['prompt'] as String;
-      final parameters = args['parameters'] as Map<String, dynamic>? ?? {};
-      final systemPrompt = args['systemPrompt'] as String?;
-
-      final requestId = _performanceMonitor.startRequest('completion_tool');
-      _logger.debug('Handling LLM completion: $prompt');
-
-      // Create request
-      final request = LlmRequest(
-        prompt: prompt,
-        parameters: parameters,
-      );
-
-      // Add system prompt if provided
-      if (systemPrompt != null) {
-        request.parameters['system'] = systemPrompt;
+        if (result) {
+          _logger.info('Registered resource plugin with server: ${resourceDef.name}');
+        } else {
+          _logger.warning('Failed to register resource plugin with server: ${resourceDef.name}');
+          success = false;
+        }
+      } catch (e) {
+        _logger.error('Error registering resource plugin ${plugin.name} with server: $e');
+        success = false;
       }
-
-      // Get completion
-      final response = await llmProvider.complete(request);
-      _performanceMonitor.endRequest(requestId, success: true);
-      _performanceMonitor.recordToolCall('llm-complete', success: true);
-
-      // 응답 내용을 LlmTextContent로 변환하여 반환
-      return LlmCallToolResult([LlmTextContent(text: response.text)]);
-    } catch (e) {
-      _logger.error('Error in LLM completion: $e');
-      _performanceMonitor.recordToolCall('llm-complete', success: false);
-      return LlmCallToolResult([LlmTextContent(text: 'Error: ${e.toString()}')], isError: true);
-    }
-  }
-
-  /// Handle LLM streaming tool calls
-  Future<LlmCallToolResult> _handleLlmStreamingTool(Map<String, dynamic> args) async {
-    try {
-      final prompt = args['prompt'] as String;
-      final parameters = args['parameters'] as Map<String, dynamic>? ?? {};
-      final systemPrompt = args['systemPrompt'] as String?;
-
-      _logger.debug('Handling LLM streaming: $prompt');
-      //final requestId = _performanceMonitor.startRequest('streaming_tool');
-
-      // Create request
-      final request = LlmRequest(
-        prompt: prompt,
-        parameters: parameters,
-      );
-
-      // Add system prompt if provided
-      if (systemPrompt != null) {
-        request.parameters['system'] = systemPrompt;
-      }
-
-      // Get streaming response
-      //final responseStream = llmProvider.streamComplete(request);
-
-      // 스트리밍 컨텐츠 생성
-      final contents = [LlmTextContent(text: 'Streaming started...')];
-
-      // 스트리밍 결과를 담은 LlmCallToolResult 반환
-      return LlmCallToolResult(contents, isStreaming: true);
-    } catch (e) {
-      _logger.error('Error in LLM streaming: $e');
-      _performanceMonitor.recordToolCall('llm-stream', success: false);
-      return LlmCallToolResult([LlmTextContent(text: 'Error: ${e.toString()}')], isError: true);
-    }
-  }
-
-  /// Handle LLM embedding tool calls
-  Future<LlmCallToolResult> _handleLlmEmbeddingTool(Map<String, dynamic> args) async {
-    try {
-      final text = args['text'] as String;
-      final requestId = _performanceMonitor.startRequest('embedding_tool');
-
-      _logger.debug('Handling LLM embedding generation');
-
-      // Get embeddings
-      final embeddings = await llmProvider.getEmbeddings(text);
-      _performanceMonitor.endRequest(requestId, success: true);
-      _performanceMonitor.recordToolCall('llm-embed', success: true);
-
-      // 임베딩 결과를 문자열로 변환하여 반환
-      return LlmCallToolResult([LlmTextContent(text: embeddings.toString())]);
-    } catch (e) {
-      _logger.error('Error in LLM embedding: $e');
-      _performanceMonitor.recordToolCall('llm-embed', success: false);
-      return LlmCallToolResult([LlmTextContent(text: 'Error: ${e.toString()}')], isError: true);
-    }
-  }
-
-  /// Handle document retrieval tool calls
-  Future<LlmCallToolResult> _handleDocumentRetrievalTool(Map<String, dynamic> args) async {
-    if (retrievalManager == null) {
-      return LlmCallToolResult([LlmTextContent(text: 'Retrieval manager not configured')], isError: true);
     }
 
-    try {
-      final query = args['query'] as String;
-      final topK = args['topK'] as int? ?? 5;
-      final namespace = args['namespace'] as String?;
-      final filters = args['filters'] as Map<String, dynamic>? ?? {};
-
-      final requestId = _performanceMonitor.startRequest('retrieval_tool');
-
-      // Retrieve documents
-      final docs = await retrievalManager!.retrieveRelevant(
-        query,
-        topK: topK,
-        namespace: namespace,
-        filters: filters,
-      );
-
-      _performanceMonitor.endRequest(requestId, success: true);
-
-      // Format results
-      final results = docs.map((doc) => {
-        'uri': doc.id,
-        'content': doc.content,
-        'metadata': doc.metadata,
-      }).toList();
-
-      // 검색 결과를 문자열로 변환하여 반환
-      return LlmCallToolResult([LlmTextContent(text: results.toString())]);
-    } catch (e) {
-      _logger.error('Error in document retrieval: $e');
-      _performanceMonitor.recordToolCall('llm-retrieve', success: false);
-      return LlmCallToolResult([LlmTextContent(text: 'Error: ${e.toString()}')], isError: true);
-    }
-  }
-
-  /// Handle RAG tool calls
-  Future<LlmCallToolResult> _handleRagTool(Map<String, dynamic> args) async {
-    if (retrievalManager == null) {
-      return LlmCallToolResult([LlmTextContent(text: 'Retrieval manager not configured')], isError: true);
-    }
-
-    try {
-      final query = args['query'] as String;
-      final topK = args['topK'] as int? ?? 5;
-      final namespace = args['namespace'] as String?;
-      final parameters = args['parameters'] as Map<String, dynamic>? ?? {};
-
-      final requestId = _performanceMonitor.startRequest('rag_tool');
-
-      // Generate RAG response
-      final response = await retrievalManager!.retrieveAndGenerate(
-        query,
-        topK: topK,
-        namespace: namespace,
-        generationParams: parameters,
-      );
-
-      _performanceMonitor.endRequest(requestId, success: true);
-
-      // RAG 결과를 반환
-      return LlmCallToolResult([LlmTextContent(text: response)]);
-    } catch (e) {
-      _logger.error('Error in RAG generation: $e');
-      _performanceMonitor.recordToolCall('llm-rag', success: false);
-      return LlmCallToolResult([LlmTextContent(text: 'Error: ${e.toString()}')], isError: true);
-    }
+    return success;
   }
 
   /// Ask LLM and get response (similar to chat in LlmClient)
@@ -483,7 +320,7 @@ class LlmServer {
   }) async {
     try {
       // Store locally
-      _localTools[name] = handler;
+      localTools[name] = handler;
       _logger.info('Registered local tool: $name');
 
       // Register with server if requested and available
@@ -514,20 +351,20 @@ class LlmServer {
   /// [name] - Tool name
   /// [args] - Tool arguments
   Future<dynamic> executeLocalTool(String name, Map<String, dynamic> args) async {
-    if (!_localTools.containsKey(name)) {
+    if (!localTools.containsKey(name)) {
       throw Exception('Local tool not found: $name');
     }
 
     try {
       _logger.debug('Executing local tool: $name');
-      return await _localTools[name]!(args);
+      return await localTools[name]!(args);
     } catch (e) {
       _logger.error('Error executing local tool: $e');
       throw Exception('Failed to execute local tool "$name": $e');
     }
   }
 
-  /// Generate and register a tool based on LLM's design
+  /// Generate and register a tool based on LLM's design as a plugin
   ///
   /// [description] - Natural language description of the tool to create
   /// [registerWithServer] - Whether to register the tool with MCP server
@@ -568,7 +405,7 @@ class LlmServer {
       // Parse JSON response
       Map<String, dynamic> toolDefinition;
       try {
-        // Extract JSON from response if needed (in case LLM adds explanatory text)
+        // Extract JSON from response if needed
         String jsonStr = response.text;
 
         // Extract JSON portion if surrounded by other text
@@ -590,50 +427,46 @@ class LlmServer {
       final inputSchema = toolDefinition['inputSchema'] as Map<String, dynamic>;
       final processingLogic = toolDefinition['processingLogic'] as String;
 
-      // Create handler function that delegates to LLM
-      handler(Map<String, dynamic> args) async {
-        // Create a prompt for processing the tool request
-        final handlerPrompt = '''
-        You are executing the "$toolName" tool with these parameters:
-        ${jsonEncode(args)}
-        
-        Processing logic:
-        $processingLogic
-        
-        Respond with only the result in valid JSON format. Do not include any explanations or extra text.
-        ''';
-
-        // Execute through LLM
-        final handlerResponse = await askLlm(handlerPrompt, sessionId: '${sessionId}_$toolName');
-
-        try {
-          // Parse response - allow for both JSON object and plain text response
-          String result = handlerResponse.text.trim();
-          return LlmCallToolResult([LlmTextContent(text: result)]);
-        } catch (e) {
-          _logger.error('Error parsing tool response: $e');
-          return LlmCallToolResult(
-              [LlmTextContent(text: 'Error: ${e.toString()}')],
-              isError: true
-          );
-        }
-      }
-
-      // Register the tool
-      return await registerLocalTool(
+      // Create a dynamic tool plugin instance
+      final dynamicToolPlugin = DynamicToolPlugin(
         name: toolName,
         description: toolDescription,
         inputSchema: inputSchema,
-        handler: handler,
-        registerWithServer: registerWithServer,
+        processingLogic: processingLogic,
+        llmServer: this,
+        sessionId: '${sessionId}_${toolName}',
       );
+
+      // Register with plugin manager
+      await pluginManager.registerPlugin(dynamicToolPlugin);
+      _logger.info('Registered dynamic tool as plugin: $toolName');
+
+      // Register with server if requested
+      if (registerWithServer && hasMcpServer) {
+        final serverSuccess = await _serverAdapter!.registerTool(
+          name: toolName,
+          description: toolDescription,
+          inputSchema: inputSchema,
+          handler: (args) async => await dynamicToolPlugin.execute(args),
+        );
+
+        if (!serverSuccess) {
+          _logger.warning('Failed to register dynamic tool with server: $toolName');
+        } else {
+          _logger.info('Registered dynamic tool with server: $toolName');
+        }
+
+        return serverSuccess;
+      }
+
+      return true;
     } catch (e) {
       _logger.error('Error generating and registering tool: $e');
       return false;
     }
   }
 
-  /// Generate and register a prompt template based on LLM's design
+  /// Generate and register a prompt template based on LLM's design as a plugin
   ///
   /// [description] - Natural language description of the prompt to create
   /// [registerWithServer] - Whether to register the prompt with MCP server
@@ -642,8 +475,8 @@ class LlmServer {
     bool registerWithServer = true,
     String sessionId = 'default',
   }) async {
-    if (!hasMcpServer) {
-      _logger.warning('Cannot register prompt: MCP server is not available');
+    if (!hasMcpServer && registerWithServer) {
+      _logger.warning('Cannot register prompt with server: MCP server is not available');
       return false;
     }
 
@@ -676,7 +509,7 @@ class LlmServer {
       // Parse JSON response
       Map<String, dynamic> promptDefinition;
       try {
-        // Extract JSON from response if needed
+        // Extract JSON from response
         String jsonStr = response.text;
 
         // Extract JSON portion if surrounded by other text
@@ -699,71 +532,61 @@ class LlmServer {
       final systemPrompt = promptDefinition['systemPrompt'] as String;
       final userPromptTemplate = promptDefinition['userPromptTemplate'] as String;
 
-      // Create handler function that matches PromptHandler type
-      handler(Map<String, dynamic> args) async {
-        try {
-          // Replace placeholders in template
-          String filledPrompt = userPromptTemplate;
+      // Convert arguments to LlmPromptArgument objects
+      final promptArgs = arguments.map((arg) => LlmPromptArgument(
+        name: arg['name'],
+        description: arg['description'],
+        required: arg['required'] ?? false,
+        defaultValue: arg['default'],
+      )).toList();
 
-          // Replace each {parameter} with its value
-          args.forEach((key, value) {
-            filledPrompt = filledPrompt.replaceAll('{$key}', value.toString());
-          });
+      // Create a dynamic prompt plugin
+      final dynamicPromptPlugin = DynamicPromptPlugin(
+        name: promptName,
+        description: promptDescription,
+        arguments: promptArgs,
+        systemPrompt: systemPrompt,
+        userPromptTemplate: userPromptTemplate,
+      );
 
-          // Create messages array for the prompt
-          final messages = [
-            LlmMessage(role: 'system', content: systemPrompt),
-            LlmMessage(role: 'user', content: filledPrompt),
-          ];
+      // Register with plugin manager
+      await pluginManager.registerPlugin(dynamicPromptPlugin);
+      _logger.info('Registered dynamic prompt as plugin: $promptName');
 
-          return LlmGetPromptResult(
-            description: promptDescription,
-            messages: messages,
-          );
-        } catch (e) {
-          _logger.error('Error processing prompt template: $e');
-          return LlmGetPromptResult(
-            description: 'Error',
-            messages: [LlmMessage(role: 'system', content: 'Failed to process prompt template: $e')],
-          );
-        }
-      }
-
-      // Convert arguments to expected format
-      final formattedArgs = arguments.map((arg) {
-        return {
-          'name': arg['name'],
-          'description': arg['description'],
-          'required': arg['required'] ?? false,
-        };
-      }).toList();
-
-      // Register with server
+      // Register with server if requested
       if (registerWithServer && hasMcpServer) {
-        final result = await _serverAdapter!.registerPrompt(
+        // Convert arguments to format expected by server
+        final serverArgs = promptArgs.map((arg) => {
+          'name': arg.name,
+          'description': arg.description,
+          'required': arg.required,
+          if (arg.defaultValue != null) 'default': arg.defaultValue,
+        }).toList();
+
+        final serverSuccess = await _serverAdapter!.registerPrompt(
           name: promptName,
           description: promptDescription,
-          arguments: formattedArgs,
-          handler: handler,
+          arguments: serverArgs,
+          handler: (args) async => await dynamicPromptPlugin.execute(args),
         );
 
-        if (result) {
-          _logger.info('Successfully registered prompt: $promptName');
+        if (!serverSuccess) {
+          _logger.warning('Failed to register dynamic prompt with server: $promptName');
         } else {
-          _logger.warning('Failed to register prompt with server: $promptName');
+          _logger.info('Registered dynamic prompt with server: $promptName');
         }
 
-        return result;
+        return serverSuccess;
       }
 
-      return false;
+      return true;
     } catch (e) {
       _logger.error('Error generating and registering prompt: $e');
       return false;
     }
   }
 
-  /// Generate and register a resource based on LLM's design
+  /// Generate and register a resource based on LLM's design as a plugin
   ///
   /// [description] - Natural language description of the resource to create
   /// [registerWithServer] - Whether to register the resource with MCP server
@@ -772,29 +595,25 @@ class LlmServer {
     bool registerWithServer = true,
     String sessionId = 'default',
   }) async {
-    if (!hasMcpServer) {
-      _logger.warning('Cannot register resource: MCP server is not available');
-      return false;
-    }
-
     try {
       // Prompt for the LLM to design a resource
-      final designPrompt = '''
-      You are a resource designer for an AI system. Please create a resource definition based on this description:
-      "$description"
-      
-      Respond in JSON format only with the following structure:
-      {
-        "name": "Resource Name",
-        "description": "A clear description of the resource",
-        "uri": "resource://unique_identifier",
-        "mimeType": "text/plain or application/json etc.",
-        "contentTemplate": "Template or example of the resource content"
-      }
-      ''';
+      final prompt = '''
+    You are a resource designer for an AI system. Please create a resource based on this description:
+    "$description"
+    
+    Respond in JSON format only with the following structure:
+    {
+      "name": "resource_name_in_snake_case",
+      "description": "A clear description of the resource's purpose",
+      "uri": "resource://{type}/{identifier}",
+      "mimeType": "appropriate/mime-type",
+      "type": "file" or "documentation" or "data",
+      "content": "Sample or default content of the resource if applicable"
+    }
+    ''';
 
       // Get resource definition from LLM
-      final response = await askLlm(designPrompt, sessionId: sessionId);
+      final response = await askLlm(prompt, sessionId: sessionId);
 
       // Parse JSON response
       Map<String, dynamic> resourceDefinition;
@@ -819,71 +638,85 @@ class LlmServer {
       final resourceName = resourceDefinition['name'] as String;
       final resourceDescription = resourceDefinition['description'] as String;
       final resourceUri = resourceDefinition['uri'] as String;
-      final mimeType = resourceDefinition['mimeType'] as String;
-      final contentTemplate = resourceDefinition['contentTemplate'] as String;
+      final resourceMimeType = resourceDefinition['mimeType'] as String;
+      final resourceType = resourceDefinition['type'] as String;
+      final resourceContent = resourceDefinition['content'] as String?;
 
-      // Create handler function
-      handler(String uri, Map<String, dynamic>? params) async {
-        try {
-          // Generate dynamic content if parameters provided
-          String content = contentTemplate;
+      // Create dynamic resource plugin based on type
+      ResourcePlugin dynamicResourcePlugin;
 
-          if (params != null && params.isNotEmpty) {
-            // Prompt LLM to generate resource content based on parameters
-            final contentPrompt = '''
-            Generate content for the resource "$resourceName" with these parameters:
-            ${jsonEncode(params)}
-            
-            Base template:
-            $contentTemplate
-            
-            Return only the generated content, formatted appropriately for MIME type: $mimeType
-            ''';
+      if (resourceType == 'documentation') {
+        // Create documentation resource
+        final sections = <String, String>{};
 
-            final contentResponse = await askLlm(contentPrompt, sessionId: '${sessionId}_resource');
-            content = contentResponse.text;
-          }
+        if (resourceContent != null) {
+          sections['index'] = resourceContent;
+        } else {
+          // Generate index content if none provided
+          final indexPrompt = '''
+        Create documentation index content for a resource with this description:
+        "$resourceDescription"
+        
+        Keep it concise but informative.
+        ''';
 
-          // Format response based on mime type
-          final contents = [
-            LlmTextContent(text: content)
-          ];
-
-          return LlmReadResourceResult(
-            content: content,
-            mimeType: mimeType,
-            contents: contents,
-          );
-        } catch (e) {
-          _logger.error('Error generating resource content: $e');
-          return LlmReadResourceResult(
-            content: 'Error: ${e.toString()}',
-            mimeType: 'text/plain',
-            contents: [LlmTextContent(text: 'Error: ${e.toString()}')],
-          );
+          final indexResponse = await askLlm(indexPrompt, sessionId: '${sessionId}_${resourceName}_index');
+          sections['index'] = indexResponse.text;
         }
+
+        dynamicResourcePlugin = DocumentationResourcePlugin(
+          name: resourceName,
+          description: resourceDescription,
+          sections: sections,
+        );
+      } else if (resourceType == 'file') {
+        // Create file resource
+        dynamicResourcePlugin = DynamicFileResourcePlugin(
+          name: resourceName,
+          description: resourceDescription,
+          uri: resourceUri,
+          mimeType: resourceMimeType,
+          content: resourceContent ?? '',
+          llmServer: this,
+          sessionId: '${sessionId}_${resourceName}',
+        );
+      } else {
+        // Create generic resource
+        dynamicResourcePlugin = DynamicResourcePlugin(
+          name: resourceName,
+          description: resourceDescription,
+          uri: resourceUri,
+          mimeType: resourceMimeType,
+          content: resourceContent ?? '',
+          llmServer: this,
+          sessionId: '${sessionId}_${resourceName}',
+        );
       }
 
-      // Register with server
+      // Register with plugin manager
+      await pluginManager.registerPlugin(dynamicResourcePlugin);
+      _logger.info('Registered dynamic resource as plugin: $resourceName');
+
+      // Register with server if requested
       if (registerWithServer && hasMcpServer) {
-        final result = await _serverAdapter!.registerResource(
+        final serverSuccess = await _serverAdapter!.registerResource(
           uri: resourceUri,
           name: resourceName,
           description: resourceDescription,
-          mimeType: mimeType,
-          handler: handler,
+          mimeType: resourceMimeType,
+          handler: (uri, params) async => await dynamicResourcePlugin.read(params),
         );
 
-        if (result) {
-          _logger.info('Successfully registered resource: $resourceName ($resourceUri)');
+        if (!serverSuccess) {
+          _logger.warning('Failed to register dynamic resource with server: $resourceName');
         } else {
-          _logger.warning('Failed to register resource with server: $resourceUri');
+          _logger.info('Registered dynamic resource with server: $resourceName');
         }
 
-        return result;
+        return serverSuccess;
       }
 
-      return false;
+      return true;
     } catch (e) {
       _logger.error('Error generating and registering resource: $e');
       return false;
@@ -891,14 +724,10 @@ class LlmServer {
   }
 
   /// Register capabilities (tools, prompts, resources) from a description file
+  /// Creates plugins for all capabilities
   ///
   /// [filePath] - Path to the description file
   Future<bool> registerCapabilitiesFromFile(String filePath) async {
-    if (!hasMcpServer) {
-      _logger.warning('Cannot register capabilities: MCP server is not available');
-      return false;
-    }
-
     try {
       // Read the file
       final file = File(filePath);
@@ -916,31 +745,10 @@ class LlmServer {
       // Process tools
       if (data.containsKey('tools') && data['tools'] is List) {
         final tools = data['tools'] as List;
-        for (final tool in tools) {
-          if (tool is Map<String, dynamic>) {
-            final name = tool['name'] as String?;
-            final description = tool['description'] as String?;
-            final inputSchema = tool['inputSchema'] as Map<String, dynamic>?;
-            final handlerCode = tool['handler'] as String?;
-
-            if (name != null && description != null && inputSchema != null && handlerCode != null) {
-              totalCount++;
-              // 핸들러 함수를 적절한 ToolHandler 타입으로 변환
-              handler(Map<String, dynamic> args) async {
-                // 핸들러 로직
-                return LlmCallToolResult([LlmTextContent(text: 'Handled by $name')]);
-              }
-
-              final success = await _serverAdapter!.registerTool(
-                name: name,
-                description: description,
-                inputSchema: inputSchema,
-                handler: handler,
-              );
-
-              if (success) successCount++;
-            }
-          }
+        for (final toolDesc in tools) {
+          totalCount++;
+          final success = await generateAndRegisterTool(toolDesc.toString());
+          if (success) successCount++;
         }
       }
 
@@ -977,6 +785,7 @@ class LlmServer {
   /// Similar to LlmClient.chat but on the server side
   /// [query] - The user query to process
   /// [useLocalTools] - Whether to allow LLM to use registered local tools
+  /// [usePluginTools] - Whether to allow LLM to use plugin tools
   /// [parameters] - Optional parameters for the LLM request
   /// [sessionId] - Optional session ID for maintaining conversation context
   /// [systemPrompt] - Optional system prompt to use
@@ -984,6 +793,7 @@ class LlmServer {
   Future<Map<String, dynamic>> processQuery({
     required String query,
     bool useLocalTools = true,
+    bool usePluginTools = true,
     Map<String, dynamic> parameters = const {},
     String sessionId = 'default',
     String? systemPrompt,
@@ -1017,9 +827,11 @@ class LlmServer {
       // Add user message to session
       chatSession.addUserMessage(query);
 
-      // Get available local tools if needed
+      // Get available tools if needed
       Map<String, dynamic> effectiveParameters = Map<String, dynamic>.from(parameters);
-      if (useLocalTools && _localTools.isNotEmpty) {
+      if ((useLocalTools && localTools.isNotEmpty) ||
+          (usePluginTools && pluginManager.getAllToolPlugins().isNotEmpty)) {
+
         final toolDescriptions = <Map<String, dynamic>>[];
 
         // Get registered tools from server if available
@@ -1039,17 +851,36 @@ class LlmServer {
         }
 
         // Add local tools
-        for (final name in _localTools.keys) {
-          // Skip if already added from server
-          if (toolDescriptions.any((t) => t['name'] == name)) {
-            continue;
-          }
+        if (useLocalTools) {
+          for (final name in localTools.keys) {
+            // Skip if already added from server
+            if (toolDescriptions.any((t) => t['name'] == name)) {
+              continue;
+            }
 
-          // Add basic description (without schema)
-          toolDescriptions.add({
-            'name': name,
-            'description': 'Local tool: $name',
-          });
+            // Add basic description (without schema)
+            toolDescriptions.add({
+              'name': name,
+              'description': 'Local tool: $name',
+            });
+          }
+        }
+
+        // Add plugin tools
+        if (usePluginTools) {
+          for (final plugin in pluginManager.getAllToolPlugins()) {
+            // Skip if already added
+            if (toolDescriptions.any((t) => t['name'] == plugin.name)) {
+              continue;
+            }
+
+            final toolDef = plugin.getToolDefinition();
+            toolDescriptions.add({
+              'name': toolDef.name,
+              'description': toolDef.description,
+              'parameters': toolDef.inputSchema,
+            });
+          }
         }
 
         // Add tool descriptions to parameters
@@ -1076,7 +907,7 @@ class LlmServer {
       }
 
       // Check for tool calls
-      if (useLocalTools && response.toolCalls != null && response.toolCalls!.isNotEmpty) {
+      if (response.toolCalls != null && response.toolCalls!.isNotEmpty) {
         final toolCalls = response.toolCalls!;
         final toolResults = <String, dynamic>{};
         final toolErrors = <String, String>{};
@@ -1087,7 +918,7 @@ class LlmServer {
           final toolName = toolCall.name;
 
           try {
-            // Try server tool first
+            // Try server tool first if available
             if (hasMcpServer) {
               try {
                 final result = await _serverAdapter!.executeTool(toolName, toolCall.arguments);
@@ -1095,17 +926,29 @@ class LlmServer {
                 continue;
               } catch (e) {
                 _logger.debug('Server tool execution failed, trying local: $e');
-                // Continue to local tool execution
+                // Continue to other options
               }
             }
 
-            // Try local tool
-            if (_localTools.containsKey(toolName)) {
+            // Try local tool if enabled
+            if (useLocalTools && localTools.containsKey(toolName)) {
               final result = await executeLocalTool(toolName, toolCall.arguments);
               toolResults[toolId] = result;
-            } else {
-              throw Exception('Tool not found: $toolName');
+              continue;
             }
+
+            // Try plugin tool if enabled
+            if (usePluginTools) {
+              final plugin = pluginManager.getToolPlugin(toolName);
+              if (plugin != null) {
+                final result = await plugin.execute(toolCall.arguments);
+                toolResults[toolId] = result;
+                continue;
+              }
+            }
+
+            // No matching tool found
+            throw Exception('Tool not found: $toolName');
           } catch (e) {
             _logger.error('Error executing tool $toolName: $e');
             toolErrors[toolId] = e.toString();
@@ -1200,12 +1043,14 @@ class LlmServer {
   ///
   /// [query] - The user query to process
   /// [useLocalTools] - Whether to allow LLM to use registered local tools
+  /// [usePluginTools] - Whether to allow LLM to use plugin tools
   /// [parameters] - Optional parameters for the LLM request
   /// [sessionId] - Optional session ID for maintaining conversation context
   /// [systemPrompt] - Optional system prompt to use
   Stream<Map<String, dynamic>> streamProcessQuery({
     required String query,
     bool useLocalTools = true,
+    bool usePluginTools = true,
     Map<String, dynamic> parameters = const {},
     String sessionId = 'default',
     String? systemPrompt,
@@ -1237,9 +1082,11 @@ class LlmServer {
       // Add user message to session
       chatSession.addUserMessage(query);
 
-      // Get available local tools if needed
+      // Get available tools if needed
       Map<String, dynamic> effectiveParameters = Map<String, dynamic>.from(parameters);
-      if (useLocalTools && _localTools.isNotEmpty) {
+      if ((useLocalTools && localTools.isNotEmpty) ||
+          (usePluginTools && pluginManager.getAllToolPlugins().isNotEmpty)) {
+
         final toolDescriptions = <Map<String, dynamic>>[];
 
         // Get registered tools from server if available
@@ -1259,17 +1106,36 @@ class LlmServer {
         }
 
         // Add local tools
-        for (final name in _localTools.keys) {
-          // Skip if already added from server
-          if (toolDescriptions.any((t) => t['name'] == name)) {
-            continue;
-          }
+        if (useLocalTools) {
+          for (final name in localTools.keys) {
+            // Skip if already added from server
+            if (toolDescriptions.any((t) => t['name'] == name)) {
+              continue;
+            }
 
-          // Add basic description (without schema)
-          toolDescriptions.add({
-            'name': name,
-            'description': 'Local tool: $name',
-          });
+            // Add basic description (without schema)
+            toolDescriptions.add({
+              'name': name,
+              'description': 'Local tool: $name',
+            });
+          }
+        }
+
+        // Add plugin tools
+        if (usePluginTools) {
+          for (final plugin in pluginManager.getAllToolPlugins()) {
+            // Skip if already added
+            if (toolDescriptions.any((t) => t['name'] == plugin.name)) {
+              continue;
+            }
+
+            final toolDef = plugin.getToolDefinition();
+            toolDescriptions.add({
+              'name': toolDef.name,
+              'description': toolDef.description,
+              'parameters': toolDef.inputSchema,
+            });
+          }
         }
 
         // Add tool descriptions to parameters
@@ -1314,7 +1180,7 @@ class LlmServer {
   /// Close and release resources
   Future<void> close() async {
     // No need to manually save chat sessions - they save automatically when messages are added
-    _logger.debug('Closing ${_chatSessions.length} chat sessions');
+    _logger.debug('Closing ${chatSessions.length} chat sessions');
 
     // Close LLM provider
     await llmProvider.close();
@@ -1323,5 +1189,295 @@ class LlmServer {
     if (retrievalManager != null) {
       await retrievalManager!.close();
     }
+  }
+}
+
+/// Dynamic tool plugin generated by LLM
+class DynamicToolPlugin extends BaseToolPlugin {
+  final String processingLogic;
+  final LlmServer llmServer;
+  final String sessionId;
+  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_tool_plugin');
+
+  DynamicToolPlugin({
+    required super.name,
+    required super.description,
+    required super.inputSchema,
+    required this.processingLogic,
+    required this.llmServer,
+    required this.sessionId,
+  }) : super(
+    version: '1.0.0',
+  );
+
+  @override
+  Future<LlmCallToolResult> onExecute(Map<String, dynamic> arguments) async {
+    // Create a prompt for processing the tool request
+    final handlerPrompt = '''
+    You are executing the "$name" tool with these parameters:
+    ${jsonEncode(arguments)}
+    
+    Processing logic:
+    $processingLogic
+    
+    Respond with only the result in valid JSON format. Do not include any explanations or extra text.
+    ''';
+
+    // Execute through LLM
+    try {
+      final handlerResponse = await llmServer.askLlm(handlerPrompt, sessionId: sessionId);
+
+      // Parse response - allow for both JSON object and plain text response
+      String result = handlerResponse.text.trim();
+
+      // Try to parse as JSON first
+      try {
+        // Check for JSON format
+        if (result.startsWith('{') || result.startsWith('[')) {
+         return LlmCallToolResult([LlmTextContent(text: result)]);
+        }
+      } catch (_) {
+        // Not valid JSON, return as text
+      }
+
+      // Return as plain text
+      return LlmCallToolResult([LlmTextContent(text: result)]);
+    } catch (e) {
+      _logger.error('Error executing dynamic tool $name: $e');
+      return LlmCallToolResult(
+        [LlmTextContent(text: 'Error: Failed to execute tool: $e')],
+        isError: true,
+      );
+    }
+  }
+}
+
+/// Dynamic prompt plugin generated by LLM
+class DynamicPromptPlugin extends BasePromptPlugin {
+  final String systemPrompt;
+  final String userPromptTemplate;
+  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_prompt_plugin');
+
+  DynamicPromptPlugin({
+    required super.name,
+    required super.description,
+    required super.arguments,
+    required this.systemPrompt,
+    required this.userPromptTemplate,
+  }) : super(
+    version: '1.0.0',
+  );
+
+  @override
+  Future<LlmGetPromptResult> onExecute(Map<String, dynamic> arguments) async {
+    try {
+      // Replace placeholders in template
+      String filledPrompt = userPromptTemplate;
+
+      // Replace each {parameter} with its value
+      arguments.forEach((key, value) {
+        filledPrompt = filledPrompt.replaceAll('{$key}', value.toString());
+      });
+
+      // Create messages array for the prompt
+      final messages = [
+        LlmMessage.system(systemPrompt),
+        LlmMessage.user(filledPrompt),
+      ];
+
+      return LlmGetPromptResult(
+        description: description,
+        messages: messages,
+      );
+    } catch (e) {
+      _logger.error('Error processing prompt template: $e');
+      return LlmGetPromptResult(
+        description: 'Error',
+        messages: [LlmMessage.system('Failed to process prompt template: $e')],
+      );
+    }
+  }
+}
+
+/// Dynamic resource plugin generated by LLM
+class DynamicResourcePlugin extends BaseResourcePlugin {
+  final String content;
+  final LlmServer llmServer;
+  final String sessionId;
+  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_resource_plugin');
+
+  DynamicResourcePlugin({
+    required super.name,
+    required super.description,
+    required super.uri,
+    required super.mimeType,
+    required this.content,
+    required this.llmServer,
+    required this.sessionId,
+    super.uriTemplate,
+  }) : super(
+    version: '1.0.0',
+  );
+
+  @override
+  Future<LlmReadResourceResult> onRead(Map<String, dynamic> parameters) async {
+    // Return initial content for simple read
+    if (parameters.isEmpty || (parameters.length == 1 && parameters.containsKey('format'))) {
+      return LlmReadResourceResult(
+        content: content,
+        mimeType: mimeType,
+        contents: [LlmTextContent(text: content)],
+      );
+    }
+
+    // For parameterized reads, use LLM to generate appropriate response
+    final handlerPrompt = '''
+    You are providing access to the "${name}" resource with these parameters:
+    ${jsonEncode(parameters)}
+    
+    Resource description: ${description}
+    Resource baseline content: 
+    """
+    ${content}
+    """
+    
+    Generate appropriate content based on the parameters provided.
+    Respond with only the content in the appropriate format. Do not include explanations.
+    ''';
+
+    // Execute through LLM
+    try {
+      final handlerResponse = await llmServer.askLlm(handlerPrompt, sessionId: sessionId);
+      return LlmReadResourceResult(
+        content: handlerResponse.text,
+        mimeType: mimeType,
+        contents: [LlmTextContent(text: handlerResponse.text)],
+      );
+    } catch (e) {
+      _logger.error('Error generating dynamic resource content for $name: $e');
+      return LlmReadResourceResult(
+        content: 'Error: Failed to generate resource content: $e',
+        mimeType: 'text/plain',
+        contents: [LlmTextContent(text: 'Error: Failed to generate resource content: $e')],
+      );
+    }
+  }
+}
+
+/// Dynamic file resource plugin that can generate file content on demand
+class DynamicFileResourcePlugin extends BaseResourcePlugin {
+  final String content;
+  final LlmServer llmServer;
+  final String sessionId;
+  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_file_resource_plugin');
+
+  DynamicFileResourcePlugin({
+    required super.name,
+    required super.description,
+    required super.uri,
+    required super.mimeType,
+    required this.content,
+    required this.llmServer,
+    required this.sessionId,
+    super.uriTemplate,
+  }) : super(
+    version: '1.0.0',
+  );
+
+  @override
+  Future<LlmReadResourceResult> onRead(Map<String, dynamic> parameters) async {
+    // Handle file format transformations
+    String targetFormat = parameters['format'] as String? ?? '';
+    String path = parameters['path'] as String? ?? '';
+
+    // If no special processing needed, return base content
+    if (targetFormat.isEmpty && path.isEmpty) {
+      return LlmReadResourceResult(
+        content: content,
+        mimeType: mimeType,
+        contents: [LlmTextContent(text: content)],
+      );
+    }
+
+    // Create prompt based on parameters
+    String handlerPrompt;
+
+    if (path.isNotEmpty) {
+      // Handle path-based request (virtual file system)
+      handlerPrompt = '''
+      You are providing access to the "${name}" file resource with path: "${path}"
+      
+      Base directory structure is derived from this content:
+      """
+      ${content}
+      """
+      
+      If the requested path exists in the context of this resource, provide its content.
+      If the path does not exist, respond with "File not found: ${path}"
+      
+      Respond with only the file content or error message. Do not include explanations.
+      ''';
+    } else if (targetFormat.isNotEmpty) {
+      // Handle format conversion
+      handlerPrompt = '''
+      You are providing access to the "${name}" file resource and need to convert it to "${targetFormat}" format.
+      
+      Original content:
+      """
+      ${content}
+      """
+      
+      Convert this content to ${targetFormat} format and respond with only the converted content.
+      ''';
+    } else {
+      // Default case (shouldn't happen but for safety)
+      return LlmReadResourceResult(
+        content: content,
+        mimeType: mimeType,
+        contents: [LlmTextContent(text: content)],
+      );
+    }
+
+    // Execute through LLM
+    try {
+      final handlerResponse = await llmServer.askLlm(handlerPrompt, sessionId: sessionId);
+
+      // Determine appropriate MIME type for format conversion
+      String effectiveMimeType = mimeType;
+      if (targetFormat.isNotEmpty) {
+        effectiveMimeType = _getMimeTypeForFormat(targetFormat);
+      }
+
+      return LlmReadResourceResult(
+        content: handlerResponse.text,
+        mimeType: effectiveMimeType,
+        contents: [LlmTextContent(text: handlerResponse.text)],
+      );
+    } catch (e) {
+      _logger.error('Error processing file resource $name: $e');
+      return LlmReadResourceResult(
+        content: 'Error: Failed to process file resource: $e',
+        mimeType: 'text/plain',
+        contents: [LlmTextContent(text: 'Error: Failed to process file resource: $e')],
+      );
+    }
+  }
+
+  /// Map format to MIME type
+  String _getMimeTypeForFormat(String format) {
+    final formatMap = {
+      'json': 'application/json',
+      'xml': 'application/xml',
+      'html': 'text/html',
+      'markdown': 'text/markdown',
+      'md': 'text/markdown',
+      'text': 'text/plain',
+      'txt': 'text/plain',
+      'csv': 'text/csv',
+      'yaml': 'application/x-yaml',
+      'yml': 'application/x-yaml',
+    };
+
+    return formatMap[format.toLowerCase()] ?? mimeType;
   }
 }

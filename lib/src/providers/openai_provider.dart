@@ -480,10 +480,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           logger.warning('Error parsing tool arguments: $e');
           arguments = {'_error': 'Failed to parse arguments'};
         }
-
-        // ID를 반드시 포함
+        
         return LlmToolCall(
-          id: id,  // ID 유지하여 반환
+          id: id,  
           name: name,
           arguments: arguments,
         );
@@ -501,7 +500,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       metadata['usage'] = response['usage'];
     }
 
-    // 도구 호출 ID 정보도 메타데이터에 추가
+    // Add tool call IDs to metadata
     if (toolCalls != null && toolCalls.isNotEmpty) {
       metadata['tool_call_ids'] = toolCalls.map((tc) => tc.id).toList();
     }

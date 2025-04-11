@@ -132,8 +132,8 @@ abstract class BaseToolPlugin implements ToolPlugin {
 }
 
 /// A simple example tool plugin implementation
-class EchoToolPlugin extends BaseToolPlugin {
-  EchoToolPlugin() : super(
+class SampleEchoToolPlugin extends BaseToolPlugin {
+  SampleEchoToolPlugin() : super(
     name: 'echo',
     version: '1.0.0',
     description: 'Echoes back the input with optional transformation',

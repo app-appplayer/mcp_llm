@@ -23,7 +23,7 @@ void main() {
     });
 
     test('Can register and retrieve tool plugin', () async {
-      final plugin = EchoToolPlugin();
+      final plugin = SampleEchoToolPlugin();
       await manager.registerPlugin(plugin);
 
       final retrieved = manager.getToolPlugin('echo');
@@ -41,7 +41,7 @@ void main() {
     });
 
     test('Can execute tool plugin', () async {
-      final plugin = EchoToolPlugin();
+      final plugin = SampleEchoToolPlugin();
       await manager.registerPlugin(plugin);
 
       final result = await manager.tryExecuteTool(
@@ -75,7 +75,7 @@ void main() {
     });
 
     test('getAllToolPlugins returns only tool plugins', () async {
-      await manager.registerPlugin(EchoToolPlugin());
+      await manager.registerPlugin(SampleEchoToolPlugin());
       await manager.registerPlugin(StoryStarterPromptPlugin());
       await manager.registerPlugin(TestPlugin());
 
@@ -87,7 +87,7 @@ void main() {
 
   group('ToolPlugin', () {
     test('EchoToolPlugin works correctly', () async {
-      final plugin = EchoToolPlugin();
+      final plugin = SampleEchoToolPlugin();
       await plugin.initialize({});
 
       final result = await plugin.execute({
@@ -100,7 +100,7 @@ void main() {
     });
 
     test('Plugin validates required arguments', () async {
-      final plugin = EchoToolPlugin();
+      final plugin = SampleEchoToolPlugin();
       await plugin.initialize({});
 
       // Create a custom plugin that definitely throws for testing purposes

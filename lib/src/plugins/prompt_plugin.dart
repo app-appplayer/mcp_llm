@@ -185,8 +185,7 @@ class StoryStarterPromptPlugin extends BasePromptPlugin {
 
     // Create the result
     return LlmGetPromptResult(
-      description: 'A ${tone.toLowerCase()} ${genre.toLowerCase()} story starter' +
-          (theme != null ? ' about ${theme.toLowerCase()}' : ''),
+      description: 'A ${tone.toLowerCase()} ${genre.toLowerCase()} story starter${theme != null ? ' about ${theme.toLowerCase()}' : ''}',
       messages: [systemMessage, userMessage],
     );
   }

@@ -13,6 +13,9 @@ class PluginManager implements IPluginManager {
   /// Prompt plugins
   final Map<String, PromptPlugin> _promptPlugins = {};
 
+  /// Resource plugins
+  final Map<String, ResourcePlugin> _resourcePlugins = {};
+
   /// Embedding plugins
   final Map<String, EmbeddingPlugin> _embeddingPlugins = {};
 
@@ -49,6 +52,8 @@ class PluginManager implements IPluginManager {
       _toolPlugins[plugin.name] = plugin;
     } else if (plugin is PromptPlugin) {
       _promptPlugins[plugin.name] = plugin;
+    } else if (plugin is ResourcePlugin) {
+      _resourcePlugins[plugin.name] = plugin;
     } else if (plugin is EmbeddingPlugin) {
       _embeddingPlugins[plugin.name] = plugin;
     } else if (plugin is PreprocessorPlugin) {
@@ -78,6 +83,12 @@ class PluginManager implements IPluginManager {
   @override
   PromptPlugin? getPromptPlugin(String name) {
     return _promptPlugins[name];
+  }
+
+  /// Get a resource plugin by name
+  @override
+  ResourcePlugin? getResourcePlugin(String name) {
+    return _resourcePlugins[name];
   }
 
   /// Get an embedding plugin by name
@@ -111,6 +122,12 @@ class PluginManager implements IPluginManager {
   @override
   List<PromptPlugin> getAllPromptPlugins() {
     return _promptPlugins.values.toList();
+  }
+
+  /// Get all resource plugins
+  @override
+  List<ResourcePlugin> getAllResourcePlugins() {
+    return _resourcePlugins.values.toList();
   }
 
   /// Get all embedding plugins
@@ -155,6 +172,7 @@ class PluginManager implements IPluginManager {
       // Remove from type-specific registry
       _toolPlugins.remove(name);
       _promptPlugins.remove(name);
+      _resourcePlugins.remove(name);
       _embeddingPlugins.remove(name);
       _preprocessorPlugins.remove(name);
       _postprocessorPlugins.remove(name);
@@ -186,6 +204,7 @@ class PluginManager implements IPluginManager {
     _plugins.clear();
     _toolPlugins.clear();
     _promptPlugins.clear();
+    _resourcePlugins.clear();
     _embeddingPlugins.clear();
     _preprocessorPlugins.clear();
     _postprocessorPlugins.clear();
@@ -238,6 +257,7 @@ class PluginManager implements IPluginManager {
   String _getPluginType(LlmPlugin plugin) {
     if (plugin is ToolPlugin) return 'tool';
     if (plugin is PromptPlugin) return 'prompt';
+    if (plugin is ResourcePlugin) return 'resource';
     if (plugin is EmbeddingPlugin) return 'embedding';
     if (plugin is PreprocessorPlugin) return 'preprocessor';
     if (plugin is PostprocessorPlugin) return 'postprocessor';
@@ -271,6 +291,19 @@ class PluginManager implements IPluginManager {
     } catch (e) {
       _logger.error('Error executing prompt plugin $promptName: $e');
       throw Exception('Error executing prompt plugin $promptName: $e');
+    }
+  }
+
+  /// Try to read a resource by name
+  Future<LlmReadResourceResult?> tryReadResource(String resourceName, Map<String, dynamic> parameters) async {
+    final plugin = getResourcePlugin(resourceName);
+    if (plugin == null) return null;
+
+    try {
+      return await plugin.read(parameters);
+    } catch (e) {
+      _logger.error('Error reading resource plugin $resourceName: $e');
+      throw Exception('Error reading resource plugin $resourceName: $e');
     }
   }
 }

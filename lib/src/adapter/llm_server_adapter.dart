@@ -1,13 +1,33 @@
 import '../../mcp_llm.dart';
 
+abstract class CallToolResult {
+  List<LLmContent> get content;
+  bool get isStreaming;
+  bool? get isError;
+  Map<String, dynamic> toJson();
+}
+
+abstract class ReadResourceResult {
+  String get content;
+  String get mimeType;
+  List<LLmContent> get contents;
+  Map<String, dynamic> toJson();
+}
+
+abstract class GetPromptResult {
+  String get description;
+  List<LlmMessage> get messages;
+  Map<String, dynamic> toJson();
+}
+
 /// Type definition for tool handler functions with cancellation and progress reporting
-typedef ToolHandler = Future<LlmCallToolResult> Function(Map<String, dynamic> arguments);
+typedef ToolHandler = Future<dynamic> Function(Map<String, dynamic> arguments);
 
 /// Type definition for resource handler functions
-typedef ResourceHandler = Future<LlmReadResourceResult> Function(String uri, Map<String, dynamic> params);
+typedef ResourceHandler = Future<dynamic> Function(String uri, Map<String, dynamic> params);
 
 /// Type definition for prompt handler functions
-typedef PromptHandler = Future<LlmGetPromptResult> Function(Map<String, dynamic> arguments);
+typedef PromptHandler = Future<dynamic> Function(Map<String, dynamic> arguments);
 
 /// Adapter for interfacing with MCP server instances
 /// This adapter handles the conversion between the MCP Server
@@ -38,7 +58,7 @@ class LlmServerAdapter {
     }
 
     try {
-      // 래핑된 핸들러로 도구 등록
+      // Register with wrapped handler
       await _mcpServer.addTool(
         name: name,
         description: description,

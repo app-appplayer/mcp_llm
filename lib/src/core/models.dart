@@ -1,3 +1,4 @@
+import '../adapter/llm_server_adapter.dart';
 import '../chat/message.dart';
 import 'llm_context.dart';
 
@@ -215,7 +216,6 @@ class LlmTool {
   }
 }
 
-
 /// Tool call request
 class LlmToolCall {
   final String name;
@@ -228,7 +228,7 @@ class LlmToolCall {
     this.id,
   });
 
-  // ID가 없으면 생성하는 메소드 추가
+  // Method to create ID if it doesn't exist
   String getOrCreateId() {
     return id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
   }
@@ -246,7 +246,7 @@ class LlmToolCall {
     return result;
   }
 
-  // ID 추가하여 새 인스턴스 생성
+  // Create new instance with added ID
   LlmToolCall withId(String newId) {
     return LlmToolCall(
       name: name,
@@ -257,9 +257,12 @@ class LlmToolCall {
 }
 
 /// Tool call result
-class LlmCallToolResult {
+class LlmCallToolResult implements CallToolResult {
+  @override
   final List<LLmContent> content;
+  @override
   final bool isStreaming;
+  @override
   final bool? isError;
 
   LlmCallToolResult(
@@ -268,6 +271,7 @@ class LlmCallToolResult {
         this.isError,
       });
 
+  @override
   Map<String, dynamic> toJson() {
     return {
       'content': content.map((c) => c.toJson()).toList(),
@@ -282,7 +286,7 @@ class LlmResource {
   final String uri;
   final String name;
   final String description;
-  final String? mimeType;
+  final String mimeType;
   final String? uriTemplate;
 
   LlmResource({
@@ -298,7 +302,7 @@ class LlmResource {
       'uri': uri,
       'name': name,
       'description': description,
-      if (mimeType != null) 'mimeType': mimeType,
+      'mimeType': mimeType,
       if (uriTemplate != null) 'uriTemplate' : uriTemplate
     };
 
@@ -592,3 +596,4 @@ class LlmConfiguration {
     return result;
   }
 }
+

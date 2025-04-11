@@ -1,3 +1,5 @@
+import 'package:mcp_llm/mcp_llm.dart';
+
 import '../utils/logger.dart';
 
 /// Adapter that converts MCP client instances to LLM compatible format
@@ -185,22 +187,11 @@ class LlmClientAdapter {
     try {
       final result = await _mcpClient.callTool(toolName, args);
 
-      // Return as is if it's already Map<String, dynamic>
-      if (result is Map<String, dynamic>) {
-        return result;
-      }
-      // If it's a Map but with different type
-      else if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      }
-      // If it's an object with toJson method
-      else {
-        try {
-          return result.toJson();
-        } catch (e) {
-          // Convert to string
-          return {'content': result.toString()};
-        }
+      try {
+        return result.toJson();
+      } catch (e) {
+        // Convert to string
+        return {'content': result.toString()};
       }
     } catch (e) {
       _logger.error('Failed to execute tool: $e');

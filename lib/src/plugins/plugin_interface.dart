@@ -37,6 +37,15 @@ abstract class PromptPlugin extends LlmPlugin {
   Future<LlmGetPromptResult> execute(Map<String, dynamic> arguments);
 }
 
+/// Interface for resource plugins that provide resources
+abstract class ResourcePlugin extends LlmPlugin {
+  /// Get the resource definition
+  LlmResource getResourceDefinition();
+
+  /// Read the resource with the given parameters
+  Future<LlmReadResourceResult> read(Map<String, dynamic> parameters);
+}
+
 /// Interface for embedding plugins that provide embedding functionality
 abstract class EmbeddingPlugin extends LlmPlugin {
   /// Generate embeddings for the given text
@@ -75,6 +84,9 @@ abstract class IPluginManager {
   /// Get a prompt plugin by name
   PromptPlugin? getPromptPlugin(String name);
 
+  /// Get a resource plugin by name
+  ResourcePlugin? getResourcePlugin(String name);
+
   /// Get an embedding plugin by name
   EmbeddingPlugin? getEmbeddingPlugin(String name);
 
@@ -83,6 +95,9 @@ abstract class IPluginManager {
 
   /// Get all prompt plugins
   List<PromptPlugin> getAllPromptPlugins();
+
+  /// Get all resource plugins
+  List<ResourcePlugin> getAllResourcePlugins();
 
   /// Unregister a plugin
   Future<void> unregisterPlugin(String name);

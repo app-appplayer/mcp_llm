@@ -11,6 +11,7 @@ export 'src/core/llm_server.dart';
 export 'src/core/llm_context.dart';
 export 'src/core/llm_registry.dart';
 export 'src/core/models.dart';
+export 'src/core/llm_server_extensions.dart';
 
 // Provider implementations
 export 'src/providers/provider.dart';
@@ -36,6 +37,7 @@ export 'src/plugins/plugin_manager.dart';
 export 'src/plugins/plugin_interface.dart';
 export 'src/plugins/tool_plugin.dart';
 export 'src/plugins/prompt_plugin.dart';
+export 'src/plugins/core_llm_plugins.dart';
 
 // Parallel processing
 export 'src/parallel/executor.dart';
