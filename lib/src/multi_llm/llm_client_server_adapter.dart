@@ -156,7 +156,6 @@ class LlmServerServiceAdapter implements ManagedService {
       'available': isAvailable(),
       'hasMcpServer': _server.hasMcpServer,
       'hasRetrievalCapabilities': _server.hasRetrievalCapabilities,
-      'sessionCount': _server.chatSessions.length,
       'toolCount': _server.localTools.length,
     };
   }

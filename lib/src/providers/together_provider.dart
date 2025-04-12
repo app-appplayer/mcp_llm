@@ -193,29 +193,29 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
-    // Together 모델은 현재 도구 호출을 지원하지 않으므로 false 반환
+    // Together models do not currently support tool calls, so return false
     return false;
   }
 
   @override
   LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
-    // Together 모델은 현재 도구 호출을 지원하지 않으므로 null 반환
+    // Together models do not currently support tool calls, so return null
     return null;
   }
 
   @override
   Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
-    // Together의 메타데이터를 표준화된 형식으로 변환
+    // Convert Together's metadata to a standardized format
     final standardizedMetadata = Map<String, dynamic>.from(metadata);
 
-    // finish_reason 필드가 있으면 유지
+    // Keep the finish_reason field if it exists
     if (metadata.containsKey('finish_reason')) {
-      // 이미 표준 형식이므로 변경 불필요
+      // No changes needed as it's already in the standard format
     }
 
-    // error 필드가 있으면 유지
+    // Keep the error field if it exists
     if (metadata.containsKey('error')) {
-      // 이미 표준 형식이므로 변경 불필요
+      // No changes needed as it's already in the standard format
     }
 
     return standardizedMetadata;

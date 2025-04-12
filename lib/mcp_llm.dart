@@ -1,8 +1,9 @@
 /// Main library for integrating Large Language Models with MCP
 library;
 
-// Multi-MCP Client Integration
+// Multi-MCP Integration
 export 'src/adapter/mcp_client_manager.dart';
+export 'src/adapter/mcp_server_manager.dart';
 
 // Core components
 export 'src/core/llm_interface.dart';
@@ -70,6 +71,7 @@ import 'src/core/llm_server.dart';
 import 'src/core/llm_interface.dart';
 import 'src/core/models.dart';
 import 'src/multi_llm/llm_client_manager.dart';
+import 'src/multi_llm/llm_server_manager.dart';
 import 'src/parallel/executor.dart';
 import 'src/parallel/result_aggregator.dart';
 import 'src/plugins/plugin_manager.dart';
@@ -88,8 +90,11 @@ class McpLlm {
   /// LLM provider registry
   final LlmRegistry _llmRegistry = LlmRegistry();
 
-  /// Client manager
+  /// Multi llm client manager
   final MultiLlmClientManager _llmClientManager = MultiLlmClientManager();
+
+  /// Multi llm server manager
+  final MultiLlmServerManager _llmServerManager = MultiLlmServerManager();
 
   /// Plugin manager
   final PluginManager _pluginManager = PluginManager();
@@ -115,7 +120,7 @@ class McpLlm {
   /// [providerName] - Name of the registered provider to use
   /// [config] - Configuration for the LLM provider
   /// [mcpClient] - Optional MCP client (from mcp_client package)
-  /// [mcpClients] - Optional map of MCP clients (for multi-client support)
+  /// [mcpClients] - Optional map of MCP clients (for multi-mcp_client support)
   /// [storageManager] - Optional storage manager for persistence
   /// [pluginManager] - Optional plugin manager or uses internal one if not provided
   /// [performanceMonitor] - Optional performance monitor
@@ -168,7 +173,7 @@ class McpLlm {
       retrievalManager: retrievalManager,
     );
 
-    // 시스템 프롬프트가 제공된 경우 채팅 세션에 추가
+    // Add system prompt to the chat session if provided
     if (systemPrompt != null && systemPrompt.isNotEmpty) {
       client.chatSession.addSystemMessage(systemPrompt);
     }
@@ -185,6 +190,28 @@ class McpLlm {
     );
 
     return client;
+  }
+
+  /// Get a client by ID
+  LlmClient? getClient(String clientId) {
+    return _llmClientManager.getClient(clientId);
+  }
+
+  /// Select the most appropriate client for a query
+  LlmClient? selectClient(String query, {Map<String, dynamic>? properties}) {
+    return _llmClientManager.selectClient(query, properties: properties);
+  }
+
+  /// Execute a query across all clients
+  Future<Map<String, LlmResponse>> fanOutQuery(String query, {
+    bool enableTools = true,
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    return await _llmClientManager.fanOutQuery(
+      query,
+      enableTools: enableTools,
+      parameters: parameters,
+    );
   }
 
   /// Add an MCP client to an existing LLM client
@@ -279,18 +306,28 @@ class McpLlm {
   /// [providerName] - Name of the registered provider to use
   /// [config] - Configuration for the LLM provider
   /// [mcpServer] - Optional MCP server (from mcp_server package)
+  /// [mcpServers] - Optional map of MCP servers (for multi-mcp_server support)
   /// [storageManager] - Optional storage manager for persistence
-  /// [retrievalManager] - Optional retrieval manager for RAG
   /// [pluginManager] - Optional plugin manager or uses internal one if not provided
   /// [performanceMonitor] - Optional performance monitor
+  /// [retrievalManager] - Optional retrieval manager for RAG capabilities
+  /// [serverId] - Optional ID for the server
+  /// [routingProperties] - Optional properties for client routing
+  /// [loadWeight] - Optional weight for load balancing
+  /// [systemPrompt] - Optional system prompt for the LLM
   Future<LlmServer> createServer({
     required String providerName,
     LlmConfiguration? config,
-    dynamic mcpServer, // Type-agnostic to avoid direct dependency
+    dynamic mcpServer, // Single server (backward compatibility)
+    Map<String, dynamic>? mcpServers, // Multiple servers (new feature)
     StorageManager? storageManager,
-    RetrievalManager? retrievalManager,
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
+    RetrievalManager? retrievalManager,
+    String? serverId,
+    Map<String, dynamic>? routingProperties,
+    double loadWeight = 1.0,
+    String? systemPrompt,
   }) async {
     // Get provider factory
     final factory = _llmRegistry.getProviderFactory(providerName);
@@ -311,37 +348,131 @@ class McpLlm {
     final effectivePluginManager = pluginManager ?? _pluginManager;
     final effectivePerformanceMonitor = performanceMonitor ?? _performanceMonitor;
 
-    // Create LLM server with all components
-    return LlmServer(
+    // Create LLM client with all optional components
+    final server = LlmServer(
       llmProvider: llmProvider,
       mcpServer: mcpServer,
+      mcpServers: mcpServers,
       storageManager: storageManager,
-      retrievalManager: retrievalManager,
       pluginManager: effectivePluginManager,
       performanceMonitor: effectivePerformanceMonitor,
+      retrievalManager: retrievalManager,
     );
+
+    // Add system prompt to the chat session if provided
+    if (systemPrompt != null && systemPrompt.isNotEmpty) {
+      server.chatSession.addSystemMessage(systemPrompt);
+    }
+
+    // Generate client ID if not provided
+    final id = serverId ?? 'llm_server_${DateTime.now().millisecondsSinceEpoch}';
+
+    // Add to client manager
+    _llmServerManager.addServer(
+      id,
+      server,
+      routingProperties: routingProperties,
+      weight: loadWeight,
+    );
+
+    return server;
   }
 
-  /// Get a client by ID
-  LlmClient? getClient(String clientId) {
-    return _llmClientManager.getClient(clientId);
+  /// Get a server by ID
+  LlmServer? getServer(String serverId) {
+    return _llmServerManager.getServer(serverId);
   }
 
   /// Select the most appropriate client for a query
-  LlmClient? selectClient(String query, {Map<String, dynamic>? properties}) {
-    return _llmClientManager.selectClient(query, properties: properties);
+  LlmServer? selectServer(String query, {Map<String, dynamic>? properties}) {
+    return _llmServerManager.selectServer(query, properties: properties);
   }
 
-  /// Execute a query across all clients
-  Future<Map<String, LlmResponse>> fanOutQuery(String query, {
-    bool enableTools = true,
-    Map<String, dynamic> parameters = const {},
-  }) async {
-    return await _llmClientManager.fanOutQuery(
-      query,
-      enableTools: enableTools,
-      parameters: parameters,
-    );
+  /// Add an MCP server to an existing LLM server
+  ///
+  /// [llmServerId] - ID of the LLM server
+  /// [mcpServerId] - ID for the new MCP server
+  /// [mcpServer] - MCP server instance to add
+  Future<bool> addMcpServerToLlmClient(
+      String llmServerId,
+      String mcpServerId,
+      dynamic mcpServer
+      ) async {
+    final llmServer = _llmServerManager.getServer(llmServerId);
+    if (llmServer== null) {
+      _logger.warning('LLM server not found: $llmServerId');
+      return false;
+    }
+
+    try {
+      llmServer.addMcpServer(mcpServerId, mcpServer);
+      _logger.info('Added MCP server "$mcpServerId" to LLM server "$llmServerId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to add MCP server to LLM server: $e');
+      return false;
+    }
+  }
+
+  /// Remove an MCP server from an existing LLM server
+  ///
+  /// [llmServerId] - ID of the LLM server
+  /// [mcpServerId] - ID of the MCP server to remove
+  Future<bool> removeMcpServerFromLlmServer(
+      String llmServerId,
+      String mcpServerId
+      ) async {
+    final llmServer = _llmServerManager.getServer(llmServerId);
+    if (llmServer == null) {
+      _logger.warning('LLM server not found: $llmServerId');
+      return false;
+    }
+
+    try {
+      llmServer.removeMcpServer(mcpServerId);
+      _logger.info('Removed MCP server "$mcpServerId" from LLM server "$llmServerId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to remove MCP server from LLM server: $e');
+      return false;
+    }
+  }
+
+  /// Set the default MCP server for an LLM server
+  ///
+  /// [llmServerId] - ID of the LLM server
+  /// [mcpServerId] - ID of the MCP server to set as default
+  Future<bool> setDefaultMcpServer(
+      String llmServerId,
+      String mcpServerId
+      ) async {
+    final llmServer = _llmServerManager.getServer(llmServerId);
+    if (llmServer == null) {
+      _logger.warning('LLM server not found: $llmServerId');
+      return false;
+    }
+
+    try {
+      llmServer.setDefaultMcpServer(mcpServerId);
+      _logger.info('Set default MCP server to "$mcpServerId" for LLM server "$llmServerId"');
+      return true;
+    } catch (e) {
+      _logger.error('Failed to set default MCP server: $e');
+      return false;
+    }
+  }
+
+  /// Get all MCP server IDs for an LLM server
+  ///
+  /// [llmServerId] - ID of the LLM server
+  List<String> getMcpServerIds(String llmServerId) {
+    final llmServer = _llmServerManager.getServer(llmServerId);
+    if (llmServer == null) {
+      _logger.warning('LLM client not found: $llmServerId');
+      return [];
+    }
+
+    return llmServer.getMcpServerIds();
   }
 
   /// Execute a query in parallel across multiple providers
@@ -414,12 +545,12 @@ class McpLlm {
     return _llmRegistry.getProvidersWithCapability(capability);
   }
 
-  /// 성능 모니터링 활성화
+  /// Enable performance monitoring
   void enablePerformanceMonitoring({
     Duration interval = const Duration(seconds: 10),
     bool resetMetricsOnStart = false
   }) {
-    // 시작 전 메트릭 초기화 옵션
+    // Option to reset metrics before starting
     if (resetMetricsOnStart) {
       _performanceMonitor.resetMetrics();
     }
@@ -428,24 +559,24 @@ class McpLlm {
     _logger.info('Performance monitoring enabled with interval: ${interval.inSeconds}s');
   }
 
-  /// 성능 모니터링 비활성화
+  /// Disable performance monitoring
   void disablePerformanceMonitoring() {
     _performanceMonitor.stopMonitoring();
     _logger.info('Performance monitoring disabled');
   }
 
-  /// 성능 메트릭 초기화
+  /// Reset performance metrics
   void resetPerformanceMetrics() {
     _performanceMonitor.resetMetrics();
     _logger.info('Performance metrics have been reset');
   }
 
-  /// 성능 메트릭 가져오기
+  /// Get performance metrics
   Map<String, dynamic> getPerformanceMetrics() {
     return _performanceMonitor.getMetricsReport();
   }
 
-  /// PerformanceMonitor 인스턴스 가져오기 (플러그인 등에서 사용)
+  /// Get PerformanceMonitor instance (used in plugins, etc.)
   PerformanceMonitor getPerformanceMonitor() {
     return _performanceMonitor;
   }
@@ -506,15 +637,16 @@ class McpLlm {
   Future<void> shutdown() async {
     _logger.info('Shutting down MCPLlm system...');
 
-    // 성능 모니터링 중지
+    // Stop performance monitoring
     disablePerformanceMonitoring();
 
-    // 모든 클라이언트 종료
+    // Close all clients
     await _llmClientManager.closeAll();
 
-    // 플러그인 시스템 종료
+    // Shutdown plugin system
     await _pluginManager.shutdown();
 
     _logger.info('MCPLlm system shutdown completed');
   }
 }
+

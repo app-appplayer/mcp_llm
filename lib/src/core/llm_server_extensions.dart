@@ -224,7 +224,6 @@ extension LlmServerHelperExtensions on LlmServer {
     final info = <String, dynamic>{
       'hasServer': hasMcpServer,
       'hasRetrieval': hasRetrievalCapabilities,
-      'sessionCount': chatSessions.length,
       'localToolCount': localTools.length,
       'pluginToolCount': pluginManager.getAllToolPlugins().length,
       'pluginResourceCount': pluginManager.getAllResourcePlugins().length,
@@ -244,12 +243,7 @@ extension LlmServerHelperExtensions on LlmServer {
 
   /// Session management helper
   Future<bool> clearSession(String sessionId) async {
-    final session = chatSessions[sessionId];
-    if (session == null) {
-      return false;
-    }
-
-    session.clearHistory();
+    chatSession.clearHistory();
     return true;
   }
 

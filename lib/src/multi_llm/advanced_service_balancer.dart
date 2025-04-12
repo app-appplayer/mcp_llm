@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:math';
 
 import '../../mcp_llm.dart';
+import 'managed_service.dart';
 
-class AdvancedLoadBalancer {
-  // Client weight map
-  final Map<String, double> _clientWeights = {};
+/// Advanced implementation of ServiceBalancer with multiple strategies
+/// and service health monitoring
+class AdvancedServiceBalancer implements ServiceBalancer {
+  // Service weight map
+  final Map<String, double> _serviceWeights = {};
 
-  // Client state tracking
-  final Map<String, _ClientState> _clientStates = {};
+  // Service state tracking
+  final Map<String, _ServiceState> _serviceStates = {};
 
   // Round robin list
   final List<String> _roundRobinList = [];
@@ -17,17 +20,17 @@ class AdvancedLoadBalancer {
   int _currentIndex = 0;
 
   // Load balancing strategy
-  LoadBalancingStrategy _strategy = LoadBalancingStrategy.weightedRoundRobin;
+  BalancingStrategy _strategy = BalancingStrategy.weightedRoundRobin;
 
   // Status evaluation interval
   late Timer _healthCheckTimer;
 
   // Logging
-  final Logger _logger = Logger.getLogger('mcp_llm.advanced_load_balancer');
+  final Logger _logger = Logger.getLogger('mcp_llm.advanced_service_balancer');
 
   // Constructor
-  AdvancedLoadBalancer({
-    LoadBalancingStrategy strategy = LoadBalancingStrategy.weightedRoundRobin,
+  AdvancedServiceBalancer({
+    BalancingStrategy strategy = BalancingStrategy.weightedRoundRobin,
     Duration healthCheckInterval = const Duration(seconds: 30),
   }) {
     _strategy = strategy;
@@ -37,43 +40,39 @@ class AdvancedLoadBalancer {
   // Start health checks
   void _startHealthChecks(Duration interval) {
     _healthCheckTimer = Timer.periodic(interval, (_) {
-      _updateClientHealth();
+      _updateServiceHealth();
     });
   }
 
-  // Register client
-  void registerClient(
-    String clientId, {
-    double weight = 1.0,
-    int maxConcurrentRequests = 5,
-  }) {
-    _clientWeights[clientId] = weight;
-    _clientStates[clientId] = _ClientState(
-      clientId: clientId,
-      maxConcurrentRequests: maxConcurrentRequests,
+  @override
+  void registerService(String serviceId, {double weight = 1.0}) {
+    _serviceWeights[serviceId] = weight;
+    _serviceStates[serviceId] = _ServiceState(
+      serviceId: serviceId,
+      maxConcurrentRequests: 5,
     );
 
     _updateRoundRobinList();
-    _logger.debug('Registered client: $clientId with weight $weight');
+    _logger.debug('Registered service: $serviceId with weight $weight');
   }
 
-  // Unregister client
-  void unregisterClient(String clientId) {
-    _clientWeights.remove(clientId);
-    _clientStates.remove(clientId);
+  @override
+  void unregisterService(String serviceId) {
+    _serviceWeights.remove(serviceId);
+    _serviceStates.remove(serviceId);
 
     _updateRoundRobinList();
-    _logger.debug('Unregistered client: $clientId');
+    _logger.debug('Unregistered service: $serviceId');
   }
 
   // Update round robin list
   void _updateRoundRobinList() {
     _roundRobinList.clear();
 
-    // Distribute clients based on weight and health status
-    for (final entry in _clientWeights.entries) {
-      final clientId = entry.key;
-      final state = _clientStates[clientId];
+    // Distribute services based on weight and health status
+    for (final entry in _serviceWeights.entries) {
+      final serviceId = entry.key;
+      final state = _serviceStates[serviceId];
 
       if (state == null) continue;
 
@@ -84,7 +83,7 @@ class AdvancedLoadBalancer {
       int count = max(1, (effectiveWeight * 10).round());
 
       for (int i = 0; i < count; i++) {
-        _roundRobinList.add(clientId);
+        _roundRobinList.add(serviceId);
       }
     }
 
@@ -93,81 +92,81 @@ class AdvancedLoadBalancer {
     _currentIndex = 0;
   }
 
-  // Select next client
-  String? getNextClient() {
+  @override
+  String? getNextService() {
     if (_roundRobinList.isEmpty) return null;
 
     switch (_strategy) {
-      case LoadBalancingStrategy.weightedRoundRobin:
-        return _getNextRoundRobinClient();
+      case BalancingStrategy.weightedRoundRobin:
+        return _getNextRoundRobinService();
 
-      case LoadBalancingStrategy.leastConnections:
-        return _getLeastConnectionsClient();
+      case BalancingStrategy.leastConnections:
+        return _getLeastConnectionsService();
 
-      case LoadBalancingStrategy.fastestResponse:
-        return _getFastestResponseClient();
+      case BalancingStrategy.fastestResponse:
+        return _getFastestResponseService();
 
-      case LoadBalancingStrategy.adaptiveLoad:
-        return _getAdaptiveLoadClient();
+      case BalancingStrategy.adaptiveLoad:
+        return _getAdaptiveLoadService();
     }
   }
 
   // Weight-based round robin selection
-  String? _getNextRoundRobinClient() {
+  String? _getNextRoundRobinService() {
     if (_roundRobinList.isEmpty) return null;
 
-    final clientId = _roundRobinList[_currentIndex];
+    final serviceId = _roundRobinList[_currentIndex];
     _currentIndex = (_currentIndex + 1) % _roundRobinList.length;
 
-    return clientId;
+    return serviceId;
   }
 
   // Least connections selection
-  String? _getLeastConnectionsClient() {
-    if (_clientStates.isEmpty) return null;
+  String? _getLeastConnectionsService() {
+    if (_serviceStates.isEmpty) return null;
 
-    String? bestClient;
+    String? bestService;
     int lowestConnections = -1;
 
-    for (final state in _clientStates.values) {
+    for (final state in _serviceStates.values) {
       // Initialize or update if fewer connections found
       if (lowestConnections == -1 ||
           state.currentRequests < lowestConnections) {
         lowestConnections = state.currentRequests;
-        bestClient = state.clientId;
+        bestService = state.serviceId;
       }
     }
 
-    return bestClient;
+    return bestService;
   }
 
   // Fastest response time selection
-  String? _getFastestResponseClient() {
-    if (_clientStates.isEmpty) return null;
+  String? _getFastestResponseService() {
+    if (_serviceStates.isEmpty) return null;
 
-    String? bestClient;
+    String? bestService;
     double fastestAvgResponseTime = double.infinity;
 
-    for (final state in _clientStates.values) {
+    for (final state in _serviceStates.values) {
       if (state.avgResponseTime < fastestAvgResponseTime) {
         fastestAvgResponseTime = state.avgResponseTime;
-        bestClient = state.clientId;
+        bestService = state.serviceId;
       }
     }
 
-    return bestClient;
+    return bestService;
   }
 
   // Adaptive load selection
-  String? _getAdaptiveLoadClient() {
-    if (_clientStates.isEmpty) return null;
+  String? _getAdaptiveLoadService() {
+    if (_serviceStates.isEmpty) return null;
 
     // Calculate state weights
     Map<String, double> scores = {};
 
-    for (final entry in _clientStates.entries) {
+    for (final entry in _serviceStates.entries) {
       final state = entry.value;
-      final clientWeight = _clientWeights[state.clientId] ?? 1.0;
+      final serviceWeight = _serviceWeights[state.serviceId] ?? 1.0;
 
       // Response time score (faster = higher score)
       double responseTimeScore = 1.0;
@@ -189,31 +188,31 @@ class AdvancedLoadBalancer {
       }
 
       // Calculate final score
-      double finalScore = clientWeight *
+      double finalScore = serviceWeight *
           (responseTimeScore * 0.4 +
               utilizationScore * 0.4 +
               errorRateScore * 0.2);
 
-      scores[state.clientId] = finalScore;
+      scores[state.serviceId] = finalScore;
     }
 
-    // Select client with highest score
-    String? bestClient;
+    // Select service with highest score
+    String? bestService;
     double highestScore = -1;
 
     for (final entry in scores.entries) {
       if (entry.value > highestScore) {
         highestScore = entry.value;
-        bestClient = entry.key;
+        bestService = entry.key;
       }
     }
 
-    return bestClient;
+    return bestService;
   }
 
-  // Record request start
-  void recordRequestStart(String clientId) {
-    final state = _clientStates[clientId];
+  /// Record request start for a service
+  void recordRequestStart(String serviceId) {
+    final state = _serviceStates[serviceId];
     if (state != null) {
       state.currentRequests++;
       state.requestCount++;
@@ -221,10 +220,10 @@ class AdvancedLoadBalancer {
     }
   }
 
-  // Record request completion
-  void recordRequestEnd(String clientId,
+  /// Record request completion for a service
+  void recordRequestEnd(String serviceId,
       {bool success = true, int responseTimeMs = 0}) {
-    final state = _clientStates[clientId];
+    final state = _serviceStates[serviceId];
     if (state != null) {
       state.currentRequests--;
 
@@ -242,9 +241,9 @@ class AdvancedLoadBalancer {
     }
   }
 
-  // Periodically update client health status
-  void _updateClientHealth() {
-    for (final state in _clientStates.values) {
+  // Periodically update service health status
+  void _updateServiceHealth() {
+    for (final state in _serviceStates.values) {
       // Calculate health score based on error rate
       double newHealthFactor = 1.0;
 
@@ -281,20 +280,20 @@ class AdvancedLoadBalancer {
     _updateRoundRobinList();
   }
 
-  // Clear load balancer
+  @override
   void clear() {
-    _clientWeights.clear();
-    _clientStates.clear();
+    _serviceWeights.clear();
+    _serviceStates.clear();
     _roundRobinList.clear();
     _currentIndex = 0;
     _healthCheckTimer.cancel();
   }
 
-  // Get client statistics
-  Map<String, Map<String, dynamic>> getClientStats() {
+  @override
+  Map<String, Map<String, dynamic>> getServiceStats() {
     Map<String, Map<String, dynamic>> stats = {};
 
-    for (final entry in _clientStates.entries) {
+    for (final entry in _serviceStates.entries) {
       stats[entry.key] = {
         'current_requests': entry.value.currentRequests,
         'request_count': entry.value.requestCount,
@@ -307,25 +306,33 @@ class AdvancedLoadBalancer {
     return stats;
   }
 
-  // Set load balancing strategy
-  void setStrategy(LoadBalancingStrategy strategy) {
+  @override
+  void updateServiceWeight(String serviceId, double weight) {
+    if (_serviceWeights.containsKey(serviceId)) {
+      _serviceWeights[serviceId] = weight;
+      _updateRoundRobinList();
+      _logger.debug('Updated weight for service $serviceId to $weight');
+    }
+  }
+
+  /// Set balancing strategy
+  void setBalancingStrategy(BalancingStrategy strategy) {
     _strategy = strategy;
-    _logger.info(
-        'Load balancing strategy changed to: ${strategy.toString().split('.').last}');
+    _logger.info('Balancing strategy changed to: ${strategy.toString().split('.').last}');
   }
 }
 
-// Load balancing strategy enum
-enum LoadBalancingStrategy {
+/// Load balancing strategy enum
+enum BalancingStrategy {
   weightedRoundRobin, // Weight-based round robin
   leastConnections, // Prioritize least number of connections
   fastestResponse, // Prioritize fastest response time
   adaptiveLoad, // Adaptive load distribution
 }
 
-// Client state tracking class
-class _ClientState {
-  final String clientId;
+/// Service state tracking class
+class _ServiceState {
+  final String serviceId;
   final int maxConcurrentRequests;
 
   int currentRequests = 0; // Current active request count
@@ -339,8 +346,8 @@ class _ClientState {
   final List<int> _responseTimeSamples = []; // Recent response time samples
   final int _maxSamples = 20; // Maximum sample count
 
-  _ClientState({
-    required this.clientId,
+  _ServiceState({
+    required this.serviceId,
     this.maxConcurrentRequests = 5,
   });
 

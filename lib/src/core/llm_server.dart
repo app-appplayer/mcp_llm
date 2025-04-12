@@ -34,7 +34,7 @@ class LlmServer {
   final Map<String, Function> localTools = {};
 
   /// Chat sessions for different contexts
-  final Map<String, ChatSession> chatSessions = {};
+  late final ChatSession chatSession;
 
   /// Create a new LLM server
   LlmServer({
@@ -48,10 +48,9 @@ class LlmServer {
   }) : serverManager = _initServerManager(mcpServer, mcpServers),
         _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
     // Initialize default chat session
-    chatSessions['default'] = ChatSession(
+    chatSession = ChatSession(
       llmProvider: llmProvider,
       storageManager: storageManager,
-      id: 'default',
     );
   }
 
@@ -109,18 +108,6 @@ class LlmServer {
   /// Get all MCP server IDs
   List<String> getMcpServerIds() {
     return serverManager?.serverIds ?? [];
-  }
-
-  /// Get or create a chat session for a specific context
-  ChatSession _getChatSession(String sessionId) {
-    if (!chatSessions.containsKey(sessionId)) {
-      chatSessions[sessionId] = ChatSession(
-        llmProvider: llmProvider,
-        storageManager: storageManager,
-        id: sessionId,
-      );
-    }
-    return chatSessions[sessionId]!;
   }
 
   /// Register all plugins as server tools
@@ -310,8 +297,6 @@ class LlmServer {
     String? systemPrompt,
   }) async {
     try {
-      final chatSession = _getChatSession(sessionId);
-
       // Update system prompt if provided
       if (systemPrompt != null) {
         // Clear existing system messages
@@ -875,7 +860,6 @@ class LlmServer {
     bool sendToolResultsToLlm = true,
     String? serverId,
   }) async {
-    final chatSession = _getChatSession(sessionId);
     final requestId = _performanceMonitor.startRequest('process_query');
 
     try {
@@ -1138,8 +1122,6 @@ class LlmServer {
     String? systemPrompt,
     String? serverId,
   }) async* {
-    final chatSession = _getChatSession(sessionId);
-
     try {
       // Update system prompt if provided
       if (systemPrompt != null) {
@@ -1334,9 +1316,6 @@ class LlmServer {
 
   /// Close and release resources
   Future<void> close() async {
-    // No need to manually save chat sessions - they save automatically when messages are added
-    _logger.debug('Closing ${chatSessions.length} chat sessions');
-
     // Close LLM provider
     await llmProvider.close();
 

@@ -1,5 +1,3 @@
-// lib/src/common/service_pool.dart
-
 import 'dart:async';
 import '../../mcp_llm.dart';
 import 'managed_service.dart';

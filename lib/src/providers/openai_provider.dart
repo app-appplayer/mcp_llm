@@ -23,7 +23,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
-  // Concrete implementation of the executeWithRetry method from RetryableLlmProvider
+  /// Concrete implementation of the executeWithRetry method from RetryableLlmProvider
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
     if (!config.retryOnFailure) {
@@ -105,46 +105,46 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     try {
       logger.debug('OpenAI stream request with model: $model');
 
-      // 요청 본문 생성
+      // Generate request body
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
       logger.debug('OpenAI API request body structure created');
 
-      // API 요청 준비 - 재시도 메커니즘 적용
+      // Prepare API request - apply retry mechanism
       final uri = Uri.parse('${baseUrl ?? 'https://api.openai.com'}/v1/chat/completions');
       final httpRequest = await executeWithRetry(() async {
         return await _client.postUrl(uri);
       });
 
-      // 헤더 설정
+      // Set headers
       httpRequest.headers.set('Content-Type', 'application/json');
       httpRequest.headers.set('Authorization', 'Bearer $apiKey');
 
-      // 요청 본문 추가
+      // Add request body
       final jsonString = jsonEncode(requestBody);
       final encodedBody = utf8.encode(jsonString);
       httpRequest.contentLength = encodedBody.length;
       httpRequest.add(encodedBody);
 
-      // 응답 받기 - 재시도 메커니즘 적용
+      // Get response - apply retry mechanism
       final httpResponse = await executeWithRetry(() async {
         return await httpRequest.close();
       });
 
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        // 도구 호출 정보를 추적하기 위한 변수들
-        final Map<String, Map<String, dynamic>> toolCallsMap = {}; // id -> 도구 호출 정보
+        // Variables to track tool call information
+        final Map<String, Map<String, dynamic>> toolCallsMap = {}; // Variables to track tool call information
         List<LlmToolCall>? toolCalls;
         String currentToolCallId = '';
 
-        // 응답 청크의 누적을 위한 변수
+        // Variables for accumulating response chunks
         final StringBuffer responseText = StringBuffer();
         String? finishReason;
 
-        // 도구 정의 캐시
+        // Tool definition cache
         final Map<String, Map<String, dynamic>> toolDefinitionCache = {};
 
-        // 요청에서 도구 정의 캐싱
+        // Cache tool definitions from request
         if (request.parameters.containsKey('tools')) {
           final tools = request.parameters['tools'] as List<dynamic>;
           for (final tool in tools) {
@@ -155,16 +155,16 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           }
         }
 
-        // 스트리밍 응답 처리
+        // Process streaming response
         await for (final chunk in utf8.decoder.bind(httpResponse)) {
-          // SSE 형식 파싱
+          // Parse SSE format
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
               final data = line.substring(6);
               if (data == '[DONE]') {
-                // 스트리밍 완료
+                // Streaming complete
                 if (toolCalls != null && toolCalls.isNotEmpty) {
-                  // 필수 인자가 비어있는지 확인하고 필요시 기본값 적용
+                  // Check if required arguments are empty and apply default values if needed
                   _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
                 }
 
@@ -180,7 +180,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
 
-                // 응답 청크에서 정보 추출
+                // Extract information from response chunk
                 final choices = chunkJson['choices'] as List<dynamic>?;
                 if (choices != null && choices.isNotEmpty) {
                   final choice = choices[0] as Map<String, dynamic>;
@@ -188,7 +188,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                   final delta = choice['delta'] as Map<String, dynamic>?;
 
                   if (delta != null) {
-                    // 텍스트 콘텐츠 처리
+                    // Process text content
                     if (delta.containsKey('content') && delta['content'] != null) {
                       final content = delta['content'] as String;
                       responseText.write(content);
@@ -201,7 +201,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                       );
                     }
 
-                    // 도구 호출 처리
+                    // Process tool calls
                     if (delta.containsKey('tool_calls')) {
                       final deltaToolCalls = delta['tool_calls'] as List<dynamic>?;
 
@@ -211,23 +211,23 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                         for (final deltaToolCall in deltaToolCalls) {
                           final function = deltaToolCall['function'] as Map<String, dynamic>?;
 
-                          // 도구 호출 ID 처리
+                          // Process tool call ID
                           if (deltaToolCall.containsKey('id')) {
                             currentToolCallId = deltaToolCall['id'] as String;
                           }
 
-                          // 도구 이름 처리
+                          // Process tool name
                           if (function != null && function.containsKey('name')) {
                             final toolName = function['name'] as String;
 
-                            // 새 도구 호출 생성
+                            // Create new tool call
                             if (!toolCallsMap.containsKey(currentToolCallId)) {
                               toolCallsMap[currentToolCallId] = {
                                 'name': toolName,
                                 'arguments': '',
                               };
 
-                              // 도구 호출 목록에 추가
+                              // Add to tool calls list
                               final toolIndex = toolCalls.indexWhere((tc) => tc.id == currentToolCallId);
                               if (toolIndex == -1) {
                                 toolCalls.add(LlmToolCall(
@@ -237,7 +237,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                                 ));
                               }
 
-                              // 도구 호출 시작 이벤트 발생
+                              // Emit tool call start event
                               yield LlmResponseChunk(
                                 textChunk: '',
                                 isDone: false,
@@ -251,21 +251,21 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                             }
                           }
 
-                          // 도구 인자 처리
+                          // Process tool arguments
                           if (function != null && function.containsKey('arguments')) {
                             final args = function['arguments'] as String;
 
                             if (toolCallsMap.containsKey(currentToolCallId)) {
-                              // 인자 문자열 누적
+                              // Accumulate argument string
                               toolCallsMap[currentToolCallId]!['arguments'] += args;
                               final argsStr = toolCallsMap[currentToolCallId]!['arguments'] as String;
 
                               try {
-                                // 누적된 인자가 완전한 JSON인지 확인하고 파싱
+                                // Check if accumulated arguments form valid JSON and parse
                                 if (_isValidJson(argsStr)) {
                                   final toolArgs = jsonDecode(argsStr) as Map<String, dynamic>;
 
-                                  // 도구 호출 업데이트
+                                  // Update tool call
                                   final toolIndex = toolCalls.indexWhere((tc) => tc.id == currentToolCallId);
                                   if (toolIndex >= 0) {
                                     toolCalls[toolIndex] = LlmToolCall(
@@ -275,7 +275,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                                     );
                                   }
 
-                                  // 도구 인자 업데이트 이벤트 발생
+                                  // Emit tool argument update event
                                   yield LlmResponseChunk(
                                     textChunk: '',
                                     isDone: false,
@@ -287,7 +287,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                                   );
                                 }
                               } catch (e) {
-                                // 아직 불완전한 JSON - 계속 누적
+                                // Incomplete JSON - continue accumulating
                                 logger.debug('Accumulating arguments for tool call: $currentToolCallId');
                               }
                             }
@@ -297,10 +297,10 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                     }
                   }
 
-                  // 완료 시 처리
+                  // Handle completion
                   if (finishReason != null && finishReason.isNotEmpty) {
                     if (finishReason == 'tool_calls') {
-                      // 모든 도구 호출에 대해 인자 문자열을 JSON으로 파싱
+                      // Parse argument strings to JSON for all tool calls
                       for (final entry in toolCallsMap.entries) {
                         final toolId = entry.key;
                         final toolInfo = entry.value;
@@ -310,7 +310,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                           if (argsStr.isNotEmpty) {
                             final toolArgs = jsonDecode(argsStr) as Map<String, dynamic>;
 
-                            // 도구 호출 목록 업데이트
+                            // Update tool calls list
                             final toolIndex = toolCalls!.indexWhere((tc) => tc.id == toolId);
                             if (toolIndex >= 0) {
                               toolCalls[toolIndex] = LlmToolCall(
@@ -325,12 +325,12 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                         }
                       }
 
-                      // 도구 인자 검증 및 채우기
+                      // Validate and fill tool call arguments
                       if (toolCalls != null) {
                         _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
                       }
 
-                      // 최종 도구 호출 이벤트 발생
+                      // Emit final tool call event
                       yield LlmResponseChunk(
                         textChunk: '',
                         isDone: true,
@@ -351,7 +351,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           }
         }
       } else {
-        // 오류 처리
+        // Handle error
         final responseBody = await utf8.decoder.bind(httpResponse).join();
         final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
         logger.error(error);
@@ -373,7 +373,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     }
   }
 
-// JSON 문자열이 유효한지 확인하는 헬퍼 메서드
+  /// Helper method to check if a JSON string is valid
   bool _isValidJson(String jsonString) {
     try {
       jsonDecode(jsonString);
@@ -383,14 +383,14 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     }
   }
 
-// 도구 호출 인자 검증 및 채우기
+  /// Validate and fill tool call arguments
   void _validateAndFillToolCallArguments(List<LlmToolCall> toolCalls,
       Map<String, Map<String, dynamic>> toolDefinitionCache) {
     for (int i = 0; i < toolCalls.length; i++) {
       final toolCall = toolCalls[i];
       final toolName = toolCall.name;
 
-      // 도구 정의 가져오기
+      // Get tool definition
       if (toolDefinitionCache.containsKey(toolName)) {
         final toolDef = toolDefinitionCache[toolName]!;
         final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
@@ -402,7 +402,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
               inputSchema['properties'] is Map<String, dynamic> ?
           inputSchema['properties'] as Map<String, dynamic> : {};
 
-          // 빠진 인자 확인
+          // Check for missing arguments
           bool needsUpdate = false;
           final updatedArgs = Map<String, dynamic>.from(args);
 
@@ -411,7 +411,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
             if (!args.containsKey(argName) || args[argName] == null) {
               needsUpdate = true;
 
-              // 속성 정의에서 기본값 추출
+              // Extract default value from property definition
               dynamic defaultValue;
               String? type = 'string';
 
@@ -427,7 +427,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                 }
               }
 
-              // 기본값 생성
+              // Generate default value
               if (defaultValue == null) {
                 switch (type) {
                   case 'number':
@@ -458,12 +458,12 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                 }
               }
 
-              // 생성된 기본값 적용
+              // Apply generated default value
               updatedArgs[argName] = defaultValue;
             }
           }
 
-          // 업데이트가 필요한 경우
+          // If update is needed
           if (needsUpdate) {
             toolCalls[i] = LlmToolCall(
               id: toolCall.id,
@@ -478,7 +478,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
-    // OpenAI 스타일의 메타데이터 검사
+    // Check for OpenAI style metadata
     if (metadata.containsKey('tool_call_start') && metadata['tool_call_start'] == true) {
       logger.debug('Tool call metadata detected: OpenAI style (tool_call_start)');
       return true;
@@ -489,7 +489,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       return true;
     }
 
-    // OpenAI 관련 도구 키 검사
+    // Check for OpenAI related tool keys
     final openaiToolKeys = ['tool_call_id', 'tool_calls', 'tool_call_update'];
     for (final key in openaiToolKeys) {
       if (metadata.containsKey(key)) {
@@ -505,7 +505,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
   LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
     logger.debug('Extracting tool call from OpenAI metadata');
 
-    // 도구 호출 시작 또는 업데이트 메타데이터
+    // Tool call start or update metadata
     if ((metadata.containsKey('tool_call_start') || metadata.containsKey('tool_call_update')) &&
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
 
@@ -513,10 +513,10 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       final toolId = metadata['tool_call_id'] as String? ??
           'openai_tool_${DateTime.now().millisecondsSinceEpoch}';
 
-      // 인수 추출
+      // Extract arguments
       Map<String, dynamic> arguments = {};
 
-      // 'tool_call_args' 필드 확인
+      // Check 'tool_call_args' field
       if (metadata.containsKey('tool_call_args') &&
           metadata['tool_call_args'] is Map<String, dynamic>) {
         arguments = metadata['tool_call_args'] as Map<String, dynamic>;
@@ -531,7 +531,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       );
     }
 
-    // tool_calls 배열이 있는 경우
+    // If there's a tool_calls array
     if (metadata.containsKey('tool_calls') &&
         metadata['tool_calls'] is List &&
         (metadata['tool_calls'] as List).isNotEmpty) {
@@ -546,9 +546,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
         Map<String, dynamic> arguments = {};
 
-        // arguments 필드 확인
+        // Check arguments field
         if (firstToolCall.containsKey('arguments')) {
-          // JSON 문자열인 경우 파싱
+          // Parse if it's a JSON string
           if (firstToolCall['arguments'] is String) {
             try {
               arguments = jsonDecode(firstToolCall['arguments'] as String) as Map<String, dynamic>;
@@ -556,7 +556,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
               logger.warning('Failed to parse arguments JSON: $e');
             }
           }
-          // 이미 Map인 경우 그대로 사용
+          // Use as-is if it's already a Map
           else if (firstToolCall['arguments'] is Map) {
             arguments = Map<String, dynamic>.from(firstToolCall['arguments'] as Map);
           }
@@ -577,22 +577,22 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
-    // OpenAI 메타데이터를 표준 형식으로 변환
+    // Convert OpenAI metadata to standard format
     final standardMetadata = Map<String, dynamic>.from(metadata);
 
-    // 도구 호출 관련 필드 표준화
+    // Standardize tool call related fields
     if (metadata.containsKey('finish_reason') && metadata['finish_reason'] == 'tool_calls') {
       if (!standardMetadata.containsKey('expects_tool_result')) {
         standardMetadata['expects_tool_result'] = true;
       }
     }
 
-    // tool_call_start를 is_tool_call로 변환
+    // Convert tool_call_start to is_tool_call
     if (metadata.containsKey('tool_call_start') && metadata['tool_call_start'] == true) {
       standardMetadata['is_tool_call'] = true;
     }
 
-    // tool_call_id를 tool_id로 변환
+    // Convert tool_call_id to tool_id
     if (metadata.containsKey('tool_call_id') && !standardMetadata.containsKey('tool_id')) {
       standardMetadata['tool_id'] = metadata['tool_call_id'];
     }
@@ -659,7 +659,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     logger.debug('OpenAI provider client closed');
   }
 
-  // Helper method to build request body
+  /// Helper method to build request body
   Map<String, dynamic> _buildRequestBody(LlmRequest request) {
     // Build messages
     final List<Map<String, dynamic>> messages = [];
@@ -812,7 +812,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     return content.toString();
   }
 
-  // Helper method to parse response
+  /// Helper method to parse response
   LlmResponse _parseResponse(Map<String, dynamic> response) {
     // Extract response content
     final choices = response['choices'] as List<dynamic>;
@@ -844,9 +844,9 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
           logger.warning('Error parsing tool arguments: $e');
           arguments = {'_error': 'Failed to parse arguments'};
         }
-        
+
         return LlmToolCall(
-          id: id,  
+          id: id,
           name: name,
           arguments: arguments,
         );

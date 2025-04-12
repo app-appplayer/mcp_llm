@@ -26,7 +26,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
-  // Concrete implementation of the executeWithRetry method from RetryableLlmProvider
+  /// Concrete implementation of the executeWithRetry method from RetryableLlmProvider
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
     if (!config.retryOnFailure) {
@@ -108,7 +108,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     });
   }
 
-// In claude_provider.dart - improve tool handling in streaming response
+  /// In claude_provider.dart - improve tool handling in streaming response
   @override
   Stream<LlmResponseChunk> streamComplete(LlmRequest request) async* {
     try {
@@ -801,7 +801,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     logger.debug('Claude provider client closed');
   }
 
-// Helper method to build request body
+  /// Helper method to build request body
   Map<String, dynamic> _buildRequestBody(LlmRequest request) {
     // Build messages
     final List<Map<String, dynamic>> messages = [];
@@ -930,7 +930,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     return body;
   }
 
-  // In claude_provider.dart, simplified _parseResponse method
+  /// In claude_provider.dart, simplified _parseResponse method
   LlmResponse _parseResponse(Map<String, dynamic> response) {
     try {
       // Log the received response structure for debugging
