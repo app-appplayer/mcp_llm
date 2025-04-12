@@ -20,11 +20,12 @@ export 'src/providers/openai_provider.dart';
 export 'src/providers/together_provider.dart';
 export 'src/providers/custom_provider.dart';
 
-// Multi-client support
-export 'src/multi_client/client_manager.dart';
-export 'src/multi_client/client_router.dart';
-export 'src/multi_client/client_pool.dart';
-export 'src/multi_client/load_balancer.dart';
+// Multi llm support
+export 'src/multi_llm/llm_client_manager.dart';
+export 'src/multi_llm/llm_server_manager.dart';
+export 'src/multi_llm/default_service_router.dart';
+export 'src/multi_llm/generic_service_pool.dart';
+export 'src/multi_llm/default_service_balancer.dart';
 
 // Chat modules
 export 'src/chat/chat_session.dart';
@@ -68,7 +69,7 @@ import 'src/core/llm_client.dart';
 import 'src/core/llm_server.dart';
 import 'src/core/llm_interface.dart';
 import 'src/core/models.dart';
-import 'src/multi_client/client_manager.dart';
+import 'src/multi_llm/llm_client_manager.dart';
 import 'src/parallel/executor.dart';
 import 'src/parallel/result_aggregator.dart';
 import 'src/plugins/plugin_manager.dart';
@@ -88,7 +89,7 @@ class McpLlm {
   final LlmRegistry _llmRegistry = LlmRegistry();
 
   /// Client manager
-  final MultiClientManager _clientManager = MultiClientManager();
+  final MultiLlmClientManager _llmClientManager = MultiLlmClientManager();
 
   /// Plugin manager
   final PluginManager _pluginManager = PluginManager();
@@ -176,11 +177,11 @@ class McpLlm {
     final id = clientId ?? 'llm_client_${DateTime.now().millisecondsSinceEpoch}';
 
     // Add to client manager
-    _clientManager.addClient(
+    _llmClientManager.addClient(
       id,
       client,
       routingProperties: routingProperties,
-      loadWeight: loadWeight,
+      weight: loadWeight,
     );
 
     return client;
@@ -196,7 +197,7 @@ class McpLlm {
       String mcpClientId,
       dynamic mcpClient
       ) async {
-    final llmClient = _clientManager.getClient(llmClientId);
+    final llmClient = _llmClientManager.getClient(llmClientId);
     if (llmClient == null) {
       _logger.warning('LLM client not found: $llmClientId');
       return false;
@@ -220,7 +221,7 @@ class McpLlm {
       String llmClientId,
       String mcpClientId
       ) async {
-    final llmClient = _clientManager.getClient(llmClientId);
+    final llmClient = _llmClientManager.getClient(llmClientId);
     if (llmClient == null) {
       _logger.warning('LLM client not found: $llmClientId');
       return false;
@@ -244,7 +245,7 @@ class McpLlm {
       String llmClientId,
       String mcpClientId
       ) async {
-    final llmClient = _clientManager.getClient(llmClientId);
+    final llmClient = _llmClientManager.getClient(llmClientId);
     if (llmClient == null) {
       _logger.warning('LLM client not found: $llmClientId');
       return false;
@@ -264,7 +265,7 @@ class McpLlm {
   ///
   /// [llmClientId] - ID of the LLM client
   List<String> getMcpClientIds(String llmClientId) {
-    final llmClient = _clientManager.getClient(llmClientId);
+    final llmClient = _llmClientManager.getClient(llmClientId);
     if (llmClient == null) {
       _logger.warning('LLM client not found: $llmClientId');
       return [];
@@ -323,12 +324,12 @@ class McpLlm {
 
   /// Get a client by ID
   LlmClient? getClient(String clientId) {
-    return _clientManager.getClient(clientId);
+    return _llmClientManager.getClient(clientId);
   }
 
   /// Select the most appropriate client for a query
   LlmClient? selectClient(String query, {Map<String, dynamic>? properties}) {
-    return _clientManager.selectClient(query, properties: properties);
+    return _llmClientManager.selectClient(query, properties: properties);
   }
 
   /// Execute a query across all clients
@@ -336,7 +337,7 @@ class McpLlm {
     bool enableTools = true,
     Map<String, dynamic> parameters = const {},
   }) async {
-    return await _clientManager.fanOutQuery(
+    return await _llmClientManager.fanOutQuery(
       query,
       enableTools: enableTools,
       parameters: parameters,
@@ -509,7 +510,7 @@ class McpLlm {
     disablePerformanceMonitoring();
 
     // 모든 클라이언트 종료
-    await _clientManager.closeAll();
+    await _llmClientManager.closeAll();
 
     // 플러그인 시스템 종료
     await _pluginManager.shutdown();

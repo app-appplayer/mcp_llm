@@ -1,3 +1,5 @@
+import 'package:mcp_llm/src/multi_llm/generic_service_pool.dart';
+import 'package:mcp_llm/src/multi_llm/managed_service.dart';
 import 'package:test/test.dart';
 import 'package:mcp_llm/mcp_llm.dart';
 import 'package:mockito/annotations.dart';
@@ -7,24 +9,24 @@ import 'multi_client_test.mocks.dart';
 @GenerateMocks([LlmClient])
 void main() {
   group('ClientRouter', () {
-    late ClientRouter router;
+    late DefaultServiceRouter router;
 
     setUp(() {
-      router = ClientRouter();
+      router = DefaultServiceRouter();
     });
 
     test('Simple routing based on keywords works', () {
-      router.registerClient('ai_client', {
+      router.registerService('ai_client', {
         'keywords': ['AI', 'artificial intelligence', 'machine learning']
       });
 
-      router.registerClient('code_client', {
+      router.registerService('code_client', {
         'keywords': ['code', 'programming', 'function']
       });
 
-      final aiClient = router.routeQuery('Tell me about artificial intelligence');
-      final codeClient = router.routeQuery('Write a function to sort an array');
-      final unknownClient = router.routeQuery('What is the weather today?');
+      final aiClient = router.routeRequest('Tell me about artificial intelligence');
+      final codeClient = router.routeRequest('Write a function to sort an array');
+      final unknownClient = router.routeRequest('What is the weather today?');
 
       expect(aiClient, equals('ai_client'));
       expect(codeClient, equals('code_client'));
@@ -32,19 +34,19 @@ void main() {
     });
 
     test('Property-based routing works', () {
-      router.registerClient('math_client', {
+      router.registerService('math_client', {
         'capabilities': ['math', 'calculation'],
         'priority': 'high'
       });
 
-      router.registerClient('creative_client', {
+      router.registerService('creative_client', {
         'capabilities': ['creative_writing', 'storytelling'],
         'priority': 'medium'
       });
 
       router.setRoutingStrategy(RoutingStrategy.propertyBased);
 
-      final result = router.routeQuery(
+      final result = router.routeRequest(
           'Irrelevant query',
           {'capabilities': 'math', 'priority': 'high'}
       );
@@ -53,34 +55,34 @@ void main() {
     });
 
     test('getClientsWithProperty returns correct clients', () {
-      router.registerClient('client1', {'model': 'gpt-4', 'size': 'large'});
-      router.registerClient('client2', {'model': 'claude-3', 'size': 'large'});
-      router.registerClient('client3', {'model': 'mistral', 'size': 'small'});
+      router.registerService('client1', {'model': 'gpt-4', 'size': 'large'});
+      router.registerService('client2', {'model': 'claude-3', 'size': 'large'});
+      router.registerService('client3', {'model': 'mistral', 'size': 'small'});
 
-      final largeClients = router.getClientsWithProperty('size', 'large');
+      final largeClients = router.getServicesWithProperty('size', 'large');
       expect(largeClients, containsAll(['client1', 'client2']));
       expect(largeClients.length, equals(2));
 
-      final smallClients = router.getClientsWithProperty('size', 'small');
+      final smallClients = router.getServicesWithProperty('size', 'small');
       expect(smallClients, equals(['client3']));
     });
   });
 
   group('LoadBalancer', () {
-    late LoadBalancer balancer;
+    late DefaultServiceBalancer balancer;
 
     setUp(() {
-      balancer = LoadBalancer();
+      balancer = DefaultServiceBalancer();
     });
 
     test('Round-robin load balancing distributes requests evenly', () {
-      balancer.registerClient('client1', weight: 1.0);
-      balancer.registerClient('client2', weight: 1.0);
-      balancer.registerClient('client3', weight: 1.0);
+      balancer.registerService('client1', weight: 1.0);
+      balancer.registerService('client2', weight: 1.0);
+      balancer.registerService('client3', weight: 1.0);
 
       final results = <String>[];
       for (int i = 0; i < 9; i++) {
-        final client = balancer.getNextClient();
+        final client = balancer.getNextService();
         if (client != null) results.add(client);
       }
 
@@ -98,12 +100,12 @@ void main() {
     });
 
     test('Weighted load balancing respects weights', () {
-      balancer.registerClient('heavy', weight: 4.0);
-      balancer.registerClient('light', weight: 1.0);
+      balancer.registerService('heavy', weight: 4.0);
+      balancer.registerService('light', weight: 1.0);
 
       final results = <String>[];
       for (int i = 0; i < 50; i++) {
-        final client = balancer.getNextClient();
+        final client = balancer.getNextService();
         if (client != null) results.add(client);
       }
 
@@ -117,16 +119,16 @@ void main() {
     });
 
     test('Unregistering client removes it from rotation', () {
-      balancer.registerClient('client1');
-      balancer.registerClient('client2');
-      balancer.registerClient('client3');
+      balancer.registerService('client1');
+      balancer.registerService('client2');
+      balancer.registerService('client3');
 
       // Unregister one client
-      balancer.unregisterClient('client2');
+      balancer.unregisterService('client2');
 
       final results = <String>[];
       for (int i = 0; i < 10; i++) {
-        final client = balancer.getNextClient();
+        final client = balancer.getNextService();
         if (client != null) results.add(client);
       }
 
@@ -137,12 +139,12 @@ void main() {
   });
 
   group('ClientPool', () {
-    late ClientPool pool;
+    late GenericServicePool pool;
     late MockLlmClient mockClient1;
     late MockLlmClient mockClient2;
 
     setUp(() {
-      pool = ClientPool(defaultMaxPoolSize: 3);
+      pool = GenericServicePool(defaultMaxPoolSize: 3);
       mockClient1 = MockLlmClient();
       mockClient2 = MockLlmClient();
     });
@@ -152,7 +154,7 @@ void main() {
       int created = 0;
 
       // Register client factory
-      pool.registerClientFactory('test_provider', TestClientFactory(
+      pool.registerServiceFactory('test_provider', TestClientFactory(
           createClientFn: () async {
             created++;
             return mockClient1;
@@ -163,7 +165,7 @@ void main() {
       final clients = <LlmClient>[];
       for (int i = 0; i < 5; i++) {
         try {
-          final client = await pool.getClient('test_provider', timeout: Duration(milliseconds: 100));
+          final client = await pool.getService('test_provider', timeout: Duration(milliseconds: 100));
           clients.add(client);
         } catch (e) {
           // Expected timeout
@@ -176,7 +178,7 @@ void main() {
 
     test('Released clients are reused', () async {
       int created = 0;
-      pool.registerClientFactory('test_provider', TestClientFactory(
+      pool.registerServiceFactory('test_provider', TestClientFactory(
           createClientFn: () async {
             created++;
             return created == 1 ? mockClient1 : mockClient2;
@@ -184,11 +186,11 @@ void main() {
       ));
 
       // Get and release a client
-      final client1 = await pool.getClient('test_provider');
-      pool.releaseClient('test_provider', client1);
+      final client1 = await pool.getService('test_provider');
+      pool.releaseService('test_provider', client1);
 
       // Get another client - should reuse the first one
-      final client2 = await pool.getClient('test_provider');
+      final client2 = await pool.getService('test_provider');
 
       expect(created, equals(1));
       expect(client2, equals(mockClient1));
@@ -204,4 +206,34 @@ class TestClientFactory implements LlmClientFactory {
 
   @override
   Future<LlmClient> createClient() => createClientFn();
+
+  @override
+  // TODO: implement configuration
+  LlmConfiguration get configuration => throw UnimplementedError();
+
+  @override
+  Future<LlmClient> createService() {
+    // TODO: implement createService
+    throw UnimplementedError();
+  }
+
+  @override
+  // TODO: implement pluginManager
+  PluginManager? get pluginManager => throw UnimplementedError();
+
+  @override
+  // TODO: implement providerName
+  String get providerName => throw UnimplementedError();
+
+  @override
+  // TODO: implement registry
+  LlmRegistry get registry => throw UnimplementedError();
+
+  @override
+  // TODO: implement storageManager
+  StorageManager? get storageManager => throw UnimplementedError();
+
+  @override
+  // TODO: implement systemPrompt
+  String? get systemPrompt => throw UnimplementedError();
 }

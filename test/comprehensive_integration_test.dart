@@ -73,7 +73,7 @@ void main() {
 
     test('Client routing and multi-client management', () async {
       // Create client manager and router
-      final clientRouter = ClientRouter();
+      final clientRouter = DefaultServiceRouter();
 
       // Create multiple clients with different specializations
       final client1 = await mcpLlm.createClient(
@@ -107,34 +107,34 @@ void main() {
       );
 
       // Register clients with the router
-      clientRouter.registerClient('factual', {
+      clientRouter.registerService('factual', {
         'keywords': ['facts', 'information', 'capital', 'population'],
         'capabilities': ['factual_responses'],
       });
 
-      clientRouter.registerClient('creative', {
+      clientRouter.registerService('creative', {
         'keywords': ['story', 'imagine', 'creative'],
         'capabilities': ['creative_writing'],
       });
 
-      clientRouter.registerClient('coding', {
+      clientRouter.registerService('coding', {
         'keywords': ['code', 'function', 'programming'],
         'capabilities': ['code_generation'],
       });
 
       // Test routing decisions
       expect(
-          clientRouter.routeQuery('What is the capital of France?'),
+          clientRouter.routeRequest('What is the capital of France?'),
           equals('factual')
       );
 
       expect(
-          clientRouter.routeQuery('Tell me a creative story about dragons'),
+          clientRouter.routeRequest('Tell me a creative story about dragons'),
           equals('creative')
       );
 
       expect(
-          clientRouter.routeQuery('Write a function to calculate fibonacci numbers'),
+          clientRouter.routeRequest('Write a function to calculate fibonacci numbers'),
           equals('coding')
       );
 
