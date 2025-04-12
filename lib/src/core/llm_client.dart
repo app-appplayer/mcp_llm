@@ -336,187 +336,6 @@ class LlmClient {
     return resources;
   }
 
-  /// Execute a prompt using MCP clients
-  Future<Map<String, dynamic>> executePrompt(
-      String promptName,
-      Map<String, dynamic> args, {
-        String? clientId,
-        bool tryAllClients = false,
-      }) async {
-    if (_mcpClientManager == null) {
-      throw StateError('MCP client manager is not initialized');
-    }
-
-    // Try a specific client if provided
-    if (clientId != null) {
-      final adapter = _mcpClientManager.getAdapter(clientId);
-      if (adapter == null) {
-        if (!tryAllClients) {
-          throw Exception('Client not found: $clientId');
-        }
-      } else {
-        try {
-          final result = await adapter.executePrompt(promptName, args);
-          if (!result.containsKey('error')) {
-            return result;
-          }
-          if (!tryAllClients) {
-            return result; // Return result even with error if not trying all clients
-          }
-        } catch (e) {
-          _logger.warning('Error executing prompt $promptName on client $clientId: $e');
-          if (!tryAllClients) {
-            throw Exception('Prompt execution failed on specified client: $e');
-          }
-        }
-      }
-    }
-
-    // Try default client if no specific client or default client wasn't already tried
-    if (clientId == null && _mcpClientManager.defaultClient != null) {
-      final adapter = _mcpClientManager.defaultAdapter;
-      if (adapter != null) {
-        try {
-          final result = await adapter.executePrompt(promptName, args);
-          if (!result.containsKey('error')) {
-            return result;
-          }
-          if (!tryAllClients) {
-            return result;
-          }
-        } catch (e) {
-          _logger.warning('Error executing prompt $promptName on default client: $e');
-          if (!tryAllClients) {
-            throw Exception('Prompt execution failed on default client: $e');
-          }
-        }
-      }
-    }
-
-    // If tryAllClients is true, try all other clients
-    if (tryAllClients) {
-      Exception? lastError;
-
-      for (final id in _mcpClientManager.clientIds) {
-        // Skip already tried clients
-        if (id == clientId || (_mcpClientManager.defaultClient != null && id == 'default')) {
-          continue;
-        }
-
-        final adapter = _mcpClientManager.getAdapter(id);
-        if (adapter == null) continue;
-
-        try {
-          final result = await adapter.executePrompt(promptName, args);
-          if (!result.containsKey('error')) {
-            _logger.debug('Successfully executed prompt $promptName on client $id');
-            return result;
-          }
-        } catch (e) {
-          _logger.warning('Error executing prompt $promptName on client $id: $e');
-          lastError = Exception('Failed on client $id: $e');
-        }
-      }
-
-      // If we got here, all clients failed
-      if (lastError != null) {
-        throw lastError;
-      }
-    }
-
-    throw Exception('Prompt $promptName not found or execution failed');
-  }
-
-  /// Read a resource using MCP clients
-  Future<Map<String, dynamic>> readResource(
-      String resourceUri, {
-        String? clientId,
-        bool tryAllClients = false,
-      }) async {
-    if (_mcpClientManager == null) {
-      throw StateError('MCP client manager is not initialized');
-    }
-
-    // Try a specific client if provided
-    if (clientId != null) {
-      final adapter = _mcpClientManager.getAdapter(clientId);
-      if (adapter == null) {
-        if (!tryAllClients) {
-          throw Exception('Client not found: $clientId');
-        }
-      } else {
-        try {
-          final result = await adapter.readResource(resourceUri);
-          if (!result.containsKey('error')) {
-            return result;
-          }
-          if (!tryAllClients) {
-            return result; // Return result even with error if not trying all clients
-          }
-        } catch (e) {
-          _logger.warning('Error reading resource $resourceUri on client $clientId: $e');
-          if (!tryAllClients) {
-            throw Exception('Resource reading failed on specified client: $e');
-          }
-        }
-      }
-    }
-
-    // Try default client if no specific client or default client wasn't already tried
-    if (clientId == null && _mcpClientManager.defaultClient != null) {
-      final adapter = _mcpClientManager.defaultAdapter;
-      if (adapter != null) {
-        try {
-          final result = await adapter.readResource(resourceUri);
-          if (!result.containsKey('error')) {
-            return result;
-          }
-          if (!tryAllClients) {
-            return result;
-          }
-        } catch (e) {
-          _logger.warning('Error reading resource $resourceUri on default client: $e');
-          if (!tryAllClients) {
-            throw Exception('Resource reading failed on default client: $e');
-          }
-        }
-      }
-    }
-
-    // If tryAllClients is true, try all other clients
-    if (tryAllClients) {
-      Exception? lastError;
-
-      for (final id in _mcpClientManager.clientIds) {
-        // Skip already tried clients
-        if (id == clientId || (_mcpClientManager.defaultClient != null && id == 'default')) {
-          continue;
-        }
-
-        final adapter = _mcpClientManager.getAdapter(id);
-        if (adapter == null) continue;
-
-        try {
-          final result = await adapter.readResource(resourceUri);
-          if (!result.containsKey('error')) {
-            _logger.debug('Successfully read resource $resourceUri on client $id');
-            return result;
-          }
-        } catch (e) {
-          _logger.warning('Error reading resource $resourceUri on client $id: $e');
-          lastError = Exception('Failed on client $id: $e');
-        }
-      }
-
-      // If we got here, all clients failed
-      if (lastError != null) {
-        throw lastError;
-      }
-    }
-
-    throw Exception('Resource $resourceUri not found or reading failed');
-  }
-
   // Update system prompt with comprehensive information
   Future<void> updateSystemPrompt({
     String? basePrompt,
@@ -1000,7 +819,7 @@ class LlmClient {
 
       try {
         // Execute tool
-        final toolResult = await _executeTool(
+        final toolResult = await executeTool(
           toolCall.name,
           toolCall.arguments,
           enableMcpTools: enableTools,
@@ -1233,7 +1052,7 @@ class LlmClient {
   }
 
   /// Execute tool using MCP clients or plugins
-  Future<dynamic> _executeTool(String toolName, Map<String, dynamic> args, {
+  Future<dynamic> executeTool(String toolName, Map<String, dynamic> args, {
     bool enableMcpTools = true,
     bool enablePlugins = true,
     String? mcpClientId,
@@ -1335,6 +1154,43 @@ class LlmClient {
     }
 
     return await _mcpClientManager.getToolsByClient();
+  }
+
+
+  /// Execute a prompt using MCP clients
+  Future<Map<String, dynamic>> executePrompt(
+      String promptName,
+      Map<String, dynamic> args, {
+        String? clientId,
+        bool tryAllClients = false,
+      }) async {
+    if (_mcpClientManager == null) {
+      throw StateError('MCP client manager is not initialized');
+    }
+
+    return await _mcpClientManager.executePrompt(
+        promptName,
+        args,
+        clientId: clientId,
+        tryAllClients: tryAllClients
+    );
+  }
+
+  /// Read a resource using MCP clients
+  Future<Map<String, dynamic>> readResource(
+      String resourceUri, {
+        String? clientId,
+        bool tryAllClients = false,
+      }) async {
+    if (_mcpClientManager == null) {
+      throw StateError('MCP client manager is not initialized');
+    }
+
+    return await _mcpClientManager.readResource(
+        resourceUri,
+        clientId: clientId,
+        tryAllClients: tryAllClients
+    );
   }
 
   /// Retrieve relevant documents for a query

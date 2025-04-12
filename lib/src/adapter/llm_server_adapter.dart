@@ -192,14 +192,14 @@ class LlmServerAdapter {
   }
 
   /// List all registered tools on the server
-  Future<List<Map<String, dynamic>>> listTools() async {
+  Future<List<Map<String, dynamic>>> getTools() async {
     if (!hasServer) {
       _logger.error('Cannot list tools: MCP server is not available');
       return [];
     }
 
     try {
-      final tools = await _mcpServer.listTools();
+      final tools = await _mcpServer.getTools();
       return _normalizeToolsList(tools);
     } catch (e) {
       _logger.error('Failed to list tools: $e');
@@ -208,14 +208,14 @@ class LlmServerAdapter {
   }
 
   /// List all registered prompts on the server
-  Future<List<Map<String, dynamic>>> listPrompts() async {
+  Future<List<Map<String, dynamic>>> getPrompts() async {
     if (!hasServer) {
       _logger.error('Cannot list prompts: MCP server is not available');
       return [];
     }
 
     try {
-      final prompts = await _mcpServer.listPrompts();
+      final prompts = await _mcpServer.getPrompts();
       return _normalizePromptsList(prompts);
     } catch (e) {
       _logger.error('Failed to list prompts: $e');
@@ -224,14 +224,14 @@ class LlmServerAdapter {
   }
 
   /// List all registered resources on the server
-  Future<List<Map<String, dynamic>>> listResources() async {
+  Future<List<Map<String, dynamic>>> getResources() async {
     if (!hasServer) {
       _logger.error('Cannot list resources: MCP server is not available');
       return [];
     }
 
     try {
-      final resources = await _mcpServer.listResources();
+      final resources = await _mcpServer.getResources();
       return _normalizeResourcesList(resources);
     } catch (e) {
       _logger.error('Failed to list resources: $e');

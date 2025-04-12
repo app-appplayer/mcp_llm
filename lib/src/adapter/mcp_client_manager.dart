@@ -420,4 +420,171 @@ class McpClientManager {
       return false;
     }
   }
+
+  /// Execute a prompt using MCP clients
+  Future<Map<String, dynamic>> executePrompt(
+      String promptName,
+      Map<String, dynamic> args, {
+        String? clientId,
+        bool tryAllClients = false,
+      }) async {
+    // Try a specific client if provided
+    if (clientId != null) {
+      final adapter = _adapters[clientId];
+      if (adapter == null) {
+        if (!tryAllClients) {
+          throw Exception('Client not found: $clientId');
+        }
+      } else {
+        try {
+          final result = await adapter.executePrompt(promptName, args);
+          if (!result.containsKey('error')) {
+            return result;
+          }
+          if (!tryAllClients) {
+            return result; // Return result even with error if not trying all clients
+          }
+        } catch (e) {
+          _logger.warning('Error executing prompt $promptName on client $clientId: $e');
+          if (!tryAllClients) {
+            throw Exception('Prompt execution failed on specified client: $e');
+          }
+        }
+      }
+    }
+
+    // Try default client if no specific client or default client wasn't already tried
+    if (clientId == null && _defaultClientId != null && _defaultClientId != clientId) {
+      final adapter = _adapters[_defaultClientId!];
+      if (adapter != null) {
+        try {
+          final result = await adapter.executePrompt(promptName, args);
+          if (!result.containsKey('error')) {
+            return result;
+          }
+          if (!tryAllClients) {
+            return result;
+          }
+        } catch (e) {
+          _logger.warning('Error executing prompt $promptName on default client: $e');
+          if (!tryAllClients) {
+            throw Exception('Prompt execution failed on default client: $e');
+          }
+        }
+      }
+    }
+
+    // If tryAllClients is true, try all other clients
+    if (tryAllClients) {
+      Exception? lastError;
+
+      for (final entry in _adapters.entries) {
+        // Skip already tried clients
+        if (entry.key == clientId || entry.key == _defaultClientId) {
+          continue;
+        }
+
+        try {
+          final result = await entry.value.executePrompt(promptName, args);
+          if (!result.containsKey('error')) {
+            _logger.debug('Successfully executed prompt $promptName on client ${entry.key}');
+            return result;
+          }
+        } catch (e) {
+          _logger.warning('Error executing prompt $promptName on client ${entry.key}: $e');
+          lastError = Exception('Failed on client ${entry.key}: $e');
+        }
+      }
+
+      // If we got here, all clients failed
+      if (lastError != null) {
+        throw lastError;
+      }
+    }
+
+    throw Exception('Prompt $promptName not found or execution failed');
+  }
+
+  /// Read a resource using MCP clients
+  Future<Map<String, dynamic>> readResource(
+      String resourceUri, {
+        String? clientId,
+        bool tryAllClients = false,
+      }) async {
+    // Try a specific client if provided
+    if (clientId != null) {
+      final adapter = _adapters[clientId];
+      if (adapter == null) {
+        if (!tryAllClients) {
+          throw Exception('Client not found: $clientId');
+        }
+      } else {
+        try {
+          final result = await adapter.readResource(resourceUri);
+          if (!result.containsKey('error')) {
+            return result;
+          }
+          if (!tryAllClients) {
+            return result; // Return result even with error if not trying all clients
+          }
+        } catch (e) {
+          _logger.warning('Error reading resource $resourceUri on client $clientId: $e');
+          if (!tryAllClients) {
+            throw Exception('Resource reading failed on specified client: $e');
+          }
+        }
+      }
+    }
+
+    // Try default client if no specific client or default client wasn't already tried
+    if (clientId == null && _defaultClientId != null && _defaultClientId != clientId) {
+      final adapter = _adapters[_defaultClientId!];
+      if (adapter != null) {
+        try {
+          final result = await adapter.readResource(resourceUri);
+          if (!result.containsKey('error')) {
+            return result;
+          }
+          if (!tryAllClients) {
+            return result;
+          }
+        } catch (e) {
+          _logger.warning('Error reading resource $resourceUri on default client: $e');
+          if (!tryAllClients) {
+            throw Exception('Resource reading failed on default client: $e');
+          }
+        }
+      }
+    }
+
+    // If tryAllClients is true, try all other clients
+    if (tryAllClients) {
+      Exception? lastError;
+
+      for (final entry in _adapters.entries) {
+        // Skip already tried clients
+        if (entry.key == clientId || entry.key == _defaultClientId) {
+          continue;
+        }
+
+        try {
+          final result = await entry.value.readResource(resourceUri);
+          if (!result.containsKey('error')) {
+            _logger.debug('Successfully read resource ${entry.key}');
+            return result;
+          }
+        } catch (e) {
+          _logger.warning('Error read resource ${entry.key}: $e');
+          lastError = Exception('Failed on client ${entry.key}: $e');
+        }
+      }
+
+      // If we got here, all clients failed
+      if (lastError != null) {
+        throw lastError;
+      }
+    }
+
+    throw Exception('Resource $resourceUri not found or reading failed');
+  }
 }

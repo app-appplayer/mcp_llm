@@ -1,5 +1,6 @@
 import '../../mcp_llm.dart';
 import '../adapter/llm_server_adapter.dart';
+import '../adapter/mcp_server_manager.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,11 +12,8 @@ class LlmServer {
   /// LLM provider
   final LlmInterface llmProvider;
 
-  /// MCP server adapter
-  final LlmServerAdapter? _serverAdapter;
-
-  /// Raw MCP server instance
-  final dynamic _mcpServer;
+  /// MCP server manager
+  final McpServerManager? serverManager;
 
   /// Storage manager
   final StorageManager? storageManager;
@@ -41,30 +39,77 @@ class LlmServer {
   /// Create a new LLM server
   LlmServer({
     required this.llmProvider,
-    dynamic mcpServer,
+    dynamic mcpServer,  // Single server (backward compatibility)
+    Map<String, dynamic>? mcpServers, // Multiple servers (new feature)
     this.storageManager,
     this.retrievalManager,
     required this.pluginManager,
     PerformanceMonitor? performanceMonitor,
-  }) : _mcpServer = mcpServer,
-        _serverAdapter = mcpServer != null ? LlmServerAdapter(mcpServer) : null,
+  }) : serverManager = _initServerManager(mcpServer, mcpServers),
         _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
     // Initialize default chat session
-      chatSessions['default'] = ChatSession(
+    chatSessions['default'] = ChatSession(
       llmProvider: llmProvider,
       storageManager: storageManager,
       id: 'default',
     );
   }
 
-  /// Public accessor for server adapter
-  LlmServerAdapter? get serverAdapter => _serverAdapter;
+  /// Initialize the MCP server manager
+  static McpServerManager? _initServerManager(
+      dynamic mcpServer, Map<String, dynamic>? mcpServers) {
+    if (mcpServer != null) {
+      // Create manager with single server
+      return McpServerManager(defaultServer: mcpServer);
+    } else if (mcpServers != null && mcpServers.isNotEmpty) {
+      // Create manager with multiple servers
+      final manager = McpServerManager();
+      mcpServers.forEach((id, server) {
+        manager.addServer(id, server);
+      });
+      return manager;
+    }
 
-  /// Check if MCP server is available
-  bool get hasMcpServer => _mcpServer != null && _serverAdapter != null;
+    // No MCP servers
+    return null;
+  }
+
+  /// Get server adapter for the default server (for backward compatibility)
+  LlmServerAdapter? get serverAdapter => serverManager?.defaultAdapter;
+
+  /// Check if MCP server manager is available
+  bool get hasMcpServer => serverManager != null && serverManager!.serverCount > 0;
 
   /// Check if retrieval capabilities are available
   bool get hasRetrievalCapabilities => retrievalManager != null;
+
+  /// Add an MCP server
+  void addMcpServer(String serverId, dynamic mcpServer) {
+    if (serverManager == null) {
+      throw StateError('MCP server manager is not initialized');
+    }
+    serverManager!.addServer(serverId, mcpServer);
+  }
+
+  /// Remove an MCP server
+  void removeMcpServer(String serverId) {
+    if (serverManager != null) {
+      serverManager!.removeServer(serverId);
+    }
+  }
+
+  /// Set default MCP server
+  void setDefaultMcpServer(String serverId) {
+    if (serverManager == null) {
+      throw StateError('MCP server manager is not initialized');
+    }
+    serverManager!.setDefaultServer(serverId);
+  }
+
+  /// Get all MCP server IDs
+  List<String> getMcpServerIds() {
+    return serverManager?.serverIds ?? [];
+  }
 
   /// Get or create a chat session for a specific context
   ChatSession _getChatSession(String sessionId) {
@@ -83,6 +128,7 @@ class LlmServer {
     bool includeToolPlugins = true,
     bool includePromptPlugins = true,
     bool includeResourcePlugins = true,
+    String? serverId,
   }) async {
     if (!hasMcpServer) {
       _logger.warning('Cannot register plugins: MCP server is not available');
@@ -92,22 +138,22 @@ class LlmServer {
     bool success = true;
 
     if (includeToolPlugins) {
-      success = success && await registerToolPluginsWithServer();
+      success = success && await registerToolPluginsWithServer(serverId: serverId);
     }
 
     if (includePromptPlugins) {
-      success = success && await registerPromptPluginsWithServer();
+      success = success && await registerPromptPluginsWithServer(serverId: serverId);
     }
 
     if (includeResourcePlugins) {
-      success = success && await registerResourcePluginsWithServer();
+      success = success && await registerResourcePluginsWithServer(serverId: serverId);
     }
 
     return success;
   }
 
   /// Register tool plugins with the server
-  Future<bool> registerToolPluginsWithServer() async {
+  Future<bool> registerToolPluginsWithServer({String? serverId}) async {
     if (!hasMcpServer) {
       _logger.warning('Cannot register tool plugins: MCP server is not available');
       return false;
@@ -127,11 +173,12 @@ class LlmServer {
           return pluginResult;
         }
 
-        final result = await _serverAdapter!.registerTool(
+        final result = await serverManager!.registerTool(
           name: toolDef.name,
           description: toolDef.description,
           inputSchema: toolDef.inputSchema,
           handler: serverHandler,
+          serverId: serverId,
         );
 
         if (result) {
@@ -150,7 +197,7 @@ class LlmServer {
   }
 
   /// Register prompt plugins with the server
-  Future<bool> registerPromptPluginsWithServer() async {
+  Future<bool> registerPromptPluginsWithServer({String? serverId}) async {
     if (!hasMcpServer) {
       _logger.warning('Cannot register prompt plugins: MCP server is not available');
       return false;
@@ -178,11 +225,12 @@ class LlmServer {
           if (arg.defaultValue != null) 'default': arg.defaultValue,
         }).toList();
 
-        final result = await _serverAdapter!.registerPrompt(
+        final result = await serverManager!.registerPrompt(
           name: promptDef.name,
           description: promptDef.description,
           arguments: arguments,
           handler: serverHandler,
+          serverId: serverId,
         );
 
         if (result) {
@@ -201,7 +249,7 @@ class LlmServer {
   }
 
   /// Register resource plugins with the server
-  Future<bool> registerResourcePluginsWithServer() async {
+  Future<bool> registerResourcePluginsWithServer({String? serverId}) async {
     if (!hasMcpServer) {
       _logger.warning('Cannot register resource plugins: MCP server is not available');
       return false;
@@ -224,12 +272,13 @@ class LlmServer {
         // Ensure the MIME type is not null (use default if necessary)
         final mimeType = resourceDef.mimeType ?? 'application/octet-stream';
 
-        final result = await _serverAdapter!.registerResource(
+        final result = await serverManager!.registerResource(
           uri: resourceDef.uri,
           name: resourceDef.name,
           description: resourceDef.description,
           mimeType: mimeType,
           handler: serverHandler,
+          serverId: serverId,
         );
 
         if (result) {
@@ -314,12 +363,14 @@ class LlmServer {
   /// [inputSchema] - JSON schema for the tool's input
   /// [handler] - Function that implements the tool
   /// [registerWithServer] - Whether to also register with MCP server
+  /// [serverId] - Optional specific server ID to register with
   Future<bool> registerLocalTool({
     required String name,
     required String description,
     required Map<String, dynamic> inputSchema,
     required ToolHandler handler,
     bool registerWithServer = true,
+    String? serverId,
   }) async {
     try {
       // Store locally
@@ -328,11 +379,12 @@ class LlmServer {
 
       // Register with server if requested and available
       if (registerWithServer && hasMcpServer) {
-        final result = await _serverAdapter!.registerTool(
+        final result = await serverManager!.registerTool(
           name: name,
           description: description,
           inputSchema: inputSchema,
           handler: handler,
+          serverId: serverId,
         );
 
         if (!result) {
@@ -372,9 +424,11 @@ class LlmServer {
   /// [description] - Natural language description of the tool to create
   /// [registerWithServer] - Whether to register the tool with MCP server
   /// [sessionId] - Optional session ID for maintaining conversation context
+  /// [serverId] - Optional specific server ID to register with
   Future<bool> generateAndRegisterTool(String description, {
     bool registerWithServer = true,
     String sessionId = 'default',
+    String? serverId,
   }) async {
     try {
       // Prompt for the LLM to design a tool
@@ -446,11 +500,12 @@ class LlmServer {
 
       // Register with server if requested
       if (registerWithServer && hasMcpServer) {
-        final serverSuccess = await _serverAdapter!.registerTool(
+        final serverSuccess = await serverManager!.registerTool(
           name: toolName,
           description: toolDescription,
           inputSchema: inputSchema,
           handler: (args) async => await dynamicToolPlugin.execute(args),
+          serverId: serverId,
         );
 
         if (!serverSuccess) {
@@ -474,9 +529,11 @@ class LlmServer {
   /// [description] - Natural language description of the prompt to create
   /// [registerWithServer] - Whether to register the prompt with MCP server
   /// [sessionId] - Optional session ID for maintaining conversation context
+  /// [serverId] - Optional specific server ID to register with
   Future<bool> generateAndRegisterPrompt(String description, {
     bool registerWithServer = true,
     String sessionId = 'default',
+    String? serverId,
   }) async {
     if (!hasMcpServer && registerWithServer) {
       _logger.warning('Cannot register prompt with server: MCP server is not available');
@@ -566,11 +623,12 @@ class LlmServer {
           if (arg.defaultValue != null) 'default': arg.defaultValue,
         }).toList();
 
-        final serverSuccess = await _serverAdapter!.registerPrompt(
+        final serverSuccess = await serverManager!.registerPrompt(
           name: promptName,
           description: promptDescription,
           arguments: serverArgs,
           handler: (args) async => await dynamicPromptPlugin.execute(args),
+          serverId: serverId,
         );
 
         if (!serverSuccess) {
@@ -594,9 +652,11 @@ class LlmServer {
   /// [description] - Natural language description of the resource to create
   /// [registerWithServer] - Whether to register the resource with MCP server
   /// [sessionId] - Optional session ID for maintaining conversation context
+  /// [serverId] - Optional specific server ID to register with
   Future<bool> generateAndRegisterResource(String description, {
     bool registerWithServer = true,
     String sessionId = 'default',
+    String? serverId,
   }) async {
     try {
       // Prompt for the LLM to design a resource
@@ -702,12 +762,13 @@ class LlmServer {
 
       // Register with server if requested
       if (registerWithServer && hasMcpServer) {
-        final serverSuccess = await _serverAdapter!.registerResource(
+        final serverSuccess = await serverManager!.registerResource(
           uri: resourceUri,
           name: resourceName,
           description: resourceDescription,
           mimeType: resourceMimeType ?? 'application/octet-stream',
           handler: (uri, params) async => await dynamicResourcePlugin.read(params),
+          serverId: serverId,
         );
 
         if (!serverSuccess) {
@@ -730,7 +791,8 @@ class LlmServer {
   /// Creates plugins for all capabilities
   ///
   /// [filePath] - Path to the description file
-  Future<bool> registerCapabilitiesFromFile(String filePath) async {
+  /// [serverId] - Optional specific server ID to register with
+  Future<bool> registerCapabilitiesFromFile(String filePath, {String? serverId}) async {
     try {
       // Read the file
       final file = File(filePath);
@@ -750,7 +812,10 @@ class LlmServer {
         final tools = data['tools'] as List;
         for (final toolDesc in tools) {
           totalCount++;
-          final success = await generateAndRegisterTool(toolDesc.toString());
+          final success = await generateAndRegisterTool(
+              toolDesc.toString(),
+              serverId: serverId
+          );
           if (success) successCount++;
         }
       }
@@ -760,7 +825,10 @@ class LlmServer {
         final prompts = data['prompts'] as List;
         for (final promptDesc in prompts) {
           totalCount++;
-          final success = await generateAndRegisterPrompt(promptDesc.toString());
+          final success = await generateAndRegisterPrompt(
+              promptDesc.toString(),
+              serverId: serverId
+          );
           if (success) successCount++;
         }
       }
@@ -770,7 +838,10 @@ class LlmServer {
         final resources = data['resources'] as List;
         for (final resourceDesc in resources) {
           totalCount++;
-          final success = await generateAndRegisterResource(resourceDesc.toString());
+          final success = await generateAndRegisterResource(
+              resourceDesc.toString(),
+              serverId: serverId
+          );
           if (success) successCount++;
         }
       }
@@ -793,6 +864,7 @@ class LlmServer {
   /// [sessionId] - Optional session ID for maintaining conversation context
   /// [systemPrompt] - Optional system prompt to use
   /// [sendToolResultsToLlm] - Whether to send tool results back to LLM or return directly
+  /// [serverId] - Optional specific server ID to use for tool execution
   Future<Map<String, dynamic>> processQuery({
     required String query,
     bool useLocalTools = true,
@@ -801,6 +873,7 @@ class LlmServer {
     String sessionId = 'default',
     String? systemPrompt,
     bool sendToolResultsToLlm = true,
+    String? serverId,
   }) async {
     final chatSession = _getChatSession(sessionId);
     final requestId = _performanceMonitor.startRequest('process_query');
@@ -840,7 +913,7 @@ class LlmServer {
         // Get registered tools from server if available
         if (hasMcpServer) {
           try {
-            final serverTools = await _serverAdapter!.listTools();
+            final serverTools = await serverManager!.getTools(serverId);
             for (final tool in serverTools) {
               toolDescriptions.add({
                 'name': tool['name'],
@@ -924,7 +997,12 @@ class LlmServer {
             // Try server tool first if available
             if (hasMcpServer) {
               try {
-                final result = await _serverAdapter!.executeTool(toolName, toolCall.arguments);
+                final result = await serverManager!.executeTool(
+                    toolName,
+                    toolCall.arguments,
+                    serverId: serverId,
+                    tryAllServers: serverId == null
+                );
                 toolResults[toolId] = result;
                 continue;
               } catch (e) {
@@ -1050,6 +1128,7 @@ class LlmServer {
   /// [parameters] - Optional parameters for the LLM request
   /// [sessionId] - Optional session ID for maintaining conversation context
   /// [systemPrompt] - Optional system prompt to use
+  /// [serverId] - Optional specific server ID to use for tool execution
   Stream<Map<String, dynamic>> streamProcessQuery({
     required String query,
     bool useLocalTools = true,
@@ -1057,6 +1136,7 @@ class LlmServer {
     Map<String, dynamic> parameters = const {},
     String sessionId = 'default',
     String? systemPrompt,
+    String? serverId,
   }) async* {
     final chatSession = _getChatSession(sessionId);
 
@@ -1095,7 +1175,7 @@ class LlmServer {
         // Get registered tools from server if available
         if (hasMcpServer) {
           try {
-            final serverTools = await _serverAdapter!.listTools();
+            final serverTools = await serverManager!.getTools(serverId);
             for (final tool in serverTools) {
               toolDescriptions.add({
                 'name': tool['name'],
@@ -1180,6 +1260,78 @@ class LlmServer {
     }
   }
 
+  /// Get all available tools from all servers
+  Future<List<Map<String, dynamic>>> getAllServerTools() async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getTools();
+  }
+
+  /// Get all available prompts from all servers
+  Future<List<Map<String, dynamic>>> getAllServerPrompts() async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getPrompts();
+  }
+
+  /// Get all available resources from all servers
+  Future<List<Map<String, dynamic>>> getAllServerResources() async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getResources();
+  }
+
+  /// Get tools from a specific server
+  Future<List<Map<String, dynamic>>> getServerTools(String serverId) async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getTools(serverId);
+  }
+
+  /// Get prompts from a specific server
+  Future<List<Map<String, dynamic>>> getServerPrompts(String serverId) async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getPrompts(serverId);
+  }
+
+  /// Get resources from a specific server
+  Future<List<Map<String, dynamic>>> getServerResources(String serverId) async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.getResources(serverId);
+  }
+
+  /// Execute a tool on all servers and collect results
+  Future<Map<String, dynamic>> executeToolOnAllServers(String toolName, Map<String, dynamic> args) async {
+    if (!hasMcpServer) {
+      throw StateError('MCP server manager is not initialized');
+    }
+
+    return await serverManager!.executeToolOnAllServers(toolName, args);
+  }
+
+  /// Find all servers that have a specific tool
+  Future<List<String>> findServersWithTool(String toolName) async {
+    if (!hasMcpServer) {
+      return [];
+    }
+
+    return await serverManager!.findServersWithTool(toolName);
+  }
+
   /// Close and release resources
   Future<void> close() async {
     // No need to manually save chat sessions - they save automatically when messages are added
@@ -1237,7 +1389,7 @@ class DynamicToolPlugin extends BaseToolPlugin {
       try {
         // Check for JSON format
         if (result.startsWith('{') || result.startsWith('[')) {
-         return LlmCallToolResult([LlmTextContent(text: result)]);
+          return LlmCallToolResult([LlmTextContent(text: result)]);
         }
       } catch (_) {
         // Not valid JSON, return as text
