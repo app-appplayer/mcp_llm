@@ -45,6 +45,7 @@ export 'src/plugins/core_llm_plugins.dart';
 export 'src/parallel/executor.dart';
 export 'src/parallel/task_scheduler.dart';
 export 'src/parallel/result_aggregator.dart';
+export 'src/parallel/advanced_task_scheduler.dart';
 
 // Storage
 export 'src/storage/storage_manager.dart';
@@ -393,7 +394,7 @@ class McpLlm {
   /// [llmServerId] - ID of the LLM server
   /// [mcpServerId] - ID for the new MCP server
   /// [mcpServer] - MCP server instance to add
-  Future<bool> addMcpServerToLlmClient(
+  Future<bool> addMcpServerToLlmServer(
       String llmServerId,
       String mcpServerId,
       dynamic mcpServer

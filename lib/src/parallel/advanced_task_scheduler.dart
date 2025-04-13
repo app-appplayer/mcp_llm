@@ -3,8 +3,7 @@ import 'dart:collection';
 import 'dart:math';
 import 'package:collection/collection.dart';
 
-import '../utils/logger.dart';
-import '../utils/performance_monitor.dart';
+import '../../mcp_llm.dart';
 
 /// Task priority calculation strategy
 enum PriorityStrategy {
@@ -827,16 +826,6 @@ class AdvancedTaskScheduler {
       _processQueue();
     }
   }
-}
-
-/// Task cancellation exception
-class TaskCancelledException implements Exception {
-  final String message;
-
-  TaskCancelledException(this.message);
-
-  @override
-  String toString() => 'TaskCancelledException: $message';
 }
 
 /// Retry strategy
