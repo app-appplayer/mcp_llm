@@ -104,7 +104,7 @@ class _LlmServerDemoState extends State<LlmServerDemo> {
       // 6. Configure API key (replace with your own)
       final llmConfig = LlmConfiguration(
         // For testing, check if we have a valid API key
-        apiKey: 'Your-API-Key-Here',
+        apiKey: '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',
         model: 'gpt-3.5-turbo',
         options: {
           'temperature': 0.7,

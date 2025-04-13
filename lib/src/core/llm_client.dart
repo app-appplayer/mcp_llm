@@ -8,7 +8,7 @@ class LlmClient {
   final LlmInterface llmProvider;
 
   /// MCP client manager for multiple clients
-  final McpClientManager? _mcpClientManager;
+  late final McpClientManager? _mcpClientManager;
 
   /// Storage manager
   final StorageManager? storageManager;
@@ -71,10 +71,11 @@ class LlmClient {
 
   /// Add an MCP client
   void addMcpClient(String clientId, dynamic mcpClient) {
-    if (_mcpClientManager == null) {
-      throw StateError('MCP client manager is not initialized');
-    }
-    _mcpClientManager.addClient(clientId, mcpClient);
+    _logger.error('addMcpClient');
+
+    // Initialize manager if it doesn't exist
+    _mcpClientManager ??= McpClientManager();
+    _mcpClientManager!.addClient(clientId, mcpClient);
   }
 
   /// Remove an MCP client
@@ -567,10 +568,7 @@ class LlmClient {
       try {
         // Stream the initial response
         await for (final chunk in llmProvider.streamComplete(request)) {
-          // 프로바이더 의존적 메타데이터를 표준화 (선택적)
           final standardizedMetadata = llmProvider.standardizeMetadata(chunk.metadata);
-
-          // 표준화된 메타데이터로 청크를 새로 생성하여 전달 (메타데이터가 변경된 경우만)
           final standardizedChunk = chunk.metadata == standardizedMetadata ?
           chunk :
           LlmResponseChunk(
@@ -589,7 +587,6 @@ class LlmClient {
             collectedToolCalls.addAll(chunk.toolCalls!);
           }
 
-          // 프로바이더 구현을 사용하여 메타데이터에서 도구 호출 확인
           final hasToolCallMetadata = llmProvider.hasToolCallMetadata(chunk.metadata);
           if (hasToolCallMetadata) {
             final extractedToolCall = llmProvider.extractToolCallFromMetadata(chunk.metadata);
@@ -889,6 +886,8 @@ class LlmClient {
     final tools = <Map<String, dynamic>>[];
 
     // Get tools from MCP clients
+    if(enableMcpTools) _logger.error('enableMcpTools');
+    if(_mcpClientManager != null) _logger.error('_mcpClientManager');
     if (enableMcpTools && _mcpClientManager != null) {
       try {
         final mcpTools = await _mcpClientManager.getTools(mcpClientId);

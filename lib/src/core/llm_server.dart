@@ -13,7 +13,7 @@ class LlmServer {
   final LlmInterface llmProvider;
 
   /// MCP server manager
-  final McpServerManager? serverManager;
+  late final McpServerManager? serverManager;
 
   /// Storage manager
   final StorageManager? storageManager;
@@ -84,9 +84,7 @@ class LlmServer {
 
   /// Add an MCP server
   void addMcpServer(String serverId, dynamic mcpServer) {
-    if (serverManager == null) {
-      throw StateError('MCP server manager is not initialized');
-    }
+    serverManager ??= McpServerManager();
     serverManager!.addServer(serverId, mcpServer);
   }
 
