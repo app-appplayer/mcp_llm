@@ -362,11 +362,9 @@ class LlmClient {
 
     try {
       if (noHistory) {
-        // 시스템 메시지는 유지하고 나머지만 클리어하는 방법
         final systemMessages = chatSession.systemMessages;
         chatSession.clearHistory();
 
-        // 시스템 메시지 복원
         for (final msg in systemMessages) {
           chatSession.addSystemMessage(msg.getTextContent());
         }
@@ -506,11 +504,9 @@ class LlmClient {
 
     try {
       if (noHistory) {
-        // 시스템 메시지는 유지하고 나머지만 클리어하는 방법
         final systemMessages = chatSession.systemMessages;
         chatSession.clearHistory();
 
-        // 시스템 메시지 복원
         for (final msg in systemMessages) {
           chatSession.addSystemMessage(msg.getTextContent());
         }
@@ -557,7 +553,6 @@ class LlmClient {
         effectiveParameters['system'] = (effectiveParameters['system'] ?? '') + enhancedPrompt;
       }
 
-      // 여기가 request 변수가 생성되는 부분입니다.
       final request = LlmRequest(
         prompt: userInput,
         history: chatSession.getMessagesForContext(),
@@ -637,10 +632,8 @@ class LlmClient {
         if (fullResponse.toolCalls != null && fullResponse.toolCalls!.isNotEmpty) {
           _logger.debug('Processing ${fullResponse.toolCalls!.length} tool calls from stream response');
 
-          // 빈 인자 도구 호출 필터링
           final validToolCalls = fullResponse.toolCalls!.where((tc) => tc.arguments.isNotEmpty).toList();
 
-          // 유효한 도구 호출이 없으면 오류 메시지 표시하고 종료
           if (validToolCalls.isEmpty) {
             _logger.warning('All tool calls had empty arguments - skipping tool execution');
 
@@ -657,14 +650,12 @@ class LlmClient {
             return;
           }
 
-          // 구분자 청크 발행
           yield LlmResponseChunk(
             textChunk: "\n\n[Processing tool calls...]\n\n",
             isDone: false,
             metadata: {'processing_tools': true},
           );
 
-          // 유효한 도구 호출만 포함하는 새 응답 생성
           final validatedResponse = LlmResponse(
             text: fullResponse.text,
             metadata: fullResponse.metadata,
@@ -697,7 +688,6 @@ class LlmClient {
           } catch (e) {
             _logger.error('Error processing tool calls: $e');
 
-            // 도구 처리 중 오류가 발생한 경우 명확한 오류 메시지 전달
             final errorMessage = "Error processing tool calls: $e";
 
             yield LlmResponseChunk(
@@ -706,7 +696,6 @@ class LlmClient {
               metadata: {'error': e.toString(), 'phase': 'tool_execution'},
             );
 
-            // 세션에 오류 추가
             chatSession.addAssistantMessage(errorMessage);
           }
         }
@@ -796,7 +785,7 @@ class LlmClient {
       // 시그니처 추가 및 유효한 도구 호출로 등록
       processedSignatures.add(signature);
       validToolCalls.add(toolCall);
-      _logger.error('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
+      _logger.debug('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
     }
 
     // 유효한 도구 호출이 없으면 처리 중단
@@ -836,7 +825,7 @@ class LlmClient {
           [toolResult],
           toolCallId: toolId,  // Pass ID
         );
-        _logger.error('toolResult ${toolResult}');
+        _logger.debug('toolResult ${toolResult}');
       } catch (e) {
         _logger.error('Error executing tool ${toolCall.name}: $e');
 
