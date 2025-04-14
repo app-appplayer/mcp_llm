@@ -38,7 +38,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  mcp_llm: ^0.2.0
+  mcp_llm: ^0.2.1
 ```
 
 Or install via command line:

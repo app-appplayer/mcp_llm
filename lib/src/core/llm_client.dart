@@ -63,7 +63,7 @@ class LlmClient {
     }
 
     // No MCP clients
-    return null;
+    return McpClientManager();
   }
 
   /// Check if MCP client manager is available
@@ -71,8 +71,6 @@ class LlmClient {
 
   /// Add an MCP client
   void addMcpClient(String clientId, dynamic mcpClient) {
-    _logger.error('addMcpClient');
-
     // Initialize manager if it doesn't exist
     _mcpClientManager ??= McpClientManager();
     _mcpClientManager!.addClient(clientId, mcpClient);
@@ -886,8 +884,6 @@ class LlmClient {
     final tools = <Map<String, dynamic>>[];
 
     // Get tools from MCP clients
-    if(enableMcpTools) _logger.error('enableMcpTools');
-    if(_mcpClientManager != null) _logger.error('_mcpClientManager');
     if (enableMcpTools && _mcpClientManager != null) {
       try {
         final mcpTools = await _mcpClientManager.getTools(mcpClientId);
