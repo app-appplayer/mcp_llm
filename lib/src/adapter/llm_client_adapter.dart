@@ -1,5 +1,3 @@
-import 'package:mcp_llm/mcp_llm.dart';
-
 import '../utils/logger.dart';
 
 /// Adapter that converts MCP client instances to LLM compatible format
