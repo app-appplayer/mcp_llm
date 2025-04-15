@@ -38,7 +38,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  mcp_llm: ^0.2.1
+  mcp_llm: ^0.2.2
 ```
 
 Or install via command line:
@@ -53,11 +53,15 @@ dart pub add mcp_llm
 import 'package:mcp_llm/mcp_llm.dart';
 
 void main() async {
-  /// Logging
-  final Logger _logger = Logger.getLogger('mcp_llm.main');
-  // Get MCPLlm instance
-  final mcpLlm = MCPLlm.instance;
-  
+  // Logging
+  final logger = Logger.getLogger('mcp_llm.main');
+
+  // Create a new McpLlm instance
+  final mcpLlm = McpLlm();
+
+  // Register provider
+  mcpLlm.registerProvider('claude', ClaudeProviderFactory());
+
   // Create a client with Claude provider
   final client = await mcpLlm.createClient(
     providerName: 'claude',
@@ -66,15 +70,15 @@ void main() async {
       model: 'claude-3-5-sonnet',
     ),
   );
-  
+
   // Send a chat message
   final response = await client.chat(
     "What's the weather in New York?",
     enableTools: true,
   );
-  
-  _logger(response.text);
-  
+
+  logger.info(response.text);
+
   // Clean up
   await mcpLlm.shutdown();
 }
@@ -84,25 +88,38 @@ void main() async {
 
 ### LLM Providers
 
-The `LlmInterface` provides a standardized way to interact with different LLM providers:
+The library supports multiple LLM providers through the provider factory system:
 
 ```dart
-final provider = ClaudeProvider(
+// Register providers
+mcpLlm.registerProvider('openai', OpenAiProviderFactory());
+mcpLlm.registerProvider('claude', ClaudeProviderFactory());
+mcpLlm.registerProvider('together', TogetherProviderFactory());
+
+// Configure provider
+final config = LlmConfiguration(
   apiKey: 'your-api-key',
   model: 'claude-3-5-sonnet',
+  options: {
+    'temperature': 0.7,
+    'maxTokens': 1500,
+  },
 );
 
-final response = await provider.complete(LlmRequest(
-  prompt: "What's the meaning of life?",
-  parameters: {'temperature': 0.7},
-));
+// Create a client with the provider
+final client = await mcpLlm.createClient(
+  providerName: 'claude',
+  config: config,
+);
 
-_logger(response.text);
+// Send query
+final response = await client.chat("What's the meaning of life?");
+logger.info(response.text);
 ```
 
 ### Multi-Client Management
 
-The `MultiClientManager` handles multiple LLM clients with intelligent routing:
+The library supports managing multiple LLM clients with intelligent routing:
 
 ```dart
 // Create clients with different specialties
@@ -137,7 +154,7 @@ Execute requests across multiple LLM providers and aggregate results:
 final response = await mcpLlm.executeParallel(
   "Suggest five names for a tech startup focused on sustainability",
   providerNames: ['claude', 'openai', 'together'],
-  aggregator: MergeResultAggregator(),
+  aggregator: ResultAggregator(),
 );
 ```
 
@@ -147,11 +164,13 @@ Integrate document retrieval with LLM generation:
 
 ```dart
 // Create document store
-final storageManager = PersistentStorage('path/to/storage');
+final storageManager = MemoryStorage();
 final documentStore = DocumentStore(storageManager);
-final retrievalManager = RetrievalManager(
+
+// Create retrieval manager
+final retrievalManager = mcpLlm.createRetrievalManager(
+  providerName: 'openai',
   documentStore: documentStore,
-  llmProvider: provider,
 );
 
 // Add documents
@@ -160,8 +179,14 @@ await retrievalManager.addDocument(Document(
   content: 'Climate change refers to...',
 ));
 
+// Create client with retrieval manager
+final client = await mcpLlm.createClient(
+  providerName: 'openai',
+  retrievalManager: retrievalManager,
+);
+
 // Perform RAG query
-final answer = await retrievalManager.retrieveAndGenerate(
+final answer = await client.retrieveAndGenerate(
   "What are the main causes of climate change?",
   topK: 3,
 );
@@ -172,18 +197,17 @@ final answer = await retrievalManager.retrieveAndGenerate(
 The package includes a built-in logging utility:
 
 ```dart
-/// Logging
-final Logger _logger = Logger.getLogger('mcp_llm.test');
-_logger.setLevel(LogLevel.debug);
+// Get logger
+final logger = Logger.getLogger('mcp_llm.test');
 
-// Configure logging
-_logger.configure(level: LogLevel.debug, includeTimestamp: true, useColor: true);
+// Set log level
+logger.setLevel(LogLevel.debug);
 
 // Log messages at different levels
-_logger.debug('Debugging information');
-_logger.info('Important information');
-_logger.warning('Warning message');
-_logger.error('Error message');
+logger.debug('Debugging information');
+logger.info('Important information');
+logger.warning('Warning message');
+logger.error('Error message');
 ```
 
 ## Examples
@@ -194,17 +218,157 @@ Check out the [example](https://github.com/app-appplayer/mcp_llm/tree/main/examp
 
 ### Plugin System
 
-Extend functionality with custom plugins:
+MCP LLM provides a flexible plugin system to extend functionality. The most common type of plugin is a tool plugin, which allows the LLM to perform actions.
+
+#### Plugin Architecture
+
+The plugin system is based on these key components:
+
+- `LlmPlugin`: Base interface for all plugins
+- `BaseToolPlugin`: Base class for implementing tool plugins
+- `PluginManager`: Manages registration and execution of plugins
+
+#### Creating Tool Plugins
+
+Tool plugins extend the `BaseToolPlugin` class and implement the `onExecute` method:
 
 ```dart
-// Create a custom tool plugin
-final weatherPlugin = WeatherToolPlugin();
-await mcpLlm.registerPlugin(weatherPlugin, {'api_key': 'weather-api-key'});
+import 'package:mcp_llm/mcp_llm.dart';
 
-// The plugin is automatically available for tool use
+class EchoToolPlugin extends BaseToolPlugin {
+  EchoToolPlugin() : super(
+    name: 'echo',              // Tool name
+    version: '1.0.0',          // Tool version 
+    description: 'Echoes back the input message with optional transformation',
+    inputSchema: {             // JSON Schema for input validation
+      'type': 'object',
+      'properties': {
+        'message': {
+          'type': 'string',
+          'description': 'Message to echo back'
+        },
+        'uppercase': {
+          'type': 'boolean',
+          'description': 'Whether to convert to uppercase',
+          'default': false
+        }
+      },
+      'required': ['message']  // Required parameters
+    },
+  );
+
+  @override
+  Future<LlmCallToolResult> onExecute(Map<String, dynamic> arguments) async {
+    final message = arguments['message'] as String;
+    final uppercase = arguments['uppercase'] as bool? ?? false;
+
+    final result = uppercase ? message.toUpperCase() : message;
+
+    Logger.getLogger('LlmServerDemo').debug(message);
+    return LlmCallToolResult([
+      LlmTextContent(text: result),
+    ]);
+  }
+}
+```
+
+#### Example Calculator Plugin
+
+```dart
+class CalculatorToolPlugin extends BaseToolPlugin {
+  CalculatorToolPlugin() : super(
+    name: 'calculator',
+    version: '1.0.0',
+    description: 'Performs basic arithmetic operations',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'operation': {
+          'type': 'string',
+          'description': 'The operation to perform (add, subtract, multiply, divide)',
+          'enum': ['add', 'subtract', 'multiply', 'divide']
+        },
+        'a': {
+          'type': 'number',
+          'description': 'First number'
+        },
+        'b': {
+          'type': 'number',
+          'description': 'Second number'
+        }
+      },
+      'required': ['operation', 'a', 'b']
+    },
+  );
+
+  @override
+  Future<LlmCallToolResult> onExecute(Map<String, dynamic> arguments) async {
+    final operation = arguments['operation'] as String;
+    final a = (arguments['a'] as num).toDouble();
+    final b = (arguments['b'] as num).toDouble();
+
+    double result;
+    switch (operation) {
+      case 'add':
+        result = a + b;
+        break;
+      case 'subtract':
+        result = a - b;
+        break;
+      case 'multiply':
+        result = a * b;
+        break;
+      case 'divide':
+        if (b == 0) {
+          throw Exception('Division by zero');
+        }
+        result = a / b;
+        break;
+      default:
+        throw Exception('Unknown operation: $operation');
+    }
+
+    Logger.getLogger('LlmServerDemo').debug('$result');
+    return LlmCallToolResult([
+      LlmTextContent(text: result.toString()),
+    ]);
+  }
+}
+```
+
+#### Registering and Using Plugins
+
+```dart
+// Create plugin manager
+final pluginManager = PluginManager();
+
+// Register plugins
+await pluginManager.registerPlugin(EchoToolPlugin());
+await pluginManager.registerPlugin(CalculatorToolPlugin());
+
+// Create client with plugin manager
+final client = await mcpLlm.createClient(
+  providerName: 'claude',
+  pluginManager: pluginManager,
+);
+
+// Enable tools when chatting
 final response = await client.chat(
-  "What's the weather in Tokyo?",
-  enablePlugins: true,
+  "What is 42 + 17?",
+  enableTools: true,  // Important: tools must be enabled
+);
+```
+
+For server-side use, you can register plugins with the MCP server:
+
+```dart
+// Register core LLM plugins with the server
+await llmServer.registerCoreLlmPlugins(
+  registerCompletionTool: true,
+  registerStreamingTool: true,
+  registerEmbeddingTool: true,
+  registerRetrievalTools: true,
+  registerWithServer: true,
 );
 ```
 
@@ -218,52 +382,126 @@ mcpLlm.enablePerformanceMonitoring();
 
 // Get performance metrics
 final metrics = mcpLlm.getPerformanceMetrics();
-_logger("Total requests: ${metrics['total_requests']}");
-_logger("Success rate: ${metrics['success_rate']}");
+logger.info("Total requests: ${metrics['total_requests']}");
+logger.info("Success rate: ${metrics['success_rate']}");
+
+// Reset metrics
+mcpLlm.resetPerformanceMetrics();
+
+// Disable monitoring
+mcpLlm.disablePerformanceMonitoring();
 ```
 
 ## MCP Integration
 
 This package works with both `mcp_client` and `mcp_server`:
 
+### Client Integration
+
 ```dart
-// Client integration
-final mcpClient = McpClient.createClient(
+// Create MCP client
+final mcpClient = mcp.McpClient.createClient(
   name: 'myapp',
   version: '1.0.0',
+  capabilities: mcp.ClientCapabilities(
+    roots: true,
+    rootsListChanged: true,
+    sampling: true,
+  ),
 );
-final transport = McpClient.createStdioTransport();
-mcpClient.connect(transport);
 
+// Create LLM client
 final llmClient = await mcpLlm.createClient(
   providerName: 'claude',
+  config: LlmConfiguration(
+    apiKey: 'your-api-key',
+    model: 'claude-3-haiku-20240307',
+    retryOnFailure: true,
+    maxRetries: 3,
+    options: {
+      'max_tokens': 4096,
+      'default_temperature': 0.7
+    }
+  ),
   mcpClient: mcpClient,
 );
 
-// Server integration
-final mcpServer = McpServer.createServer(
-  name: 'llm-service',
-  version: '1.0.0',
-  capabilities: ServerCapabilities(tools: true),
+// Create transport
+final transport = await mcp.McpClient.createSseTransport(
+  serverUrl: 'http://localhost:8999/sse',
+  headers: {
+    'Authorization': 'Bearer your_token',
+  },
 );
 
-final llmServer = await mcpLlm.createServer(
-  providerName: 'claude',
-  mcpServer: mcpServer,
+// Connect to server
+await mcpClient.connectWithRetry(
+  transport,
+  maxRetries: 3,
+  delay: const Duration(seconds: 1),
 );
-
-await llmServer.registerLlmTools();
 ```
 
-You can connect multiple mcp_clients to a single MCPLlm.
+### Server Integration
 
 ```dart
-// Single client approach
-final llmClient = await mcpLlm.createClient(
-  providerName: 'openai',
-  mcpClient: singleMcpClient
+// Create MCP server
+final mcpServer = mcp.McpServer.createServer(
+  name: 'llm-service',
+  version: '1.0.0',
+  capabilities: mcp.ServerCapabilities(
+    tools: true,
+    toolsListChanged: true,
+    resources: true,
+    resourcesListChanged: true,
+    prompts: true,
+    promptsListChanged: true,
+  ),
 );
 
+// Create plugin manager and register plugins
+final pluginManager = PluginManager();
+await pluginManager.registerPlugin(EchoToolPlugin());
+await pluginManager.registerPlugin(CalculatorToolPlugin());
+
+// Create LLM server
+final llmServer = await mcpLlm.createServer(
+  providerName: 'openai',
+  config: LlmConfiguration(
+    apiKey: 'your-api-key',
+    model: 'gpt-3.5-turbo',
+  ),
+  mcpServer: mcpServer,
+  storageManager: MemoryStorage(),
+  pluginManager: pluginManager,
+);
+
+// Create transport
+final transport = mcp.McpServer.createSseTransport(
+  endpoint: '/sse',
+  messagesEndpoint: '/message',
+  port: 8999,
+  authToken: 'your_token',
+);
+
+// Connect server to transport
+mcpServer.connect(transport);
+
+// Register core LLM plugins
+await llmServer.registerCoreLlmPlugins(
+  registerCompletionTool: true,
+  registerStreamingTool: true,
+  registerEmbeddingTool: true,
+  registerRetrievalTools: true,
+  registerWithServer: true,
+);
+```
+
+### Multi-Client/Server Support
+
+You can connect multiple MCP clients or servers:
+
+```dart
 // Multiple clients approach
 final llmClient = await mcpLlm.createClient(
   providerName: 'claude',
@@ -282,6 +520,54 @@ await mcpLlm.setDefaultMcpClient('client_id', 'database');
 
 // Getting a list of MCP client IDs
 final mcpIds = mcpLlm.getMcpClientIds('client_id');
+
+// Similar functions exist for servers
+final llmServer = await mcpLlm.createServer(
+  providerName: 'openai',
+  mcpServers: {
+    'main': mainMcpServer,
+    'backup': backupMcpServer,
+  }
+);
+
+await mcpLlm.addMcpServerToLlmServer('server_id', 'new_server', newMcpServer);
+await mcpLlm.setDefaultMcpServer('server_id', 'main');
+final mcpServerIds = mcpLlm.getMcpServerIds('server_id');
+```
+
+### Streaming Responses
+
+For handling streaming responses from the LLM:
+
+```dart
+// Subscribe to stream
+final responseStream = llmClient.streamChat(
+  "Tell me a story about robots",
+  enableTools: true,
+);
+
+// Response chunk collection buffer
+final responseBuffer = StringBuffer();
+
+// Process stream
+await for (final chunk in responseStream) {
+  // Add chunk text
+  responseBuffer.write(chunk.textChunk);
+  final currentResponse = responseBuffer.toString();
+  
+  // Update UI with current response
+  print('Current response: $currentResponse');
+  
+  // Check for tool processing
+  if (chunk.metadata.containsKey('processing_tools')) {
+    print('Processing tool calls...');
+  }
+  
+  // Check stream completion
+  if (chunk.isDone) {
+    print('Stream response completed');
+  }
+}
 ```
 
 ## Issues and Feedback
@@ -291,5 +577,3 @@ Please file any issues, bugs, or feature requests in our [issue tracker](https:/
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-`
