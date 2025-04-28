@@ -1,5 +1,9 @@
 # MCP Llm
 
+[![Support on Patreon](https://img.shields.io/badge/Support%20on-Patreon-orange?logo=patreon)](https://www.patreon.com/mcpdevstudio)
+
+---
+
 A Dart plugin for integrating Large Language Models (LLMs) with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This plugin provides tools for LLM communication, multi-client support, parallel processing, and Retrieval Augmented Generation (RAG) capabilities.
 
 ## Features
