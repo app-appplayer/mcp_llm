@@ -1,6 +1,6 @@
 name: mcp_llm
 description: Dart plugin for integrating Large Language Models (LLMs) with Model Context Protocol (MCP). Provides tools for LLM communication, multi-client support, parallel processing, and RAG capabilities.
-version: 0.2.2
+version: 0.2.3
 homepage: https://github.com/app-appplayer/mcp_llm
 repository: https://github.com/app-appplayer/mcp_llm
 issue_tracker: https://github.com/app-appplayer/mcp_llm/issues
