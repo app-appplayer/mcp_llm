@@ -1,5 +1,7 @@
 # MCP LLM v1.0.0 - 2025-03-26 Edition
 
+If you find this package useful, consider supporting ongoing development on Patreon.
+
 [![Support on Patreon](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/mcpdevstudio)
 
 ### 🔗 MCP Dart Package Family
