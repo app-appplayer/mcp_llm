@@ -15,7 +15,7 @@ abstract class BasePromptPlugin implements PromptPlugin {
   final List<LlmPromptArgument> _arguments;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.prompt_plugin');
+  final Logger _logger = Logger('mcp_llm.prompt_plugin');
 
   /// Plugin configuration
   Map<String, dynamic> _config = {};
@@ -177,7 +177,7 @@ class StoryStarterPromptPlugin extends BasePromptPlugin {
     // Build user message
     String userPrompt = 'Please create a story starter for a ${genre.toLowerCase()} story';
     if (theme != null) {
-      userPrompt += ' with the theme of "${theme}"';
+      userPrompt += ' with the theme of "$theme"';
     }
     userPrompt += ' and a ${tone.toLowerCase()} tone.';
 

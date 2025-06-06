@@ -57,7 +57,7 @@ class TaskScheduler {
   bool _isRunning = false;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.plugin');
+  final Logger _logger = Logger('mcp_llm.plugin');
 
   /// Performance monitor
   final PerformanceMonitor _performanceMonitor;

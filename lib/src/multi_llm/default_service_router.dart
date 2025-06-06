@@ -6,7 +6,7 @@ import 'managed_service.dart';
 class DefaultServiceRouter implements ServiceRouter {
   final Map<String, Map<String, dynamic>> _serviceProperties = {};
   RoutingStrategy _routingStrategy = RoutingStrategy.weighted;
-  final Logger _logger = Logger.getLogger('mcp_llm.default_service_router');
+  final Logger _logger = Logger('mcp_llm.default_service_router');
 
   @override
   void registerService(String serviceId, Map<String, dynamic> properties) {

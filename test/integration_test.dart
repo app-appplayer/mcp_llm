@@ -1,4 +1,7 @@
 // test/integration_test.dart
+@Tags(['integration'])
+library;
+
 import 'dart:io';
 import 'dart:math';
 import 'package:mcp_llm/mcp_llm.dart';
@@ -12,7 +15,7 @@ import 'package:test/test.dart';
 /// - OPENAI_API_KEY
 /// - ANTHROPIC_API_KEY
 /// - TOGETHER_API_KEY
-@Tags(['integration'])
+
 void main() {
   // Check if API keys are available
   final String? openAiKey = Platform.environment['OPENAI_API_KEY'];

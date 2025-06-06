@@ -524,6 +524,351 @@ class LlmResponseChunk {
   }
 }
 
+/// Server lifecycle state (2025-03-26)
+enum ServerLifecycleState {
+  stopped,
+  starting,
+  running,
+  pausing,
+  paused,
+  stopping,
+  error
+}
+
+/// MCP capability type (2025-03-26)
+enum McpCapabilityType {
+  tools,
+  auth,
+  batch,
+  streaming,
+  prompts,
+  resources
+}
+
+/// MCP capability definition (2025-03-26)
+class McpCapability {
+  final McpCapabilityType type;
+  final String name;
+  final String version;
+  final bool enabled;
+  final Map<String, dynamic>? configuration;
+  final DateTime lastUpdated;
+
+  McpCapability({
+    required this.type,
+    required this.name,
+    required this.version,
+    required this.enabled,
+    this.configuration,
+    required this.lastUpdated,
+  });
+
+  McpCapability copyWith({
+    McpCapabilityType? type,
+    String? name,
+    String? version,
+    bool? enabled,
+    Map<String, dynamic>? configuration,
+    DateTime? lastUpdated,
+  }) {
+    return McpCapability(
+      type: type ?? this.type,
+      name: name ?? this.name,
+      version: version ?? this.version,
+      enabled: enabled ?? this.enabled,
+      configuration: configuration ?? this.configuration,
+      lastUpdated: lastUpdated ?? this.lastUpdated,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type.name,
+      'name': name,
+      'version': version,
+      'enabled': enabled,
+      if (configuration != null) 'configuration': configuration,
+      'lastUpdated': lastUpdated.toIso8601String(),
+    };
+  }
+}
+
+/// MCP error category (2025-03-26)
+enum McpErrorCategory {
+  validation,
+  network,
+  batch,
+  authentication,
+  permission,
+  timeout,
+  unknown
+}
+
+/// Lifecycle transition reason (2025-03-26)
+enum LifecycleTransitionReason {
+  userRequest,
+  healthFailure,
+  errorRecovery,
+  maintenance,
+  systemShutdown
+}
+
+/// Health status enum (2025-03-26)
+enum HealthStatus {
+  healthy,
+  degraded,
+  unhealthy,
+  unknown
+}
+
+/// Capability event type (2025-03-26)
+enum CapabilityEventType {
+  enabled,
+  disabled,
+  updated,
+  refreshed
+}
+
+/// Capability update request (2025-03-26)
+class CapabilityUpdateRequest {
+  final String clientId;
+  final List<McpCapability> capabilities;
+  final String requestId;
+  final DateTime timestamp;
+
+  CapabilityUpdateRequest({
+    required this.clientId,
+    required this.capabilities,
+    required this.requestId,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'capabilities': capabilities.map((c) => c.toJson()).toList(),
+      'requestId': requestId,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// Capability update response (2025-03-26)
+class CapabilityUpdateResponse {
+  final bool success;
+  final List<McpCapability> updatedCapabilities;
+  final String? error;
+  final DateTime timestamp;
+
+  CapabilityUpdateResponse({
+    required this.success,
+    required this.updatedCapabilities,
+    this.error,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'success': success,
+      'updatedCapabilities': updatedCapabilities.map((c) => c.toJson()).toList(),
+      if (error != null) 'error': error,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// Health check result (2025-03-26)
+class HealthCheckResult {
+  final String clientId;
+  final HealthStatus status;
+  final Map<String, dynamic> metrics;
+  final String? error;
+  final DateTime timestamp;
+
+  HealthCheckResult({
+    required this.clientId,
+    required this.status,
+    required this.metrics,
+    this.error,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'status': status.name,
+      'metrics': metrics,
+      if (error != null) 'error': error,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// Health report (2025-03-26)
+class HealthReport {
+  final HealthStatus overallStatus;
+  final Map<String, HealthCheckResult> componentResults;
+  final Duration totalCheckTime;
+  final DateTime timestamp;
+
+  HealthReport({
+    required this.overallStatus,
+    required this.componentResults,
+    required this.totalCheckTime,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'overallStatus': overallStatus.name,
+      'componentResults': componentResults.map((k, v) => MapEntry(k, v.toJson())),
+      'totalCheckTime': totalCheckTime.inMilliseconds,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// Server info (2025-03-26)
+class ServerInfo {
+  final String serverId;
+  final String name;
+  final ServerLifecycleState state;
+  final Duration uptime;
+  final Map<String, dynamic> metadata;
+
+  ServerInfo({
+    required this.serverId,
+    required this.name,
+    required this.state,
+    required this.uptime,
+    required this.metadata,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'serverId': serverId,
+      'name': name,
+      'state': state.name,
+      'uptime': uptime.inSeconds,
+      'metadata': metadata,
+    };
+  }
+}
+
+/// Lifecycle response (2025-03-26)
+class LifecycleResponse {
+  final bool success;
+  final ServerLifecycleState? newState;
+  final String? error;
+  final DateTime timestamp;
+
+  LifecycleResponse({
+    required this.success,
+    this.newState,
+    this.error,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'success': success,
+      if (newState != null) 'newState': newState!.name,
+      if (error != null) 'error': error,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// MCP enhanced error (2025-03-26)
+class McpEnhancedError extends Error {
+  final String clientId;
+  final McpErrorCategory category;
+  final String message;
+  final Map<String, dynamic> context;
+  final DateTime timestamp;
+  @override
+  final StackTrace? stackTrace;
+
+  McpEnhancedError({
+    required this.clientId,
+    required this.category,
+    required this.message,
+    required this.context,
+    required this.timestamp,
+    this.stackTrace,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'category': category.name,
+      'message': message,
+      'context': context,
+      'timestamp': timestamp.toIso8601String(),
+      if (stackTrace != null) 'stackTrace': stackTrace.toString(),
+    };
+  }
+
+  @override
+  String toString() {
+    return 'McpEnhancedError[$clientId/${category.name}]: $message';
+  }
+}
+
+/// Capability event (2025-03-26)
+class CapabilityEvent {
+  final String clientId;
+  final String capabilityName;
+  final CapabilityEventType type;
+  final Map<String, dynamic> data;
+  final DateTime timestamp;
+
+  CapabilityEvent({
+    required this.clientId,
+    required this.capabilityName,
+    required this.type,
+    required this.data,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'clientId': clientId,
+      'capabilityName': capabilityName,
+      'type': type.name,
+      'data': data,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+/// Lifecycle event (2025-03-26)
+class LifecycleEvent {
+  final String serverId;
+  final ServerLifecycleState previousState;
+  final ServerLifecycleState newState;
+  final LifecycleTransitionReason reason;
+  final DateTime timestamp;
+
+  LifecycleEvent({
+    required this.serverId,
+    required this.previousState,
+    required this.newState,
+    required this.reason,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'serverId': serverId,
+      'previousState': previousState.name,
+      'newState': newState.name,
+      'reason': reason.name,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
 /// LLM configuration with enhanced retry capabilities
 class LlmConfiguration {
   final String? apiKey;

@@ -6,7 +6,7 @@ import 'managed_service.dart';
 class LlmClientServiceAdapter implements ManagedService {
   final LlmClient _client;
   final String _id;
-  final Logger _logger = Logger.getLogger('mcp_llm.llm_client_adapter');
+  final Logger _logger = Logger('mcp_llm.llm_client_adapter');
 
   /// Create a new LlmClient adapter
   LlmClientServiceAdapter(this._client, this._id);
@@ -116,7 +116,7 @@ class LlmClientServiceAdapter implements ManagedService {
 class LlmServerServiceAdapter implements ManagedService {
   final LlmServer _server;
   final String _id;
-  final Logger _logger = Logger.getLogger('mcp_llm.llm_server_adapter');
+  final Logger _logger = Logger('mcp_llm.llm_server_adapter');
 
   /// Create a new LlmServer adapter
   LlmServerServiceAdapter(this._server, this._id);

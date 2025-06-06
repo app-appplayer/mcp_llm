@@ -14,7 +14,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
   final HttpClient _client = HttpClient();
 
   @override
-  final Logger logger = Logger.getLogger('mcp_llm.openai_provider');
+  final Logger logger = Logger('mcp_llm.openai_provider');
 
   OpenAiProvider({
     required this.apiKey,

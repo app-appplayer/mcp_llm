@@ -5,7 +5,7 @@ import '../../mcp_llm.dart';
 class BatchEmbeddingProcessor {
   final LlmInterface llmProvider;
   int batchSize;
-  final Logger _logger = Logger.getLogger('mcp_llm.batch_embedding_processor');
+  final Logger _logger = Logger('mcp_llm.batch_embedding_processor');
 
   BatchEmbeddingProcessor({
     required this.llmProvider,
@@ -101,7 +101,7 @@ class BatchEmbeddingProcessor {
         ? documents.where((doc) => doc.embedding == null || doc.embedding!.isEmpty).toList()
         : documents;
 
-    _logger.info('Processing ${documentsToProcess.length} documents ' +
+    _logger.info('Processing ${documentsToProcess.length} documents '
         '(out of ${documents.length} total) in collection: $collectionId');
 
     // Process with appropriate batch size

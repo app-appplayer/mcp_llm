@@ -156,7 +156,7 @@ class AdvancedTaskScheduler {
   bool _isRunning = false;
 
   /// Logging
-  final Logger _logger = Logger.getLogger('mcp_llm.advanced_task_scheduler');
+  final Logger _logger = Logger('mcp_llm.advanced_task_scheduler');
 
   /// Performance monitor
   final PerformanceMonitor _performanceMonitor;

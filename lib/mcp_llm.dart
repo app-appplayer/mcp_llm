@@ -4,6 +4,15 @@ library;
 // Multi-MCP Integration
 export 'src/adapter/mcp_client_manager.dart';
 export 'src/adapter/mcp_server_manager.dart';
+export 'src/adapter/llm_client_adapter.dart';
+export 'src/adapter/mcp_auth_adapter.dart';
+
+// 2025-03-26 MCP Enhancements
+export 'src/batch/batch_request_manager.dart';
+export 'src/health/health_monitor.dart';
+export 'src/capabilities/capability_manager.dart';
+export 'src/lifecycle/lifecycle_manager.dart';
+export 'src/error/enhanced_error_handler.dart';
 
 // Core components
 export 'src/core/llm_interface.dart';
@@ -59,6 +68,7 @@ export 'src/rag/document_store.dart';
 export 'src/rag/vector_store.dart';
 export 'src/rag/vector_stores/pinecone_vector_store.dart';
 export 'src/rag/vector_stores/weaviate_vector_store.dart';
+export 'src/rag/vector_stores/real_vector_stores.dart';
 
 // Utilities
 export 'src/utils/logger.dart';
@@ -104,7 +114,7 @@ class McpLlm {
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.mcpllm');
+  final Logger _logger = Logger('mcp_llm.mcpllm');
 
   /// Create a new MCPLlm instance
   McpLlm() {

@@ -34,7 +34,7 @@ typedef PromptHandler = Future<dynamic> Function(Map<String, dynamic> arguments)
 /// and LLM-related functionality
 class LlmServerAdapter {
   final dynamic _mcpServer;
-  final Logger _logger = Logger.getLogger('mcp_llm.server_adapter');
+  final Logger _logger = Logger('mcp_llm.server_adapter');
 
   LlmServerAdapter(this._mcpServer) {
     if (_mcpServer == null) {

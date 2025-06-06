@@ -18,8 +18,7 @@ void main() {
     });
 
     test('End-to-end workflow with storage, chat, and RAG', () async {
-      // Create memory storage
-      final storage = MemoryStorage();
+      // Use memory storage from setUp
 
       // Create document store
       final documentStore = DocumentStore(storage);

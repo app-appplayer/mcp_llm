@@ -39,7 +39,7 @@ abstract class StateStore {
 class CircuitBreaker {
   final String name;
   final CircuitBreakerSettings settings;
-  final Logger _logger = Logger.getLogger('mcp_llm.circuit_breaker');
+  final Logger _logger = Logger('mcp_llm.circuit_breaker');
 
   CircuitState _state = CircuitState.closed;
   int _failureCount = 0;

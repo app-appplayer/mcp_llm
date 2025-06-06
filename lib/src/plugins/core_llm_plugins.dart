@@ -5,7 +5,7 @@ import '../../mcp_llm.dart';
 /// Collection of core LLM feature plugins
 /// These plugins provide the standard LLM functionality as tools
 /// that can be registered with the MCP server
-final Logger _logger = Logger.getLogger('mcp_llm.core_llm_plugin');
+final Logger _logger = Logger('mcp_llm.core_llm_plugin');
 
 /// Plugin for basic LLM text completion
 class LlmCompletionPlugin extends BaseToolPlugin {

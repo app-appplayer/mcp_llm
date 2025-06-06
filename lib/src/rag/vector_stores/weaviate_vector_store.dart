@@ -9,7 +9,7 @@ import '../../utils/logger.dart';
 
 /// Weaviate vector store implementation
 class WeaviateVectorStore implements VectorStore {
-  final Logger _logger = Logger.getLogger('mcp_llm.weaviate_vector_store');
+  final Logger _logger = Logger('mcp_llm.weaviate_vector_store');
   final String _apiKey;
   final String _baseUrl;
   final String? _defaultClassName;

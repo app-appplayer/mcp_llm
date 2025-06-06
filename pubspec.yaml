@@ -1,23 +1,92 @@
 name: mcp_llm
-description: Dart plugin for integrating Large Language Models (LLMs) with Model Context Protocol (MCP). Provides tools for LLM communication, multi-client support, parallel processing, and RAG capabilities.
-version: 0.2.3
+description: Advanced Dart package for Large Language Model (LLM) integration with Model Context Protocol (MCP) 2025-03-26 specification. Features OAuth 2.1 authentication, JSON-RPC 2.0 batch processing, health monitoring, capability management, and enhanced error handling.
+version: 1.0.0
+publish_to: none
 homepage: https://github.com/app-appplayer/mcp_llm
 repository: https://github.com/app-appplayer/mcp_llm
 issue_tracker: https://github.com/app-appplayer/mcp_llm/issues
+documentation: https://github.com/app-appplayer/mcp_llm/wiki
+
+topics:
+  - llm
+  - mcp
+  - ai
+  - oauth
+  - batch-processing
+  - health-monitoring
+  - dart
+  - flutter
 
 environment:
   sdk: ^3.7.2
 
 dependencies:
+  # Core dependencies
   http: ^1.1.0
   json_annotation: ^4.9.0
   uuid: ^4.0.0
   collection: ^1.19.1
+  logging: ^1.2.0
+  
+  # Storage and persistence
   sqlite3: ^2.1.0
   path: ^1.8.3
+  
+  # MCP dependencies (2025-03-26)
+  mcp_server: ^1.0.0
+  mcp_client: ^1.0.0
+  
+  # 2025-03-26 MCP enhancements
+  # Note: These are core Dart dependencies for the enhanced features
+  # - OAuth 2.1 authentication (implemented with core Dart)
+  # - JSON-RPC 2.0 batch processing (implemented with core Dart)
+  # - Health monitoring (implemented with core Dart)
+  # - Capability management (implemented with core Dart)
+  # - Enhanced error handling (implemented with core Dart)
 
 dev_dependencies:
+  # Development and testing
   lints: ^5.0.0
   test: ^1.24.0
   mockito: ^5.4.5
   build_runner: ^2.4.15
+  
+  # Additional testing for 2025-03-26 features
+  faker: ^2.1.0  # For generating test data
+  
+funding:
+  - https://www.patreon.com/mcpdevstudio
+
+# Dart package metadata
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  web:
+  windows:
+
+# Screenshots for pub.dev (when available)
+# screenshots:
+#   - description: 'MCP LLM v1.0.0 with 2025-03-26 features'
+#     path: screenshots/mcp_llm_v1_features.png
+#   - description: 'OAuth 2.1 authentication integration'
+#     path: screenshots/oauth_integration.png
+#   - description: 'Batch processing performance comparison'
+#     path: screenshots/batch_performance.png
+
+# Example usage
+example:
+  # Complete 2025-03-26 feature example
+  - path: example/mcp_2025_complete_example.dart
+    description: 'Comprehensive example showcasing all v1.0.0 features'
+  
+  # Specific feature examples
+  - path: example/batch_processing_2025_example.dart
+    description: 'JSON-RPC 2.0 batch processing optimization'
+    
+  - path: example/logging_example.dart
+    description: 'Updated logging system with standard Dart logging package'
+    
+  - path: example/simple_test_example.dart
+    description: 'Simple usage example for quick start'

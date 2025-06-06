@@ -8,7 +8,7 @@ import 'provider.dart';
 /// Base class for implementing custom LLM providers
 abstract class CustomLlmProvider implements LlmInterface {
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.providers.custom');
+  final Logger _logger = Logger('mcp_llm.providers.custom');
 
   /// Provider name
   final String name;
@@ -51,7 +51,7 @@ abstract class CustomLlmProvider implements LlmInterface {
 
         await Future.delayed(currentDelay);
 
-        // 지수적 백오프
+        // exponential backoff
         currentDelay *= 2;
       }
     }

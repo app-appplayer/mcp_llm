@@ -66,7 +66,7 @@ class RetrievalCache {
 /// Enhanced Retrieval manager with improved RAG capabilities
 class RetrievalManager {
   final LlmInterface llmProvider;
-  final Logger _logger = Logger.getLogger('mcp_llm.retrieval_manager');
+  final Logger _logger = Logger('mcp_llm.retrieval_manager');
   final RetrievalCache _cache = RetrievalCache();
 
   // Internal document store for compatibility
@@ -644,7 +644,7 @@ Return ONLY the expanded query text, nothing else.
     final docsText = candidates.asMap().entries.map((entry) {
       final index = entry.key;
       final doc = entry.value;
-      return '[${index + 1}] ${doc.title}\n${doc.content.length > 500 ? doc.content.substring(0, 500) + "..." : doc.content}';
+      return '[${index + 1}] ${doc.title}\n${doc.content.length > 500 ? '${doc.content.substring(0, 500)}...' : doc.content}';
     }).join('\n\n');
 
     final prompt = '''

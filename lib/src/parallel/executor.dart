@@ -6,7 +6,7 @@ class ParallelExecutor {
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
   final List<LlmInterface> _providers;
   final ResultAggregator _aggregator;
-  final Logger _logger = Logger.getLogger('mcp_llm.parallel_executor');
+  final Logger _logger = Logger('mcp_llm.parallel_executor');
 
   ParallelExecutor({
     required List<LlmInterface> providers,

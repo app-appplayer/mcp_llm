@@ -7,7 +7,7 @@ class DefaultServiceBalancer implements ServiceBalancer {
   final Map<String, double> _serviceWeights = {};
   int _currentIndex = 0;
   final List<String> _roundRobinList = [];
-  final Logger _logger = Logger.getLogger('mcp_llm.default_service_balancer');
+  final Logger _logger = Logger('mcp_llm.default_service_balancer');
 
   @override
   void registerService(String serviceId, {double weight = 1.0}) {

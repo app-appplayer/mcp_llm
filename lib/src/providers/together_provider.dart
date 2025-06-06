@@ -17,7 +17,7 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
   final HttpClient _client = HttpClient();
 
   @override
-  final Logger logger = Logger.getLogger('mcp_llm.together_provider');
+  final Logger logger = Logger('mcp_llm.together_provider');
 
   TogetherProvider({
     required this.apiKey,

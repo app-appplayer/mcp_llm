@@ -26,7 +26,7 @@ class AdvancedServiceBalancer implements ServiceBalancer {
   late Timer _healthCheckTimer;
 
   // Logging
-  final Logger _logger = Logger.getLogger('mcp_llm.advanced_service_balancer');
+  final Logger _logger = Logger('mcp_llm.advanced_service_balancer');
 
   // Constructor
   AdvancedServiceBalancer({

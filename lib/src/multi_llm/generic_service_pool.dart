@@ -23,7 +23,7 @@ class GenericServicePool<T> implements ServicePool<T> {
   final Map<String, ServiceFactory<T>> _serviceFactories = {};
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.generic_service_pool');
+  final Logger _logger = Logger('mcp_llm.generic_service_pool');
 
   /// Create a new service pool
   GenericServicePool({

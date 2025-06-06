@@ -1,4 +1,3 @@
-import 'package:mcp_llm/src/multi_llm/generic_service_pool.dart';
 import 'package:mcp_llm/src/multi_llm/managed_service.dart';
 import 'package:test/test.dart';
 import 'package:mcp_llm/mcp_llm.dart';
@@ -174,6 +173,7 @@ void main() {
 
       // Adjust expectation to match actual implementation
       expect(clients.length, lessThanOrEqualTo(5)); // Maximum of 5
+      expect(created, greaterThan(0)); // Verify creation was tracked
     });
 
     test('Released clients are reused', () async {
@@ -204,7 +204,6 @@ class TestClientFactory implements LlmClientFactory {
 
   TestClientFactory({required this.createClientFn});
 
-  @override
   Future<LlmClient> createClient() => createClientFn();
 
   @override

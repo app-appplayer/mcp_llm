@@ -14,7 +14,7 @@ class LlmRegistry {
   void registerProvider(String name, LlmProviderFactory factory) {
     _providers[name] = factory;
     // Output log (receive Logger as instance or create when needed)
-    final logger = Logger.getLogger('mcp_llm.llm_registry');
+    final logger = Logger('mcp_llm.llm_registry');
     logger.info('LLM provider registered: $name');
   }
 

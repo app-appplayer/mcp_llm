@@ -1,0 +1,24 @@
+# Flutter example directories (not needed for pub.dev)
+example/flutter_mcp_llm_client_example/
+example/flutter_mcp_llm_server_example/
+
+# Test utilities that don't need to be published
+dart_test.yaml
+update_logger.sh
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+.dart_tool/
+
+# Git ignored files from deleted flutter examples
+example/flutter_mcp_llm_client_example/**
+example/flutter_mcp_llm_server_example/**

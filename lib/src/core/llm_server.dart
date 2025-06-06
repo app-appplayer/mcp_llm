@@ -1,6 +1,5 @@
 import '../../mcp_llm.dart';
 import '../adapter/llm_server_adapter.dart';
-import '../adapter/mcp_server_manager.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,7 +27,7 @@ class LlmServer {
   final PerformanceMonitor _performanceMonitor;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.llm_server');
+  final Logger _logger = Logger('mcp_llm.llm_server');
 
   /// Registered local tools (name -> handler function)
   final Map<String, Function> localTools = {};
@@ -474,7 +473,7 @@ class LlmServer {
         inputSchema: inputSchema,
         processingLogic: processingLogic,
         llmServer: this,
-        sessionId: '${sessionId}_${toolName}',
+        sessionId: '${sessionId}_$toolName',
       );
 
       // Register with plugin manager
@@ -724,7 +723,7 @@ class LlmServer {
           mimeType: resourceMimeType,
           content: resourceContent ?? '',
           llmServer: this,
-          sessionId: '${sessionId}_${resourceName}',
+          sessionId: '${sessionId}_$resourceName',
         );
       } else {
         // Create generic resource
@@ -735,7 +734,7 @@ class LlmServer {
           mimeType: resourceMimeType,
           content: resourceContent ?? '',
           llmServer: this,
-          sessionId: '${sessionId}_${resourceName}',
+          sessionId: '${sessionId}_$resourceName',
         );
       }
 
@@ -1329,7 +1328,7 @@ class DynamicToolPlugin extends BaseToolPlugin {
   final String processingLogic;
   final LlmServer llmServer;
   final String sessionId;
-  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_tool_plugin');
+  final Logger _logger = Logger('mcp_llm.dynamic_tool_plugin');
 
   DynamicToolPlugin({
     required super.name,
@@ -1388,7 +1387,7 @@ class DynamicToolPlugin extends BaseToolPlugin {
 class DynamicPromptPlugin extends BasePromptPlugin {
   final String systemPrompt;
   final String userPromptTemplate;
-  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_prompt_plugin');
+  final Logger _logger = Logger('mcp_llm.dynamic_prompt_plugin');
 
   DynamicPromptPlugin({
     required super.name,
@@ -1436,7 +1435,7 @@ class DynamicResourcePlugin extends BaseResourcePlugin {
   final String content;
   final LlmServer llmServer;
   final String sessionId;
-  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_resource_plugin');
+  final Logger _logger = Logger('mcp_llm.dynamic_resource_plugin');
 
   DynamicResourcePlugin({
     required super.name,
@@ -1464,13 +1463,13 @@ class DynamicResourcePlugin extends BaseResourcePlugin {
 
     // For parameterized reads, use LLM to generate appropriate response
     final handlerPrompt = '''
-    You are providing access to the "${name}" resource with these parameters:
+    You are providing access to the "$name" resource with these parameters:
     ${jsonEncode(parameters)}
     
-    Resource description: ${description}
+    Resource description: $description
     Resource baseline content: 
     """
-    ${content}
+    $content
     """
     
     Generate appropriate content based on the parameters provided.
@@ -1501,7 +1500,7 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
   final String content;
   final LlmServer llmServer;
   final String sessionId;
-  final Logger _logger = Logger.getLogger('mcp_llm.dynamic_file_resource_plugin');
+  final Logger _logger = Logger('mcp_llm.dynamic_file_resource_plugin');
 
   DynamicFileResourcePlugin({
     required super.name,
@@ -1537,29 +1536,29 @@ class DynamicFileResourcePlugin extends BaseResourcePlugin {
     if (path.isNotEmpty) {
       // Handle path-based request (virtual file system)
       handlerPrompt = '''
-      You are providing access to the "${name}" file resource with path: "${path}"
+      You are providing access to the "$name" file resource with path: "$path"
       
       Base directory structure is derived from this content:
       """
-      ${content}
+      $content
       """
       
       If the requested path exists in the context of this resource, provide its content.
-      If the path does not exist, respond with "File not found: ${path}"
+      If the path does not exist, respond with "File not found: $path"
       
       Respond with only the file content or error message. Do not include explanations.
       ''';
     } else if (targetFormat.isNotEmpty) {
       // Handle format conversion
       handlerPrompt = '''
-      You are providing access to the "${name}" file resource and need to convert it to "${targetFormat}" format.
+      You are providing access to the "$name" file resource and need to convert it to "$targetFormat" format.
       
       Original content:
       """
-      ${content}
+      $content
       """
       
-      Convert this content to ${targetFormat} format and respond with only the converted content.
+      Convert this content to $targetFormat format and respond with only the converted content.
       ''';
     } else {
       // Default case (shouldn't happen but for safety)

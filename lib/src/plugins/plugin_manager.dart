@@ -29,7 +29,7 @@ class PluginManager implements IPluginManager {
   final Map<String, ProviderPlugin> _providerPlugins = {};
 
   /// Logger
-  final Logger _logger = Logger.getLogger('mcp_llm.plugin');
+  final Logger _logger = Logger('mcp_llm.plugin');
 
   /// Create a new plugin manager
   PluginManager();

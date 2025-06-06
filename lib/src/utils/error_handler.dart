@@ -160,7 +160,7 @@ class ProviderError extends McpLlmError {
 
 /// Error handler for MCPLlm
 class ErrorHandler {
-  final Logger _logger = Logger.getLogger('mcp_llm.error_handler');
+  final Logger _logger = Logger('mcp_llm.error_handler');
 
   ErrorHandler();
 

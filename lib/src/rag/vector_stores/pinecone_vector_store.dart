@@ -9,7 +9,7 @@ import '../../utils/logger.dart';
 
 /// Pinecone vector store implementation
 class PineconeVectorStore implements VectorStore {
-  final Logger _logger = Logger.getLogger('mcp_llm.pinecone_vector_store');
+  final Logger _logger = Logger('mcp_llm.pinecone_vector_store');
   final String _apiKey;
   final String _environment;
   final String _projectId;

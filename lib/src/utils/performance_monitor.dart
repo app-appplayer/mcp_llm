@@ -1,4 +1,4 @@
-// lib/src/utils/performance_monitor.dart 개선 버전
+// lib/src/utils/performance_monitor.dart improved version
 
 import 'dart:async';
 import '../../mcp_llm.dart';
@@ -21,7 +21,7 @@ class PerformanceMonitor {
   // Timestamp - request ID map
   final Map<String, DateTime> _requestStartTimes = {};
 
-  final Logger _logger = Logger.getLogger('mcp_llm.performance_monitor');
+  final Logger _logger = Logger('mcp_llm.performance_monitor');
 
   // Default constructor
   PerformanceMonitor();

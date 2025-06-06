@@ -10,7 +10,7 @@ class PersistentStorage implements StorageManager {
   final String basePath;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.plugin');
+  final Logger _logger = Logger('mcp_llm.plugin');
 
   /// Create a new persistent storage
   ///

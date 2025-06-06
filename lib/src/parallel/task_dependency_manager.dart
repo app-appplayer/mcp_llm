@@ -56,7 +56,7 @@ class TaskDependencyManager<T> {
   final Graph<String> _graph = Graph<String>();
 
   /// Logging
-  final Logger _logger = Logger.getLogger('mcp_llm.task_dependency_manager');
+  final Logger _logger = Logger('mcp_llm.task_dependency_manager');
 
   /// Maximum concurrent task execution count
   final int _maxConcurrency;
@@ -179,7 +179,10 @@ class TaskDependencyManager<T> {
     // Collect results
     final results = <String, T>{};
     for (final entry in _tasks.entries) {
-      results[entry.key] = entry.value.result!;
+      final result = entry.value.result;
+      if (result != null) {
+        results[entry.key] = result;
+      }
     }
 
     return results;

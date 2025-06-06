@@ -168,7 +168,7 @@ class DocumentStore {
   final Map<String, DocumentCollection> _collections = {};
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.document_store');
+  final Logger _logger = Logger('mcp_llm.document_store');
 
   /// Create a document store
   DocumentStore(this.storageManager);

@@ -1,7 +1,7 @@
 import '../../mcp_llm.dart';
 
 class TokenCounter {
-  final Logger _logger = Logger.getLogger('mcp_llm.token_counter');
+  final Logger _logger = Logger('mcp_llm.token_counter');
 
   final Map<String, double> _modelToFactor = {
     'gpt-3.5-turbo': 0.25, // Approximately 1 token per 4 characters

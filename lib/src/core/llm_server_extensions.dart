@@ -686,13 +686,13 @@ extension LlmServerAdvancedExtensions on LlmServer {
 
       for (final tool in sourceTools) {
         // Create a handler that forwards the request to the source server
-        final forwardHandler = (Map<String, dynamic> args) async {
+        Future<LlmCallToolResult> forwardHandler(Map<String, dynamic> args) async {
           return await serverManager!.executeTool(
               tool['name'],
               args,
               serverId: sourceServerId
           );
-        };
+        }
 
         int successCount = 0;
         for (final targetId in targetServerIds) {
@@ -721,13 +721,13 @@ extension LlmServerAdvancedExtensions on LlmServer {
 
       for (final prompt in sourcePrompts) {
         // Create a handler that forwards the request to the source server
-        final forwardHandler = (Map<String, dynamic> args) async {
+        Future<LlmGetPromptResult> forwardHandler(Map<String, dynamic> args) async {
           return await serverManager!.getPrompt(
               prompt['name'],
               args,
               serverId: sourceServerId
           );
-        };
+        }
 
         int successCount = 0;
         for (final targetId in targetServerIds) {
@@ -756,13 +756,13 @@ extension LlmServerAdvancedExtensions on LlmServer {
 
       for (final resource in sourceResources) {
         // Create a handler that forwards the request to the source server
-        final forwardHandler = (String uri, Map<String, dynamic> params) async {
+        Future<LlmReadResourceResult> forwardHandler(String uri, Map<String, dynamic> params) async {
           return await serverManager!.readResource(
               resource['uri'],
               params,
               sourceServerId
           );
-        };
+        }
 
         int successCount = 0;
         for (final targetId in targetServerIds) {

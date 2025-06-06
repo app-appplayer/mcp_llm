@@ -17,7 +17,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
   final HttpClient _client = HttpClient();
 
   @override
-  final Logger logger = Logger.getLogger('mcp_llm.claude_provider');
+  final Logger logger = Logger('mcp_llm.claude_provider');
 
   ClaudeProvider({
     required this.apiKey,
@@ -717,7 +717,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
-    // Claude 스타일의 메타데이터 검사
+    // Claude style metadata inspection
     if (metadata.containsKey('is_tool_call') && metadata['is_tool_call'] == true) {
       logger.debug('Tool call metadata detected: Claude style (is_tool_call)');
       return true;
@@ -728,7 +728,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       return true;
     }
 
-    // Claude 관련 도구 키 검사
+    // Claude related tool key inspection
     final claudeToolKeys = ['tool_name', 'tool_id', 'expects_tool_result', 'auto_fixed_tools'];
     for (final key in claudeToolKeys) {
       if (metadata.containsKey(key)) {
@@ -744,13 +744,13 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
   LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata) {
     logger.debug('Extracting tool call from Claude metadata');
 
-    // 도구 호출 시작 또는 업데이트인 경우
+    // When tool call starts or updates
     if (metadata.containsKey('is_tool_call') && metadata.containsKey('tool_name')) {
       final toolName = metadata['tool_name'] as String;
       final toolId = metadata['tool_id'] as String? ??
           'claude_tool_${DateTime.now().millisecondsSinceEpoch}';
 
-      // 인수가 있는지 확인, tool_args 필드에서 찾음
+      // Check if arguments exist, found in tool_args field
       Map<String, dynamic> arguments = {};
       if (metadata.containsKey('tool_args') && metadata['tool_args'] is Map<String, dynamic>) {
         arguments = metadata['tool_args'] as Map<String, dynamic>;
@@ -770,24 +770,24 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
 
   @override
   Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata) {
-    // Claude 메타데이터를 표준 형식으로 변환
+    // Convert Claude metadata to standard format
     final standardMetadata = Map<String, dynamic>.from(metadata);
 
-    // 도구 호출 관련 필드 표준화
+    // Standardize tool call related fields
     if (metadata.containsKey('stop_reason') && metadata['stop_reason'] == 'tool_use') {
       standardMetadata['finish_reason'] = 'tool_calls';
     } else if (metadata.containsKey('stop_reason')) {
       standardMetadata['finish_reason'] = metadata['stop_reason'];
     }
 
-    // is_tool_call을 tool_call_start로 변환
+    // Convert is_tool_call to tool_call_start
     if (metadata.containsKey('is_tool_call') && metadata['is_tool_call'] == true) {
       if (!standardMetadata.containsKey('tool_call_start')) {
         standardMetadata['tool_call_start'] = true;
       }
     }
 
-    // tool_id를 tool_call_id로 변환
+    // Convert tool_id to tool_call_id
     if (metadata.containsKey('tool_id') && !standardMetadata.containsKey('tool_call_id')) {
       standardMetadata['tool_call_id'] = metadata['tool_id'];
     }
@@ -874,7 +874,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
           });
         }
       } else {
-        // Regular message handling (user 또는 assistant)
+        // Regular message handling (user or assistant)
         messages.add({
           'role': message.role,
           'content': message.content,
@@ -1033,7 +1033,7 @@ class ClaudeProviderFactory implements LlmProviderFactory {
   Set<LlmCapability> get capabilities => {
     LlmCapability.completion,
     LlmCapability.streaming,
-    // LlmCapability.embeddings, // 아직 지원하지 않음
+    // LlmCapability.embeddings, // not supported yet
     LlmCapability.toolUse,
   };
 

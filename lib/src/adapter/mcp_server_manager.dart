@@ -1,5 +1,10 @@
 import '../utils/logger.dart';
 import 'llm_server_adapter.dart';
+import 'mcp_auth_adapter.dart';
+import '../lifecycle/lifecycle_manager.dart';
+import '../capabilities/capability_manager.dart';
+import '../health/health_monitor.dart';
+import '../core/models.dart';
 
 /// Manages multiple MCP servers
 class McpServerManager {
@@ -9,14 +14,39 @@ class McpServerManager {
   /// Map of MCP server IDs to their adapters
   final Map<String, LlmServerAdapter> _adapters = {};
 
+  /// Map of MCP server IDs to their auth adapters
+  final Map<String, McpAuthAdapter> _authAdapters = {};
+
   /// Default server ID to use when none specified
   String? _defaultServerId;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.mcp_server_manager');
+  final Logger _logger = Logger('mcp_llm.mcp_server_manager');
+
+  /// Lifecycle manager for 2025-03-26 MCP server lifecycle management
+  late final ServerLifecycleManager _lifecycleManager;
+
+  /// Capability manager for 2025-03-26 MCP capability management
+  late final McpCapabilityManager _capabilityManager;
+
+  /// Health monitor for 2025-03-26 MCP health checking
+  late final McpHealthMonitor _healthMonitor;
 
   /// Create a new MCP server manager
-  McpServerManager({dynamic defaultServer, String? defaultServerId}) {
+  McpServerManager({
+    dynamic defaultServer, 
+    String? defaultServerId,
+    HealthCheckConfig? healthConfig,
+  }) {
+    // Initialize lifecycle manager
+    _lifecycleManager = ServerLifecycleManager();
+    
+    // Initialize capability manager
+    _capabilityManager = McpCapabilityManager();
+    
+    // Initialize health monitor
+    _healthMonitor = McpHealthMonitor(config: healthConfig ?? const HealthCheckConfig());
+    
     if (defaultServer != null) {
       final id = defaultServerId ?? 'default';
       addServer(id, defaultServer);
@@ -33,23 +63,47 @@ class McpServerManager {
     _mcpServers[serverId] = mcpServer;
     _adapters[serverId] = LlmServerAdapter(mcpServer);
 
+    // Register with lifecycle manager
+    _lifecycleManager.registerServer(serverId, mcpServer);
+    
+    // Register with capability manager
+    _capabilityManager.registerClient(serverId, mcpServer);
+    
+    // Register with health monitor
+    _healthMonitor.registerClient(serverId, mcpServer);
+
     // Set as default if this is the first server
     _defaultServerId ??= serverId;
 
-    _logger.info('Added MCP server: $serverId');
+    _logger.info('Added MCP server: $serverId with 2025-03-26 features');
   }
 
   /// Remove a server
   void removeServer(String serverId) {
     _mcpServers.remove(serverId);
     _adapters.remove(serverId);
+    
+    // Remove OAuth authentication if exists
+    final authAdapter = _authAdapters.remove(serverId);
+    if (authAdapter != null) {
+      authAdapter.removeAuth(serverId);
+    }
+
+    // Unregister from lifecycle manager
+    _lifecycleManager.unregisterServer(serverId);
+    
+    // Unregister from capability manager
+    _capabilityManager.unregisterClient(serverId);
+    
+    // Unregister from health monitor
+    _healthMonitor.unregisterClient(serverId);
 
     // Clear default if it was this server
     if (_defaultServerId == serverId) {
       _defaultServerId = _mcpServers.isNotEmpty ? _mcpServers.keys.first : null;
     }
 
-    _logger.info('Removed MCP server: $serverId');
+    _logger.info('Removed MCP server: $serverId from all 2025-03-26 managers');
   }
 
   /// Set the default server
@@ -737,5 +791,223 @@ class McpServerManager {
     }
 
     return result;
+  }
+
+  // ===== 2025-03-26 MCP Server Features =====
+
+  /// Add a server with OAuth 2.1 authentication
+  Future<void> addServerWithAuth(String serverId, dynamic mcpServer, {
+    AuthConfig? authConfig,
+    TokenValidator? tokenValidator,
+  }) async {
+    if (_mcpServers.containsKey(serverId)) {
+      _logger.warning('Replacing existing MCP server with ID: $serverId');
+    }
+
+    // Create OAuth auth adapter
+    final authAdapter = McpAuthAdapter(
+      tokenValidator: tokenValidator,
+      defaultConfig: authConfig ?? const AuthConfig(),
+    );
+    
+    _mcpServers[serverId] = mcpServer;
+    _authAdapters[serverId] = authAdapter;
+    _adapters[serverId] = LlmServerAdapter(mcpServer);
+
+    // Register with managers
+    _lifecycleManager.registerServer(serverId, mcpServer);
+    _capabilityManager.registerClient(serverId, mcpServer, authAdapter: authAdapter);
+    _healthMonitor.registerClient(serverId, mcpServer);
+
+    // Set as default if this is the first server
+    _defaultServerId ??= serverId;
+
+    _logger.info('Added MCP server with OAuth 2.1 authentication: $serverId');
+
+    // Attempt automatic authentication
+    try {
+      final authResult = await authAdapter.authenticate(serverId, mcpServer, config: authConfig);
+      if (authResult.isAuthenticated) {
+        _logger.info('OAuth 2.1 authentication successful for server: $serverId');
+      } else {
+        _logger.warning('OAuth 2.1 authentication failed for server $serverId: ${authResult.error}');
+      }
+    } catch (e) {
+      _logger.error('OAuth 2.1 authentication error for server $serverId: $e');
+    }
+  }
+
+  /// Start a server with lifecycle management
+  Future<void> startServer(String serverId, {
+    LifecycleTransitionReason? reason,
+  }) async {
+    await _lifecycleManager.startServer(
+      serverId,
+      reason: reason ?? LifecycleTransitionReason.userRequest,
+    );
+  }
+
+  /// Stop a server with lifecycle management
+  Future<void> stopServer(String serverId, {
+    LifecycleTransitionReason? reason,
+  }) async {
+    await _lifecycleManager.stopServer(
+      serverId,
+      reason: reason ?? LifecycleTransitionReason.userRequest,
+    );
+  }
+
+  /// Pause a server
+  Future<void> pauseServer(String serverId, {
+    LifecycleTransitionReason? reason,
+  }) async {
+    await _lifecycleManager.pauseServer(
+      serverId,
+      reason: reason ?? LifecycleTransitionReason.userRequest,
+    );
+  }
+
+  /// Resume a paused server
+  Future<void> resumeServer(String serverId, {
+    LifecycleTransitionReason? reason,
+  }) async {
+    await _lifecycleManager.resumeServer(
+      serverId,
+      reason: reason ?? LifecycleTransitionReason.userRequest,
+    );
+  }
+
+  /// Get server lifecycle state
+  ServerLifecycleState? getServerState(String serverId) {
+    return _lifecycleManager.getServerState(serverId);
+  }
+
+  /// Get all server states
+  Map<String, ServerLifecycleState> getAllServerStates() {
+    final states = <String, ServerLifecycleState>{};
+    for (final serverId in _mcpServers.keys) {
+      final state = _lifecycleManager.getServerState(serverId);
+      if (state != null) {
+        states[serverId] = state;
+      }
+    }
+    return states;
+  }
+
+  /// Perform health check on servers
+  Future<HealthReport> performHealthCheck({
+    List<String>? serverIds,
+    bool includeSystemMetrics = true,
+  }) {
+    return _healthMonitor.performHealthCheck(
+      clientIds: serverIds,
+      includeSystemMetrics: includeSystemMetrics,
+    );
+  }
+
+  /// Get health status for a specific server
+  HealthCheckResult? getServerHealth(String serverId) {
+    return _healthMonitor.getClientHealth(serverId);
+  }
+
+  /// Check if all servers are healthy
+  bool get allServersHealthy => _healthMonitor.allClientsHealthy;
+
+  /// Get list of unhealthy servers
+  List<String> get unhealthyServers => _healthMonitor.unhealthyClients;
+
+  /// Get health statistics
+  Map<String, dynamic> getHealthStatistics() {
+    return _healthMonitor.getHealthStatistics();
+  }
+
+  /// Get capabilities for a specific server
+  Map<String, McpCapability> getServerCapabilities(String serverId) {
+    return _capabilityManager.getClientCapabilities(serverId);
+  }
+
+  /// Get all capabilities across all servers
+  Map<String, Map<String, McpCapability>> getAllCapabilities() {
+    return _capabilityManager.getAllCapabilities();
+  }
+
+  /// Update capabilities for a server
+  Future<CapabilityUpdateResponse> updateCapabilities(CapabilityUpdateRequest request) {
+    return _capabilityManager.updateCapabilities(request);
+  }
+
+  /// Get capability statistics
+  Map<String, dynamic> getCapabilityStatistics() {
+    return _capabilityManager.getCapabilityStatistics();
+  }
+
+  /// Get lifecycle statistics
+  Map<String, dynamic> getLifecycleStatistics() {
+    final states = getAllServerStates();
+    final statistics = <String, dynamic>{
+      'total_servers': _mcpServers.length,
+      'stopped': states.values.where((s) => s == ServerLifecycleState.stopped).length,
+      'starting': states.values.where((s) => s == ServerLifecycleState.starting).length,
+      'running': states.values.where((s) => s == ServerLifecycleState.running).length,
+      'pausing': states.values.where((s) => s == ServerLifecycleState.pausing).length,
+      'paused': states.values.where((s) => s == ServerLifecycleState.paused).length,
+      'stopping': states.values.where((s) => s == ServerLifecycleState.stopping).length,
+      'error': states.values.where((s) => s == ServerLifecycleState.error).length,
+    };
+    return statistics;
+  }
+
+  /// Subscribe to lifecycle events
+  Stream<LifecycleEvent> get lifecycleEvents => _lifecycleManager.events;
+
+  /// Subscribe to capability events
+  Stream<CapabilityEvent> get capabilityEvents => _capabilityManager.events;
+
+  /// Get authenticated servers
+  List<String> get authenticatedServers {
+    return _authAdapters.keys.toList();
+  }
+
+  /// Get unauthenticated servers
+  List<String> get unauthenticatedServers {
+    return _mcpServers.keys
+        .where((serverId) => !_authAdapters.containsKey(serverId))
+        .toList();
+  }
+
+  /// Get authentication summary
+  Map<String, dynamic> getAuthSummary() {
+    final authenticated = authenticatedServers;
+    final unauthenticated = unauthenticatedServers;
+    final total = _mcpServers.length;
+    
+    return {
+      'total_servers': total,
+      'authenticated_servers': authenticated.length,
+      'unauthenticated_servers': unauthenticated.length,
+      'authentication_coverage': total > 0 ? (authenticated.length / total * 100).round() : 0,
+      'protocol_version': '2025-03-26',
+      'oauth_version': '2.1',
+    };
+  }
+
+  /// Dispose of all resources
+  void dispose() {
+    // Dispose auth adapters
+    for (final authAdapter in _authAdapters.values) {
+      authAdapter.dispose();
+    }
+    _authAdapters.clear();
+    
+    // Dispose lifecycle manager
+    _lifecycleManager.dispose();
+    
+    // Dispose capability manager
+    _capabilityManager.dispose();
+    
+    // Dispose health monitor
+    _healthMonitor.dispose();
+    
+    _logger.info('Disposed all MCP server manager resources and 2025-03-26 managers');
   }
 }

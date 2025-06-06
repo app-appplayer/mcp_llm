@@ -13,7 +13,7 @@ class ChatSession {
   final StorageManager? storageManager;
   final String id;
   final String? title;
-  final Logger _logger = Logger.getLogger('mcp_llm.chat_session');
+  final Logger _logger = Logger('mcp_llm.chat_session');
   final TokenCounter _tokenCounter = TokenCounter();
 
   /// Chat history management

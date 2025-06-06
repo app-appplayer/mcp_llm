@@ -1,7 +1,12 @@
 import '../utils/logger.dart';
 import 'llm_client_adapter.dart';
+import 'mcp_auth_adapter.dart';
+import '../health/health_monitor.dart';
+import '../capabilities/capability_manager.dart';
+import '../batch/batch_request_manager.dart';
+import '../core/models.dart';
 
-/// Manages multiple MCP clients for a single LLM client
+/// Manages multiple MCP clients for a single LLM client with OAuth 2.1 support (2025-03-26)
 class McpClientManager {
   /// Map of MCP client IDs to their instances
   final Map<String, dynamic> _mcpClients = {};
@@ -9,14 +14,43 @@ class McpClientManager {
   /// Map of MCP client IDs to their adapters
   final Map<String, LlmClientAdapter> _adapters = {};
 
+  /// Map of MCP client IDs to their auth adapters
+  final Map<String, McpAuthAdapter> _authAdapters = {};
+
   /// Default client ID to use when none specified
   String? _defaultClientId;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.mcp_client_manager');
+  final Logger _logger = Logger('mcp_llm.mcp_client_manager');
+
+  /// Health monitor for 2025-03-26 MCP health checking
+  late final McpHealthMonitor _healthMonitor;
+
+  /// Capability manager for 2025-03-26 MCP capability management
+  late final McpCapabilityManager _capabilityManager;
+
+  /// Batch request manager for 2025-03-26 JSON-RPC 2.0 optimization
+  BatchRequestManager? _batchManager;
 
   /// Create a new MCP client manager
-  McpClientManager({dynamic defaultClient, String? defaultClientId}) {
+  McpClientManager({
+    dynamic defaultClient, 
+    String? defaultClientId,
+    HealthCheckConfig? healthConfig,
+    BatchConfig? batchConfig,
+    bool enableBatchProcessing = false,
+  }) {
+    // Initialize health monitor
+    _healthMonitor = McpHealthMonitor(config: healthConfig ?? const HealthCheckConfig());
+    
+    // Initialize capability manager
+    _capabilityManager = McpCapabilityManager();
+    
+    // Initialize batch manager if enabled
+    if (enableBatchProcessing) {
+      _batchManager = BatchRequestManager(config: batchConfig ?? const BatchConfig());
+    }
+    
     if (defaultClient != null) {
       final id = defaultClientId ?? 'default';
       addClient(id, defaultClient);
@@ -33,23 +67,98 @@ class McpClientManager {
     _mcpClients[clientId] = mcpClient;
     _adapters[clientId] = LlmClientAdapter(mcpClient);
 
+    // Register with health monitor
+    _healthMonitor.registerClient(clientId, mcpClient);
+    
+    // Register with capability manager
+    _capabilityManager.registerClient(clientId, mcpClient);
+    
+    // Register with batch manager if enabled
+    _batchManager?.registerClient(clientId, mcpClient);
+
     // Set as default if this is the first client
     _defaultClientId ??= clientId;
 
-    _logger.info('Added MCP client: $clientId');
+    _logger.info('Added MCP client: $clientId with 2025-03-26 features');
+  }
+
+  /// Add a new MCP client with OAuth 2.1 authentication (2025-03-26)
+  Future<void> addClientWithAuth(String clientId, dynamic mcpClient, {
+    AuthConfig? authConfig,
+    TokenValidator? tokenValidator,
+  }) async {
+    if (_mcpClients.containsKey(clientId)) {
+      _logger.warning('Replacing existing MCP client with ID: $clientId');
+    }
+
+    // Create OAuth auth adapter
+    final authAdapter = McpAuthAdapter(
+      tokenValidator: tokenValidator,
+      defaultConfig: authConfig ?? const AuthConfig(),
+    );
+    
+    _mcpClients[clientId] = mcpClient;
+    _authAdapters[clientId] = authAdapter;
+    _adapters[clientId] = LlmClientAdapter(
+      mcpClient,
+      authAdapter: authAdapter,
+      clientId: clientId,
+    );
+
+    // Register with health monitor
+    _healthMonitor.registerClient(clientId, mcpClient);
+    
+    // Register with capability manager with auth adapter
+    _capabilityManager.registerClient(clientId, mcpClient, authAdapter: authAdapter);
+    
+    // Register with batch manager if enabled
+    _batchManager?.registerClient(clientId, mcpClient, authAdapter: authAdapter);
+
+    // Set as default if this is the first client
+    _defaultClientId ??= clientId;
+
+    _logger.info('Added MCP client with OAuth 2.1 authentication: $clientId with 2025-03-26 features');
+
+    // Attempt automatic authentication
+    try {
+      final authResult = await authAdapter.authenticate(clientId, mcpClient, config: authConfig);
+      if (authResult.isAuthenticated) {
+        _logger.info('OAuth 2.1 authentication successful for client: $clientId');
+      } else {
+        _logger.warning('OAuth 2.1 authentication failed for client $clientId: ${authResult.error}');
+      }
+    } catch (e) {
+      _logger.error('OAuth 2.1 authentication error for client $clientId: $e');
+    }
   }
 
   /// Remove a client
   void removeClient(String clientId) {
     _mcpClients.remove(clientId);
     _adapters.remove(clientId);
+    
+    // Remove OAuth authentication if exists
+    final authAdapter = _authAdapters.remove(clientId);
+    if (authAdapter != null) {
+      authAdapter.removeAuth(clientId);
+      _logger.info('Removed OAuth 2.1 authentication for client: $clientId');
+    }
+
+    // Unregister from health monitor
+    _healthMonitor.unregisterClient(clientId);
+    
+    // Unregister from capability manager
+    _capabilityManager.unregisterClient(clientId);
+    
+    // Unregister from batch manager if enabled
+    _batchManager?.unregisterClient(clientId);
 
     // Clear default if it was this client
     if (_defaultClientId == clientId) {
       _defaultClientId = _mcpClients.isNotEmpty ? _mcpClients.keys.first : null;
     }
 
-    _logger.info('Removed MCP client: $clientId');
+    _logger.info('Removed MCP client: $clientId from all 2025-03-26 managers');
   }
 
   /// Set the default client
@@ -586,5 +695,299 @@ class McpClientManager {
     }
 
     throw Exception('Resource $resourceUri not found or reading failed');
+  }
+
+  /// Ensure OAuth 2.1 authentication for a specific client
+  Future<bool> ensureAuthenticated(String clientId) async {
+    final authAdapter = _authAdapters[clientId];
+    if (authAdapter == null) {
+      // No authentication required
+      return true;
+    }
+
+    if (!authAdapter.hasValidAuth(clientId)) {
+      _logger.info('Re-authenticating client with OAuth 2.1: $clientId');
+      final mcpClient = _mcpClients[clientId];
+      if (mcpClient != null) {
+        final result = await authAdapter.authenticate(clientId, mcpClient);
+        return result.isAuthenticated;
+      }
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Refresh OAuth 2.1 tokens for all clients
+  Future<void> refreshAllTokens() async {
+    final refreshTasks = <Future<void>>[];
+    
+    for (final entry in _authAdapters.entries) {
+      final clientId = entry.key;
+      final authAdapter = entry.value;
+      
+      if (authAdapter.hasValidAuth(clientId)) {
+        final context = authAdapter.getAuthContext(clientId);
+        if (context?.needsRefresh == true) {
+          refreshTasks.add(authAdapter.refreshToken(clientId));
+        }
+      }
+    }
+    
+    if (refreshTasks.isNotEmpty) {
+      _logger.info('Refreshing OAuth 2.1 tokens for ${refreshTasks.length} clients');
+      await Future.wait(refreshTasks);
+    }
+  }
+
+  /// Get OAuth 2.1 authentication status for all clients
+  Map<String, Map<String, dynamic>> getAuthStatus() {
+    final result = <String, Map<String, dynamic>>{};
+    
+    for (final clientId in _mcpClients.keys) {
+      final adapter = _adapters[clientId];
+      if (adapter != null) {
+        result[clientId] = adapter.getAuthStatus();
+      }
+    }
+    
+    return result;
+  }
+
+  /// Check OAuth 2.1 compliance for all clients
+  Future<Map<String, bool>> checkOAuth21Compliance() async {
+    final result = <String, bool>{};
+    final futures = <Future<void>>[];
+    
+    for (final entry in _adapters.entries) {
+      final clientId = entry.key;
+      final adapter = entry.value;
+      
+      futures.add(
+        adapter.checkOAuth21Compliance().then((isCompliant) {
+          result[clientId] = isCompliant;
+        }).catchError((e) {
+          _logger.error('OAuth 2.1 compliance check failed for client $clientId: $e');
+          result[clientId] = false;
+        })
+      );
+    }
+    
+    await Future.wait(futures);
+    return result;
+  }
+
+  /// Get clients that require OAuth 2.1 authentication
+  List<String> get authenticatedClients {
+    return _authAdapters.keys.toList();
+  }
+
+  /// Get clients that do not require authentication
+  List<String> get unauthenticatedClients {
+    return _mcpClients.keys
+        .where((clientId) => !_authAdapters.containsKey(clientId))
+        .toList();
+  }
+
+  /// Enable OAuth 2.1 authentication for an existing client
+  Future<bool> enableAuthenticationForClient(String clientId, {
+    AuthConfig? authConfig,
+    TokenValidator? tokenValidator,
+  }) async {
+    final mcpClient = _mcpClients[clientId];
+    if (mcpClient == null) {
+      _logger.error('Client not found for enabling authentication: $clientId');
+      return false;
+    }
+
+    if (_authAdapters.containsKey(clientId)) {
+      _logger.warning('Authentication already enabled for client: $clientId');
+      return true;
+    }
+
+    try {
+      // Create OAuth auth adapter
+      final authAdapter = McpAuthAdapter(
+        tokenValidator: tokenValidator,
+        defaultConfig: authConfig ?? const AuthConfig(),
+      );
+      
+      _authAdapters[clientId] = authAdapter;
+      
+      // Update adapter with authentication
+      _adapters[clientId] = LlmClientAdapter(
+        mcpClient,
+        authAdapter: authAdapter,
+        clientId: clientId,
+      );
+
+      // Attempt authentication
+      final authResult = await authAdapter.authenticate(clientId, mcpClient, config: authConfig);
+      if (authResult.isAuthenticated) {
+        _logger.info('OAuth 2.1 authentication enabled and successful for client: $clientId');
+        return true;
+      } else {
+        _logger.warning('OAuth 2.1 authentication enabled but failed for client $clientId: ${authResult.error}');
+        return false;
+      }
+    } catch (e) {
+      _logger.error('Failed to enable OAuth 2.1 authentication for client $clientId: $e');
+      return false;
+    }
+  }
+
+  /// Disable OAuth 2.1 authentication for a client
+  void disableAuthenticationForClient(String clientId) {
+    final authAdapter = _authAdapters.remove(clientId);
+    if (authAdapter != null) {
+      authAdapter.removeAuth(clientId);
+      
+      // Update adapter without authentication
+      final mcpClient = _mcpClients[clientId];
+      if (mcpClient != null) {
+        _adapters[clientId] = LlmClientAdapter(mcpClient);
+      }
+      
+      _logger.info('OAuth 2.1 authentication disabled for client: $clientId');
+    } else {
+      _logger.warning('Authentication was not enabled for client: $clientId');
+    }
+  }
+
+  /// Get summary of OAuth 2.1 authentication status
+  Map<String, dynamic> getAuthSummary() {
+    final authenticated = authenticatedClients;
+    final unauthenticated = unauthenticatedClients;
+    final total = _mcpClients.length;
+    
+    return {
+      'total_clients': total,
+      'authenticated_clients': authenticated.length,
+      'unauthenticated_clients': unauthenticated.length,
+      'authentication_coverage': total > 0 ? (authenticated.length / total * 100).round() : 0,
+      'protocol_version': '2025-03-26',
+      'oauth_version': '2.1',
+    };
+  }
+
+  // ===== 2025-03-26 MCP Feature Methods =====
+
+  /// Perform health check on all or specific clients
+  Future<HealthReport> performHealthCheck({
+    List<String>? clientIds,
+    bool includeSystemMetrics = true,
+  }) {
+    return _healthMonitor.performHealthCheck(
+      clientIds: clientIds,
+      includeSystemMetrics: includeSystemMetrics,
+    );
+  }
+
+  /// Get health status for a specific client
+  HealthCheckResult? getClientHealth(String clientId) {
+    return _healthMonitor.getClientHealth(clientId);
+  }
+
+  /// Check if all clients are healthy
+  bool get allClientsHealthy => _healthMonitor.allClientsHealthy;
+
+  /// Get list of unhealthy clients
+  List<String> get unhealthyClients => _healthMonitor.unhealthyClients;
+
+  /// Get health statistics
+  Map<String, dynamic> getHealthStatistics() {
+    return _healthMonitor.getHealthStatistics();
+  }
+
+  /// Get capabilities for a specific client
+  Map<String, McpCapability> getClientCapabilities(String clientId) {
+    return _capabilityManager.getClientCapabilities(clientId);
+  }
+
+  /// Get all capabilities across all clients
+  Map<String, Map<String, McpCapability>> getAllCapabilities() {
+    return _capabilityManager.getAllCapabilities();
+  }
+
+  /// Update capabilities for a client
+  Future<CapabilityUpdateResponse> updateCapabilities(CapabilityUpdateRequest request) {
+    return _capabilityManager.updateCapabilities(request);
+  }
+
+  /// Get capability statistics
+  Map<String, dynamic> getCapabilityStatistics() {
+    return _capabilityManager.getCapabilityStatistics();
+  }
+
+  /// Enable batch processing
+  void enableBatchProcessing({BatchConfig? config}) {
+    if (_batchManager == null) {
+      _batchManager = BatchRequestManager(config: config ?? const BatchConfig());
+      
+      // Register existing clients with batch manager
+      for (final entry in _mcpClients.entries) {
+        final authAdapter = _authAdapters[entry.key];
+        _batchManager!.registerClient(entry.key, entry.value, authAdapter: authAdapter);
+      }
+      
+      _logger.info('Enabled JSON-RPC 2.0 batch processing with ${_mcpClients.length} clients');
+    }
+  }
+
+  /// Disable batch processing
+  void disableBatchProcessing() {
+    _batchManager?.dispose();
+    _batchManager = null;
+    _logger.info('Disabled JSON-RPC 2.0 batch processing');
+  }
+
+  /// Check if batch processing is enabled
+  bool get isBatchProcessingEnabled => _batchManager != null;
+
+  /// Add request to batch queue
+  Future<Map<String, dynamic>> addBatchRequest(
+    String method,
+    Map<String, dynamic> params, {
+    String? clientId,
+    bool forceImmediate = false,
+  }) {
+    if (_batchManager == null) {
+      throw StateError('Batch processing is not enabled. Call enableBatchProcessing() first.');
+    }
+    
+    return _batchManager!.addRequest(
+      method,
+      params,
+      clientId: clientId,
+      forceImmediate: forceImmediate,
+    );
+  }
+
+  /// Get batch processing statistics
+  Map<String, dynamic> getBatchStatistics() {
+    return _batchManager?.getStatistics() ?? {
+      'enabled': false,
+      'message': 'Batch processing is not enabled',
+    };
+  }
+
+  /// Cleanup all OAuth 2.1 resources and 2025-03-26 managers
+  void dispose() {
+    // Dispose auth adapters
+    for (final authAdapter in _authAdapters.values) {
+      authAdapter.dispose();
+    }
+    _authAdapters.clear();
+    
+    // Dispose health monitor
+    _healthMonitor.dispose();
+    
+    // Dispose capability manager
+    _capabilityManager.dispose();
+    
+    // Dispose batch manager if enabled
+    _batchManager?.dispose();
+    
+    _logger.info('Disposed all OAuth 2.1 authentication adapters and 2025-03-26 managers');
   }
 }

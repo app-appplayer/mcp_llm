@@ -12,7 +12,7 @@ import 'storage_manager.dart';
 class DatabaseStorage implements StorageManager {
   final String _databaseName;
   final String _basePath;
-  final Logger _logger = Logger.getLogger('mcp_llm.database_storage');
+  final Logger _logger = Logger('mcp_llm.database_storage');
   late Database _db;
   bool _isInitialized = false;
 

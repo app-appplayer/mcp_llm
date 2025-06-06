@@ -25,7 +25,7 @@ abstract class BaseResourcePlugin implements ResourcePlugin {
   final String? uriTemplate;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.resource_plugin');
+  final Logger _logger = Logger('mcp_llm.resource_plugin');
 
   /// Plugin configuration
   Map<String, dynamic> _config = {};

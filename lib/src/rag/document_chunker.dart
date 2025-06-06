@@ -7,7 +7,7 @@ class DocumentChunker {
   // Default chunking settings
   final int _defaultChunkSize;
   final int _defaultChunkOverlap;
-  final Logger _logger = Logger.getLogger('mcp_llm.document_chunker');
+  final Logger _logger = Logger('mcp_llm.document_chunker');
 
   /// Map of language codes to their approximate characters per token ratios
   /// Used for better chunk size estimation for different languages

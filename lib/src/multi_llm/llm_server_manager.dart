@@ -7,7 +7,7 @@ class MultiLlmServerManager implements ServiceManager<LlmServerServiceAdapter> {
   final Map<String, LlmServerServiceAdapter> _servers = {};
   final ServiceRouter _router;
   final ServiceBalancer _loadBalancer;
-  final Logger _logger = Logger.getLogger('mcp_llm.multi_llm_server_manager');
+  final Logger _logger = Logger('mcp_llm.multi_llm_server_manager');
 
   /// Create a new multi LLM server manager
   MultiLlmServerManager({

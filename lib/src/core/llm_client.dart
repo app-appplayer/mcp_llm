@@ -10,6 +10,21 @@ class LlmClient {
   /// MCP client manager for multiple clients
   late final McpClientManager? _mcpClientManager;
 
+  /// Batch request manager for JSON-RPC 2.0 optimization (2025-03-26)
+  late final BatchRequestManager? _batchRequestManager;
+
+  /// Health monitor for MCP client monitoring (2025-03-26)
+  late final McpHealthMonitor? _healthMonitor;
+
+  /// Capability manager for dynamic capability management (2025-03-26)
+  late final McpCapabilityManager? _capabilityManager;
+
+  /// Lifecycle manager for server lifecycle management (2025-03-26)
+  late final ServerLifecycleManager? _lifecycleManager;
+
+  /// Enhanced error handler for 2025-03-26 error handling
+  late final EnhancedErrorHandler? _errorHandler;
+
   /// Storage manager
   final StorageManager? storageManager;
 
@@ -26,7 +41,7 @@ class LlmClient {
   late final ChatSession chatSession;
 
   /// Logger instance
-  final Logger _logger = Logger.getLogger('mcp_llm.llm_client');
+  final Logger _logger = Logger('mcp_llm.llm_client');
 
   /// Create a new LLM client
   LlmClient({
@@ -37,14 +52,38 @@ class LlmClient {
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
     this.retrievalManager,
+    BatchConfig? batchConfig, // Batch processing configuration (2025-03-26)
+    HealthCheckConfig? healthConfig, // Health monitoring configuration (2025-03-26)
+    ErrorHandlingConfig? errorConfig, // Error handling configuration (2025-03-26)
+    bool enableHealthMonitoring = true, // Enable health monitoring (2025-03-26)
+    bool enableCapabilityManagement = true, // Enable capability management (2025-03-26)
+    bool enableLifecycleManagement = true, // Enable lifecycle management (2025-03-26)
+    bool enableEnhancedErrorHandling = true, // Enable enhanced error handling (2025-03-26)
+    bool enableDebugLogging = false, // Enable debug logging (2025-03-26)
   })
       : _mcpClientManager = _initMcpClientManager(mcpClient, mcpClients),
         pluginManager = pluginManager ?? PluginManager(),
         _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
+    
+    // Initialize logging configuration (2025-03-26)
+    if (enableDebugLogging) {
+      Logger.root.level = Level.FINE;
+      Logger.root.onRecord.listen((record) {
+        print('${record.level.name}: ${record.time}: ${record.message}');
+      });
+    }
+    
     chatSession = ChatSession(
       llmProvider: llmProvider,
       storageManager: storageManager,
     );
+    
+    // Initialize 2025-03-26 feature managers
+    _batchRequestManager = _initBatchRequestManager(batchConfig);
+    _healthMonitor = enableHealthMonitoring ? _initHealthMonitor(healthConfig) : null;
+    _capabilityManager = enableCapabilityManagement ? _initCapabilityManager() : null;
+    _lifecycleManager = enableLifecycleManagement ? _initLifecycleManager() : null;
+    _errorHandler = enableEnhancedErrorHandling ? _initErrorHandler(errorConfig) : null;
   }
 
   /// Initialize the MCP client manager
@@ -66,6 +105,93 @@ class LlmClient {
     return McpClientManager();
   }
 
+  /// Initialize the batch request manager for 2025-03-26 optimization
+  BatchRequestManager? _initBatchRequestManager(BatchConfig? batchConfig) {
+    if (_mcpClientManager == null) return null;
+    
+    final batchManager = BatchRequestManager(config: batchConfig ?? const BatchConfig());
+    
+    // Register all MCP clients with batch manager
+    for (final clientId in _mcpClientManager.clientIds) {
+      final mcpClient = _mcpClientManager.getClient(clientId);
+      // Get auth adapter if available
+      McpAuthAdapter? authAdapter;
+      try {
+        // Check if client has authentication enabled
+        final authStatus = _mcpClientManager.getAuthStatus();
+        if (authStatus[clientId]?['authentication_required'] == true) {
+          // For now, we'll leave authAdapter as null and let the batch manager handle it
+          // In a real implementation, you might want to extract this from the manager
+        }
+      } catch (e) {
+        _logger.debug('Could not get auth adapter for client $clientId: $e');
+      }
+      
+      if (mcpClient != null) {
+        batchManager.registerClient(clientId, mcpClient, authAdapter: authAdapter);
+      }
+    }
+    
+    _logger.info('Batch request manager initialized with JSON-RPC 2.0 optimization');
+    return batchManager;
+  }
+
+  /// Initialize health monitor for 2025-03-26 health monitoring
+  McpHealthMonitor? _initHealthMonitor(HealthCheckConfig? healthConfig) {
+    if (_mcpClientManager == null) return null;
+    
+    final healthMonitor = McpHealthMonitor(config: healthConfig ?? const HealthCheckConfig());
+    
+    // Register all MCP clients with health monitor
+    for (final clientId in _mcpClientManager.clientIds) {
+      final mcpClient = _mcpClientManager.getClient(clientId);
+      if (mcpClient != null) {
+        healthMonitor.registerClient(clientId, mcpClient);
+      }
+    }
+    
+    _logger.info('Health monitor initialized for 2025-03-26 MCP monitoring');
+    return healthMonitor;
+  }
+
+  /// Initialize capability manager for 2025-03-26 capability management
+  McpCapabilityManager? _initCapabilityManager() {
+    if (_mcpClientManager == null) return null;
+    
+    final capabilityManager = McpCapabilityManager();
+    
+    // Register all MCP clients with capability manager
+    for (final clientId in _mcpClientManager.clientIds) {
+      final mcpClient = _mcpClientManager.getClient(clientId);
+      if (mcpClient != null) {
+        capabilityManager.registerClient(clientId, mcpClient);
+      }
+    }
+    
+    _logger.info('Capability manager initialized for 2025-03-26 dynamic capabilities');
+    return capabilityManager;
+  }
+
+  /// Initialize lifecycle manager for 2025-03-26 server lifecycle management
+  ServerLifecycleManager? _initLifecycleManager() {
+    if (_mcpClientManager == null) return null;
+    
+    final lifecycleManager = ServerLifecycleManager(
+      healthMonitor: _healthMonitor,
+      capabilityManager: _capabilityManager,
+    );
+    
+    _logger.info('Lifecycle manager initialized for 2025-03-26 server management');
+    return lifecycleManager;
+  }
+
+  /// Initialize enhanced error handler for 2025-03-26 error handling
+  EnhancedErrorHandler? _initErrorHandler(ErrorHandlingConfig? errorConfig) {
+    final errorHandler = EnhancedErrorHandler(config: errorConfig ?? const ErrorHandlingConfig());
+    _logger.info('Enhanced error handler initialized for 2025-03-26');
+    return errorHandler;
+  }
+
   /// Check if MCP client manager is available
   bool get hasMcpClientManager => _mcpClientManager != null;
 
@@ -74,12 +200,37 @@ class LlmClient {
     // Initialize manager if it doesn't exist
     _mcpClientManager ??= McpClientManager();
     _mcpClientManager!.addClient(clientId, mcpClient);
+    
+    // Register with all 2025-03-26 managers if available
+    if (_batchRequestManager != null) {
+      _batchRequestManager.registerClient(clientId, mcpClient);
+    }
+    if (_healthMonitor != null) {
+      _healthMonitor.registerClient(clientId, mcpClient);
+    }
+    if (_capabilityManager != null) {
+      _capabilityManager.registerClient(clientId, mcpClient);
+    }
   }
 
   /// Remove an MCP client
   void removeMcpClient(String clientId) {
     if (_mcpClientManager != null) {
       _mcpClientManager.removeClient(clientId);
+    }
+    
+    // Unregister from all 2025-03-26 managers if available
+    if (_batchRequestManager != null) {
+      _batchRequestManager.unregisterClient(clientId);
+    }
+    if (_healthMonitor != null) {
+      _healthMonitor.unregisterClient(clientId);
+    }
+    if (_capabilityManager != null) {
+      _capabilityManager.unregisterClient(clientId);
+    }
+    if (_lifecycleManager != null) {
+      _lifecycleManager.unregisterServer(clientId);
     }
   }
 
@@ -756,36 +907,36 @@ class LlmClient {
       bool enablePlugins,
       Map<String, dynamic> parameters,
       LlmContext? context) async {
-    // 도구 호출 검증 - 인자 없는 도구 호출 필터링
+    // Tool call validation - filter tool calls without arguments
     final validToolCalls = <LlmToolCall>[];
 
     final Set<String> processedSignatures = {};
 
     for (final toolCall in response.toolCalls!) {
-      // 인자가 비어있는 도구 호출은 건너뛰기
+      // Skip tool calls with empty arguments
       if (toolCall.arguments.isEmpty) {
         _logger.warning('Skipping empty tool call for "${toolCall.name}" - no arguments provided');
         continue;
       }
 
-      // 도구 호출 시그니처 생성 (도구 이름 + 인자 값들의 해시)
+      // Generate tool call signature (tool name + hash of argument values)
       final signature = '${toolCall.name}:${jsonEncode(toolCall.arguments)}';
 
-      // 이미 처리한 동일 시그니처의 도�� 호출은 건너뛰기
+      // Skip tool calls with identical signatures that have already been processed
       if (processedSignatures.contains(signature)) {
         _logger.warning('Skipping duplicate tool call for "${toolCall.name}" with identical arguments');
         continue;
       }
 
-      // 시그니처 추가 및 유효한 도구 호출로 등록
+      // Add signature and register as valid tool call
       processedSignatures.add(signature);
       validToolCalls.add(toolCall);
       _logger.debug('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
     }
 
-    // 유효한 도구 호출이 없으면 처리 중단
+    // Stop processing if there are no valid tool calls
     if (validToolCalls.isEmpty) {
-      // 모든 도구 호출이 비어있는 경우 오류 메시지 반환
+      // Return error message if all tool calls are empty
       _logger.warning('All tool calls had empty arguments - skipping tool execution');
       return LlmResponse(
         text: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
@@ -820,7 +971,7 @@ class LlmClient {
           [toolResult],
           toolCallId: toolId,  // Pass ID
         );
-        _logger.debug('toolResult ${toolResult}');
+        _logger.debug('toolResult $toolResult');
       } catch (e) {
         _logger.error('Error executing tool ${toolCall.name}: $e');
 
@@ -1076,7 +1227,18 @@ class LlmClient {
         final plugin = pluginManager.getToolPlugin(toolName);
         if (plugin != null) {
           final result = await plugin.execute(args);
-          return result.content;
+          // Convert LlmCallToolResult content to a simple format
+          if (result.content.isNotEmpty) {
+            // Return the text content from the first content item
+            final firstContent = result.content.first;
+            if (firstContent is LlmTextContent) {
+              return firstContent.text;
+            } else {
+              // For other content types, return as-is
+              return firstContent.toJson();
+            }
+          }
+          return 'Tool executed successfully but returned no content';
         }
       } catch (e) {
         _logger.warning('Plugin tool execution failed: $e');
@@ -1222,9 +1384,441 @@ class LlmClient {
     return await llmProvider.getEmbeddings(text);
   }
 
+  /// Execute multiple tools in batch for JSON-RPC 2.0 optimization (2025-03-26)
+  Future<List<Map<String, dynamic>>> executeBatchTools(
+    List<Map<String, dynamic>> toolRequests, {
+    String? clientId,
+    bool forceImmediate = false,
+  }) async {
+    if (_batchRequestManager == null) {
+      throw StateError('Batch request manager is not initialized');
+    }
+
+    final futures = <Future<Map<String, dynamic>>>[];
+    
+    for (final request in toolRequests) {
+      final toolName = request['name'] as String;
+      final rawArgs = request['arguments'];
+      final args = rawArgs is Map<String, dynamic> 
+          ? rawArgs 
+          : (rawArgs is Map ? Map<String, dynamic>.from(rawArgs) : <String, dynamic>{});
+      
+      futures.add(_batchRequestManager.addRequest(
+        'tools/call',
+        {'name': toolName, 'arguments': args},
+        clientId: clientId,
+        forceImmediate: forceImmediate,
+      ));
+    }
+    
+    return await Future.wait(futures);
+  }
+
+  /// Get tools from multiple clients in batch (2025-03-26 optimization)
+  Future<Map<String, List<Map<String, dynamic>>>> getBatchToolsByClient(
+    List<String> clientIds, {
+    bool forceImmediate = false,
+  }) async {
+    if (_batchRequestManager == null) {
+      throw StateError('Batch request manager is not initialized');
+    }
+
+    final futures = <String, Future<Map<String, dynamic>>>{};
+    
+    for (final clientId in clientIds) {
+      futures[clientId] = _batchRequestManager.addRequest(
+        'tools/list',
+        {},
+        clientId: clientId,
+        forceImmediate: forceImmediate,
+      );
+    }
+    
+    final results = <String, List<Map<String, dynamic>>>{};
+    
+    for (final entry in futures.entries) {
+      try {
+        final result = await entry.value;
+        if (result['result'] != null && result['result'] is List) {
+          results[entry.key] = List<Map<String, dynamic>>.from(result['result']);
+        } else {
+          results[entry.key] = [];
+        }
+      } catch (e) {
+        _logger.error('Error getting tools from client ${entry.key}: $e');
+        results[entry.key] = [];
+      }
+    }
+    
+    return results;
+  }
+
+  /// Execute multiple prompts in batch (2025-03-26 optimization)
+  Future<List<Map<String, dynamic>>> executeBatchPrompts(
+    List<Map<String, dynamic>> promptRequests, {
+    String? clientId,
+    bool forceImmediate = false,
+  }) async {
+    if (_batchRequestManager == null) {
+      throw StateError('Batch request manager is not initialized');
+    }
+
+    final futures = <Future<Map<String, dynamic>>>[];
+    
+    for (final request in promptRequests) {
+      final promptName = request['name'] as String;
+      final args = request['arguments'] as Map<String, dynamic>? ?? {};
+      
+      futures.add(_batchRequestManager.addRequest(
+        'prompts/get',
+        {'name': promptName, 'arguments': args},
+        clientId: clientId,
+        forceImmediate: forceImmediate,
+      ));
+    }
+    
+    return await Future.wait(futures);
+  }
+
+  /// Read multiple resources in batch (2025-03-26 optimization)
+  Future<List<Map<String, dynamic>>> readBatchResources(
+    List<String> resourceUris, {
+    String? clientId,
+    bool forceImmediate = false,
+  }) async {
+    if (_batchRequestManager == null) {
+      throw StateError('Batch request manager is not initialized');
+    }
+
+    final futures = <Future<Map<String, dynamic>>>[];
+    
+    for (final uri in resourceUris) {
+      futures.add(_batchRequestManager.addRequest(
+        'resources/read',
+        {'uri': uri},
+        clientId: clientId,
+        forceImmediate: forceImmediate,
+      ));
+    }
+    
+    return await Future.wait(futures);
+  }
+
+  /// Get batch processing statistics
+  Map<String, dynamic> getBatchStatistics() {
+    if (_batchRequestManager == null) {
+      return {'error': 'Batch request manager not initialized'};
+    }
+    
+    return _batchRequestManager.getStatistics();
+  }
+
+  /// Flush all pending batch requests
+  Future<void> flushBatchRequests() async {
+    if (_batchRequestManager != null) {
+      await _batchRequestManager.flush();
+    }
+  }
+
+  /// Check if batch processing is available
+  bool get hasBatchProcessing => _batchRequestManager != null;
+
+  // === 2025-03-26 Health Monitoring Methods ===
+
+  /// Perform health check on all or specific MCP clients
+  Future<HealthReport> performHealthCheck({List<String>? clientIds}) async {
+    if (_healthMonitor == null) {
+      throw StateError('Health monitoring is not enabled');
+    }
+    
+    return await _healthMonitor.performHealthCheck(clientIds: clientIds);
+  }
+
+  /// Get health status for a specific client
+  HealthCheckResult? getClientHealth(String clientId) {
+    return _healthMonitor?.getClientHealth(clientId);
+  }
+
+  /// Get health statistics for all clients
+  Map<String, dynamic> getHealthStatistics() {
+    if (_healthMonitor == null) {
+      return {'error': 'Health monitoring not enabled'};
+    }
+    return _healthMonitor.getHealthStatistics();
+  }
+
+  /// Check if all clients are healthy
+  bool get allClientsHealthy => _healthMonitor?.allClientsHealthy ?? true;
+
+  /// Get list of unhealthy clients
+  List<String> get unhealthyClients => _healthMonitor?.unhealthyClients ?? [];
+
+  // === 2025-03-26 Capability Management Methods ===
+
+  /// Update capabilities for a specific client
+  Future<CapabilityUpdateResponse> updateClientCapabilities(CapabilityUpdateRequest request) async {
+    if (_capabilityManager == null) {
+      throw StateError('Capability management is not enabled');
+    }
+    
+    return await _capabilityManager.updateCapabilities(request);
+  }
+
+  /// Get all capabilities for a specific client
+  Map<String, McpCapability> getClientCapabilities(String clientId) {
+    if (_capabilityManager == null) {
+      return {};
+    }
+    return _capabilityManager.getClientCapabilities(clientId);
+  }
+
+  /// Get all capabilities across all clients
+  Map<String, Map<String, McpCapability>> getAllCapabilities() {
+    if (_capabilityManager == null) {
+      return {};
+    }
+    return _capabilityManager.getAllCapabilities();
+  }
+
+  /// Enable capability for a client
+  Future<bool> enableClientCapability(String clientId, String capabilityName) async {
+    if (_capabilityManager == null) {
+      return false;
+    }
+    return await _capabilityManager.enableCapability(clientId, capabilityName);
+  }
+
+  /// Disable capability for a client
+  Future<bool> disableClientCapability(String clientId, String capabilityName) async {
+    if (_capabilityManager == null) {
+      return false;
+    }
+    return await _capabilityManager.disableCapability(clientId, capabilityName);
+  }
+
+  /// Get capability statistics
+  Map<String, dynamic> getCapabilityStatistics() {
+    if (_capabilityManager == null) {
+      return {'error': 'Capability management not enabled'};
+    }
+    return _capabilityManager.getCapabilityStatistics();
+  }
+
+  /// Refresh capabilities for all clients
+  Future<void> refreshAllCapabilities() async {
+    if (_capabilityManager != null) {
+      await _capabilityManager.refreshAllCapabilities();
+    }
+  }
+
+  /// Generate unique capability update request ID
+  String generateCapabilityRequestId() {
+    if (_capabilityManager == null) {
+      return 'cap_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    return _capabilityManager.generateRequestId();
+  }
+
+  // === 2025-03-26 Server Lifecycle Management Methods ===
+
+  /// Start MCP server
+  Future<LifecycleResponse> startServer(
+    String serverId, {
+    LifecycleTransitionReason reason = LifecycleTransitionReason.userRequest,
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    if (_lifecycleManager == null) {
+      throw StateError('Lifecycle management is not enabled');
+    }
+    
+    return await _lifecycleManager.startServer(serverId, reason: reason, parameters: parameters);
+  }
+
+  /// Stop MCP server
+  Future<LifecycleResponse> stopServer(
+    String serverId, {
+    LifecycleTransitionReason reason = LifecycleTransitionReason.userRequest,
+    Map<String, dynamic> parameters = const {},
+    Duration? timeout,
+  }) async {
+    if (_lifecycleManager == null) {
+      throw StateError('Lifecycle management is not enabled');
+    }
+    
+    return await _lifecycleManager.stopServer(serverId, reason: reason, parameters: parameters, timeout: timeout);
+  }
+
+  /// Restart MCP server
+  Future<LifecycleResponse> restartServer(
+    String serverId, {
+    LifecycleTransitionReason reason = LifecycleTransitionReason.userRequest,
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    if (_lifecycleManager == null) {
+      throw StateError('Lifecycle management is not enabled');
+    }
+    
+    return await _lifecycleManager.restartServer(serverId, reason: reason, parameters: parameters);
+  }
+
+  /// Pause MCP server
+  Future<LifecycleResponse> pauseServer(
+    String serverId, {
+    LifecycleTransitionReason reason = LifecycleTransitionReason.userRequest,
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    if (_lifecycleManager == null) {
+      throw StateError('Lifecycle management is not enabled');
+    }
+    
+    return await _lifecycleManager.pauseServer(serverId, reason: reason, parameters: parameters);
+  }
+
+  /// Resume MCP server
+  Future<LifecycleResponse> resumeServer(
+    String serverId, {
+    LifecycleTransitionReason reason = LifecycleTransitionReason.userRequest,
+    Map<String, dynamic> parameters = const {},
+  }) async {
+    if (_lifecycleManager == null) {
+      throw StateError('Lifecycle management is not enabled');
+    }
+    
+    return await _lifecycleManager.resumeServer(serverId, reason: reason, parameters: parameters);
+  }
+
+  /// Get server information
+  ServerInfo? getServerInfo(String serverId) {
+    return _lifecycleManager?.getServerInfo(serverId);
+  }
+
+  /// Get all servers information
+  Map<String, ServerInfo> getAllServersInfo() {
+    if (_lifecycleManager == null) {
+      return {};
+    }
+    return _lifecycleManager.getAllServersInfo();
+  }
+
+  /// Get server state
+  ServerLifecycleState? getServerState(String serverId) {
+    return _lifecycleManager?.getServerState(serverId);
+  }
+
+  /// Get lifecycle statistics
+  Map<String, dynamic> getLifecycleStatistics() {
+    if (_lifecycleManager == null) {
+      return {'error': 'Lifecycle management not enabled'};
+    }
+    return _lifecycleManager.getLifecycleStatistics();
+  }
+
+  /// Enable/disable auto-restart for server
+  void setServerAutoRestart(String serverId, bool enabled) {
+    _lifecycleManager?.setAutoRestart(serverId, enabled);
+  }
+
+  /// Check if auto-restart is enabled for server
+  bool isServerAutoRestartEnabled(String serverId) {
+    return _lifecycleManager?.isAutoRestartEnabled(serverId) ?? false;
+  }
+
+  // === 2025-03-26 Enhanced Error Handling Methods ===
+
+  /// Execute operation with enhanced error handling
+  Future<T> executeWithErrorHandling<T>(
+    Future<T> Function() operation, {
+    String? clientId,
+    McpErrorCategory? expectedCategory,
+    Map<String, dynamic> context = const {},
+  }) async {
+    if (_errorHandler == null) {
+      return await operation();
+    }
+    
+    return await _errorHandler.handleError(
+      operation,
+      clientId: clientId,
+      expectedCategory: expectedCategory,
+      context: context,
+    );
+  }
+
+  /// Get error statistics
+  Map<String, dynamic> getErrorStatistics() {
+    if (_errorHandler == null) {
+      return {'error': 'Enhanced error handling not enabled'};
+    }
+    return _errorHandler.getErrorStatistics();
+  }
+
+  /// Get error history for client
+  List<McpEnhancedError> getClientErrorHistory(String clientId) {
+    if (_errorHandler == null) {
+      return [];
+    }
+    return _errorHandler.getErrorHistory(clientId);
+  }
+
+  /// Get all error history
+  Map<String, List<McpEnhancedError>> getAllErrorHistory() {
+    if (_errorHandler == null) {
+      return {};
+    }
+    return _errorHandler.getAllErrorHistory();
+  }
+
+  /// Clear error history
+  void clearErrorHistory([String? clientId]) {
+    _errorHandler?.clearErrorHistory(clientId);
+  }
+
+  /// Get error event stream
+  Stream<McpEnhancedError>? get errorEvents => _errorHandler?.errors;
+
+  // === 2025-03-26 Event Streams ===
+
+  /// Get capability event stream
+  Stream<CapabilityEvent>? get capabilityEvents => _capabilityManager?.events;
+
+  /// Get lifecycle event stream
+  Stream<LifecycleEvent>? get lifecycleEvents => _lifecycleManager?.events;
+
+  // === 2025-03-26 Integration Status ===
+
+  /// Get 2025-03-26 feature status
+  Map<String, dynamic> get featureStatus {
+    return {
+      'batch_processing': _batchRequestManager != null,
+      'health_monitoring': _healthMonitor != null,
+      'capability_management': _capabilityManager != null,
+      'lifecycle_management': _lifecycleManager != null,
+      'enhanced_error_handling': _errorHandler != null,
+      'protocol_version': '2025-03-26',
+      'oauth_2_1_support': true,
+    };
+  }
+
   /// Close and clean up resources
   Future<void> close() async {
     await llmProvider.close();
+
+    // Close all 2025-03-26 managers if they exist
+    if (_batchRequestManager != null) {
+      _batchRequestManager.dispose();
+    }
+    if (_healthMonitor != null) {
+      _healthMonitor.dispose();
+    }
+    if (_capabilityManager != null) {
+      _capabilityManager.dispose();
+    }
+    if (_lifecycleManager != null) {
+      _lifecycleManager.dispose();
+    }
+    if (_errorHandler != null) {
+      _errorHandler.dispose();
+    }
 
     // Close retrieval manager if exists
     if (retrievalManager != null) {
@@ -1232,6 +1826,8 @@ class LlmClient {
     }
 
     _performanceMonitor.stopMonitoring();
+    
+    _logger.info('LlmClient closed with 2025-03-26 features disposed');
   }
 }
 

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:test/test.dart';
 
 /// Utilities for test configuration
 class TestConfig {

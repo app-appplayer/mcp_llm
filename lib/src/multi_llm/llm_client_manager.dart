@@ -8,7 +8,7 @@ class MultiLlmClientManager implements ServiceManager<LlmClientServiceAdapter> {
   final Map<String, LlmClientServiceAdapter> _clients = {};
   final ServiceRouter _router;
   final ServiceBalancer _loadBalancer;
-  final Logger _logger = Logger.getLogger('mcp_llm.multi_llm_client_manager');
+  final Logger _logger = Logger('mcp_llm.multi_llm_client_manager');
 
   /// Create a new multi LLM client manager
   MultiLlmClientManager({
