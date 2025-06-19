@@ -156,6 +156,7 @@ void main() {
       pool.registerServiceFactory('test_provider', TestClientFactory(
           createClientFn: () async {
             created++;
+            await Future.delayed(Duration(milliseconds: 10)); // Small delay to simulate creation
             return mockClient1;
           }
       ));
@@ -211,10 +212,7 @@ class TestClientFactory implements LlmClientFactory {
   LlmConfiguration get configuration => throw UnimplementedError();
 
   @override
-  Future<LlmClient> createService() {
-    // TODO: implement createService
-    throw UnimplementedError();
-  }
+  Future<LlmClient> createService() => createClientFn();
 
   @override
   // TODO: implement pluginManager
