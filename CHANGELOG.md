@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1]
+
+### Changed
+- Removed unnecessary `mcp_server` and `mcp_client` dependencies from production dependencies
+- Moved `mcp_server` and `mcp_client` to dev_dependencies for testing purposes only
+- Fixed test failures in `multi_client_test.dart`
+- The package now allows users to provide their own MCP client/server instances without forcing dependency installation
+
 ## [1.0.0] - 2025-03-26 🚀
 
 ### 🎉 Major Release: Full 2025-03-26 MCP Specification Support
