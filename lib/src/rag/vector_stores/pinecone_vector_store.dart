@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import '../vector_store.dart';
 import '../embeddings.dart';
@@ -16,7 +17,7 @@ class PineconeVectorStore implements VectorStore {
   final String? _baseUrl;
   final String? _defaultIndex;
   final int _dimension;
-  final HttpClient _httpClient = HttpClient();
+  final http.Client _httpClient = http.Client();
   final Map<String, dynamic> _options;
 
   bool _initialized = false;
@@ -85,10 +86,7 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/upsert');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
+      final url = '${_getIndexUrl(indexName)}/vectors/upsert';
 
       final vectors = [{
         'id': id,
@@ -96,15 +94,16 @@ class PineconeVectorStore implements VectorStore {
         if (metadata.isNotEmpty) 'metadata': metadata,
       }];
 
-      final body = jsonEncode({
+      final body = {
         'vectors': vectors,
         'namespace': namespace,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: body,
+      );
 
       _logger.debug('Stored embedding with ID: $id in index: $indexName');
     } catch (e) {
@@ -126,10 +125,7 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/upsert');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
+      final url = '${_getIndexUrl(indexName)}/vectors/upsert';
 
       final vectors = embeddings.entries.map((entry) {
         final id = entry.key;
@@ -143,15 +139,16 @@ class PineconeVectorStore implements VectorStore {
         };
       }).toList();
 
-      final body = jsonEncode({
+      final body = {
         'vectors': vectors,
         'namespace': namespace,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: body,
+      );
 
       _logger.debug('Stored ${embeddings.length} embeddings in batch in index: $indexName');
     } catch (e) {
@@ -176,10 +173,7 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/query');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
+      final url = '${_getIndexUrl(indexName)}/query';
 
       final Map<String, dynamic> queryBody = {
         'vector': queryEmbedding.vector,
@@ -201,15 +195,14 @@ class PineconeVectorStore implements VectorStore {
         queryBody['filter'] = filters;
       }
 
-      final body = jsonEncode(queryBody);
-      request.write(body);
+      final result = await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: queryBody,
+      );
 
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final matches = jsonResponse['matches'] as List<dynamic>;
+      if (result != null) {
+        final matches = result['matches'] as List<dynamic>;
 
         final results = matches.map((match) {
           final id = match['id'] as String;
@@ -228,7 +221,7 @@ class PineconeVectorStore implements VectorStore {
         _logger.debug('Found ${results.length} similar embeddings in index: $indexName');
         return results;
       } else {
-        throw Exception('Failed to find similar embeddings. Status: ${response.statusCode}, Body: $responseBody');
+        throw Exception('Empty response from Pinecone API');
       }
     } catch (e) {
       _logger.error('Failed to find similar embeddings: $e');
@@ -246,20 +239,18 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/delete');
+      final url = '${_getIndexUrl(indexName)}/vectors/delete';
 
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'ids': [id],
         if (namespace != null) 'namespace': namespace,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'DELETE',
+        url: url,
+        body: body,
+      );
 
       _logger.debug('Deleted embedding with ID: $id from index: $indexName');
       return true;
@@ -283,20 +274,18 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/delete');
+      final url = '${_getIndexUrl(indexName)}/vectors/delete';
 
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'ids': ids,
         if (namespace != null) 'namespace': namespace,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: body,
+      );
 
       _logger.debug('Deleted ${ids.length} embeddings in batch from index: $indexName');
       return ids.length;
@@ -328,24 +317,21 @@ class PineconeVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/fetch');
+      final url = '${_getIndexUrl(indexName)}/vectors/fetch';
 
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'ids': [id],
         if (namespace != null) 'namespace': namespace,
-      });
+      };
 
-      request.write(body);
+      final result = await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: body,
+      );
 
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final vectors = jsonResponse['vectors'] as Map<String, dynamic>?;
+      if (result != null) {
+        final vectors = result['vectors'] as Map<String, dynamic>?;
 
         if (vectors == null || !vectors.containsKey(id)) {
           return null;
@@ -355,10 +341,8 @@ class PineconeVectorStore implements VectorStore {
         final values = (vector['values'] as List<dynamic>).cast<double>();
 
         return Embedding(values);
-      } else if (response.statusCode == 404) {
-        return null;
       } else {
-        throw Exception('Failed to get embedding. Status: ${response.statusCode}, Body: $responseBody');
+        return null;
       }
     } catch (e) {
       _logger.error('Failed to get embedding: $e');
@@ -371,10 +355,7 @@ class PineconeVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_apiHost/databases');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
+      final url = '$_apiHost/databases';
 
       // Combine default options with provided options
       final indexOptions = {
@@ -384,11 +365,11 @@ class PineconeVectorStore implements VectorStore {
         ...options,
       };
 
-      final body = jsonEncode(indexOptions);
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: indexOptions,
+      );
 
       _logger.info('Created namespace (index): $namespace');
     } catch (e) {
@@ -402,13 +383,12 @@ class PineconeVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_apiHost/databases/$namespace');
+      final url = '$_apiHost/databases/$namespace';
 
-      final request = await _httpClient.deleteUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'DELETE',
+        url: url,
+      );
 
       _logger.info('Deleted namespace (index): $namespace');
       return true;
@@ -423,25 +403,28 @@ class PineconeVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_apiHost/databases');
-
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as List<dynamic>;
-
+      final url = '$_apiHost/databases';
+      
+      // Special handling for list namespaces since it returns an array
+      final uri = Uri.parse(url);
+      final response = await _httpClient.get(uri, headers: _getHeaders());
+      
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Failed to list namespaces. Status: ${response.statusCode}, Body: ${response.body}');
+      }
+      
+      if (response.body.isNotEmpty) {
+        final jsonResponse = jsonDecode(response.body) as List<dynamic>;
+        
         final indexes = jsonResponse.map((index) {
           return (index as Map<String, dynamic>)['name'] as String;
         }).toList();
-
+        
         _logger.debug('Listed ${indexes.length} namespaces (indexes)');
         return indexes;
       } else {
-        throw Exception('Failed to list namespaces. Status: ${response.statusCode}, Body: $responseBody');
+        _logger.debug('No namespaces found');
+        return [];
       }
     } catch (e) {
       _logger.error('Failed to list namespaces: $e');
@@ -523,24 +506,21 @@ class PineconeVectorStore implements VectorStore {
         throw ArgumentError('No index specified and no default index configured');
       }
 
-      final url = Uri.parse('${_getIndexUrl(indexName)}/vectors/fetch');
+      final url = '${_getIndexUrl(indexName)}/vectors/fetch';
 
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'ids': [id],
         if (namespace != null) 'namespace': namespace,
-      });
+      };
 
-      request.write(body);
+      final result = await _makeRequest(
+        method: 'POST',
+        url: url,
+        body: body,
+      );
 
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final vectors = jsonResponse['vectors'] as Map<String, dynamic>?;
+      if (result != null) {
+        final vectors = result['vectors'] as Map<String, dynamic>?;
 
         if (vectors == null || !vectors.containsKey(id)) {
           return null;
@@ -570,10 +550,8 @@ class PineconeVectorStore implements VectorStore {
           collectionId: namespace,
           updatedAt: updatedAtStr != null ? DateTime.parse(updatedAtStr) : DateTime.now(),
         );
-      } else if (response.statusCode == 404) {
-        return null;
       } else {
-        throw Exception('Failed to get document. Status: ${response.statusCode}, Body: $responseBody');
+        return null;
       }
     } catch (e) {
       _logger.error('Failed to get document: $e');
@@ -634,24 +612,55 @@ class PineconeVectorStore implements VectorStore {
     _logger.info('Closed Pinecone vector store connection');
   }
 
-  // Helper to set required headers
-  void _setHeaders(HttpClientRequest request) {
-    request.headers.set('Content-Type', 'application/json');
-    request.headers.set('Accept', 'application/json');
-    request.headers.set('Api-Key', _apiKey);
+  // Helper to get headers
+  Map<String, String> _getHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Api-Key': _apiKey,
+    };
   }
 
-  // Helper to check response status
-  Future<void> _checkResponse(HttpClientResponse response) async {
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = await _readResponseBody(response);
-      throw Exception('API request failed with status ${response.statusCode}: $body');
+  // Helper to make HTTP request
+  Future<Map<String, dynamic>?> _makeRequest({
+    required String method,
+    required String url,
+    Map<String, dynamic>? body,
+  }) async {
+    try {
+      final uri = Uri.parse(url);
+      http.Response response;
+      
+      switch (method) {
+        case 'GET':
+          response = await _httpClient.get(uri, headers: _getHeaders());
+          break;
+        case 'POST':
+          response = await _httpClient.post(
+            uri,
+            headers: _getHeaders(),
+            body: body != null ? jsonEncode(body) : null,
+          );
+          break;
+        case 'DELETE':
+          response = await _httpClient.delete(uri, headers: _getHeaders());
+          break;
+        default:
+          throw ArgumentError('Unsupported HTTP method: $method');
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('API request failed with status ${response.statusCode}: ${response.body}');
+      }
+
+      if (response.body.isNotEmpty) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      _logger.error('HTTP request failed: $e');
+      rethrow;
     }
-  }
-
-  // Helper to read response body
-  Future<String> _readResponseBody(HttpClientResponse response) async {
-    return await response.transform(utf8.decoder).join();
   }
 }
 

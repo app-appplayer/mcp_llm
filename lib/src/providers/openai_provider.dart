@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
 
@@ -11,7 +12,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final HttpClient _client = HttpClient();
+  final http.Client _client = http.Client();
 
   @override
   final Logger logger = Logger('mcp_llm.openai_provider');
@@ -68,31 +69,29 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/chat/completions');
-      final httpRequest = await _client.postUrl(uri);
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
-      // Add request body
-      final jsonString = jsonEncode(requestBody);
-      final encodedBody = utf8.encode(jsonString);
-      httpRequest.contentLength = encodedBody.length;
-      httpRequest.add(encodedBody);
-
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
+      // Send request
+      final httpResponse = await _client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
 
       // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final responseJson = jsonDecode(httpResponse.body) as Map<String, dynamic>;
 
         // Parse response
         return _parseResponse(responseJson);
       } else {
         // Handle error
-        final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
+        final error = 'OpenAI API Error: ${httpResponse.statusCode} - ${httpResponse.body}';
         logger.error(error);
 
         throw Exception(error);
@@ -110,28 +109,26 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       requestBody['stream'] = true;
       logger.debug('OpenAI API request body structure created');
 
-      // Prepare API request - apply retry mechanism
+      // Prepare API request
       final uri = Uri.parse('${baseUrl ?? 'https://api.openai.com'}/v1/chat/completions');
-      final httpRequest = await executeWithRetry(() async {
-        return await _client.postUrl(uri);
-      });
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
-      // Add request body
-      final jsonString = jsonEncode(requestBody);
-      final encodedBody = utf8.encode(jsonString);
-      httpRequest.contentLength = encodedBody.length;
-      httpRequest.add(encodedBody);
+      // Create streaming request
+      final httpRequest = http.Request('POST', uri)
+        ..headers.addAll(headers)
+        ..body = jsonEncode(requestBody);
 
-      // Get response - apply retry mechanism
-      final httpResponse = await executeWithRetry(() async {
-        return await httpRequest.close();
+      // Send request and get streaming response
+      final streamedResponse = await executeWithRetry(() async {
+        return await _client.send(httpRequest);
       });
 
-      if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
+      if (streamedResponse.statusCode >= 200 && streamedResponse.statusCode < 300) {
         // Variables to track tool call information
         final Map<String, Map<String, dynamic>> toolCallsMap = {}; // Variables to track tool call information
         List<LlmToolCall>? toolCalls;
@@ -156,7 +153,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
         }
 
         // Process streaming response
-        await for (final chunk in utf8.decoder.bind(httpResponse)) {
+        await for (final chunk in utf8.decoder.bind(streamedResponse.stream)) {
           // Parse SSE format
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
@@ -352,14 +349,14 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Handle error
-        final responseBody = await utf8.decoder.bind(httpResponse).join();
-        final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
+        final responseBody = await utf8.decoder.bind(streamedResponse.stream).join();
+        final error = 'OpenAI API Error: ${streamedResponse.statusCode} - $responseBody';
         logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from OpenAI.',
           isDone: true,
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
+          metadata: {'error': error, 'status_code': streamedResponse.statusCode},
         );
       }
     } catch (e, stackTrace) {
@@ -607,30 +604,29 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/embeddings');
-      final httpRequest = await _client.postUrl(uri);
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
       // Add request body
       final requestBody = {
         'input': text,
         'model': 'text-embedding-3-large',
       };
-      //httpRequest.write(jsonEncode(requestBody));
-      final jsonString = jsonEncode(requestBody);
-      final encodedBody = utf8.encode(jsonString);
-      httpRequest.contentLength = encodedBody.length;
-      httpRequest.add(encodedBody);
 
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
+      // Send request
+      final httpResponse = await _client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
 
       // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final responseJson = jsonDecode(httpResponse.body) as Map<String, dynamic>;
 
         final data = responseJson['data'] as List<dynamic>;
         if (data.isNotEmpty) {
@@ -641,7 +637,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Handle error
-        final error = 'OpenAI API Error: ${httpResponse.statusCode} - $responseBody';
+        final error = 'OpenAI API Error: ${httpResponse.statusCode} - ${httpResponse.body}';
         logger.error(error);
         throw Exception(error);
       }

@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import '../core/llm_interface.dart';
 import '../core/models.dart';
@@ -14,7 +15,7 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final HttpClient _client = HttpClient();
+  final http.Client _client = http.Client();
 
   @override
   final Logger logger = Logger('mcp_llm.together_provider');
@@ -71,28 +72,29 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
 
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.together.xyz/v1/completions');
-      final httpRequest = await _client.postUrl(uri);
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
-      // Add request body
-      httpRequest.write(jsonEncode(requestBody));
-
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
+      // Send request
+      final httpResponse = await _client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
 
       // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final responseJson = jsonDecode(httpResponse.body) as Map<String, dynamic>;
 
         // Parse response
         return _parseResponse(responseJson);
       } else {
         // Handle error
-        final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
+        final error = 'Together API Error: ${httpResponse.statusCode} - ${httpResponse.body}';
         logger.error(error);
         throw Exception(error);
       }
@@ -108,27 +110,28 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
 
-      // Prepare API request with retry for connection phase
+      // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.together.xyz/v1/completions');
-      final httpRequest = await executeWithRetry(() async {
-        return await _client.postUrl(uri);
-      });
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
-      // Add request body
-      httpRequest.write(jsonEncode(requestBody));
+      // Create streaming request
+      final httpRequest = http.Request('POST', uri)
+        ..headers.addAll(headers)
+        ..body = jsonEncode(requestBody);
 
-      // Get response with retry
-      final httpResponse = await executeWithRetry(() async {
-        return await httpRequest.close();
+      // Send request and get streaming response
+      final streamedResponse = await executeWithRetry(() async {
+        return await _client.send(httpRequest);
       });
 
-      if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
+      if (streamedResponse.statusCode >= 200 && streamedResponse.statusCode < 300) {
         // Handle streaming response
-        await for (final chunk in utf8.decoder.bind(httpResponse)) {
+        await for (final chunk in utf8.decoder.bind(streamedResponse.stream)) {
           // Parse SSE format
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
@@ -170,14 +173,14 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Handle error
-        final responseBody = await utf8.decoder.bind(httpResponse).join();
-        final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
+        final responseBody = await utf8.decoder.bind(streamedResponse.stream).join();
+        final error = 'Together API Error: ${streamedResponse.statusCode} - $responseBody';
         logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from Together AI.',
           isDone: true,
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
+          metadata: {'error': error, 'status_code': streamedResponse.statusCode},
         );
       }
     } catch (e) {
@@ -228,26 +231,29 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
 
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.together.xyz/v1/embeddings');
-      final httpRequest = await _client.postUrl(uri);
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('Authorization', 'Bearer $apiKey');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      };
 
       // Add request body
       final requestBody = {
         'input': text,
         'model': 'togethercomputer/m2-bert-80M-8k-retrieval',
       };
-      httpRequest.write(jsonEncode(requestBody));
 
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
+      // Send request
+      final httpResponse = await _client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
 
       // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final responseJson = jsonDecode(httpResponse.body) as Map<String, dynamic>;
 
         final data = responseJson['data'] as List<dynamic>;
         if (data.isNotEmpty) {
@@ -258,7 +264,7 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Handle error
-        final error = 'Together API Error: ${httpResponse.statusCode} - $responseBody';
+        final error = 'Together API Error: ${httpResponse.statusCode} - ${httpResponse.body}';
         logger.error(error);
         throw Exception(error);
       }

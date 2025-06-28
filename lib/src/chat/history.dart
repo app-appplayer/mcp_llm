@@ -5,6 +5,9 @@ class ChatHistory {
   /// List of messages in the history
   final List<LlmMessage> _messages = [];
 
+  /// Create a new empty chat history
+  ChatHistory();
+
   /// Get the list of messages
   List<LlmMessage> get messages => List.unmodifiable(_messages);
 
@@ -75,6 +78,16 @@ class ChatHistory {
     return {
       'messages': _messages.map((message) => message.toJson()).toList(),
     };
+  }
+
+  /// Create from JSON
+  factory ChatHistory.fromJson(Map<String, dynamic> json) {
+    final history = ChatHistory();
+    final messages = json['messages'] as List<dynamic>? ?? [];
+    for (final messageJson in messages) {
+      history.addMessage(LlmMessage.fromJson(messageJson as Map<String, dynamic>));
+    }
+    return history;
   }
 
   /// Get filtered messages by role

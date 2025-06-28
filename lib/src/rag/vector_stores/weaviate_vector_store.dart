@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import '../vector_store.dart';
 import '../embeddings.dart';
@@ -14,7 +15,7 @@ class WeaviateVectorStore implements VectorStore {
   final String _baseUrl;
   final String? _defaultClassName;
   final int _dimension; // Used in createNamespace method
-  final HttpClient _httpClient = HttpClient();
+  final http.Client _httpClient = http.Client();
   final Map<String, dynamic> _options; // Used for additional configuration options
 
   bool _initialized = false;
@@ -38,15 +39,10 @@ class WeaviateVectorStore implements VectorStore {
       _logger.info('Initializing Weaviate vector store');
 
       // Check connection by making a simple schema request
-      final url = Uri.parse('$_baseUrl/v1/schema');
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      if (response.statusCode != 200) {
-        final body = await response.transform(utf8.decoder).join();
-        throw Exception('Failed to connect to Weaviate: ${response.statusCode} - $body');
-      }
+      await _makeRequest(
+        method: 'GET',
+        url: '$_baseUrl/v1/schema',
+      );
 
       _initialized = true;
       _logger.info('Weaviate vector store initialized successfully');
@@ -76,24 +72,20 @@ class WeaviateVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
       final properties = Map<String, dynamic>.from(metadata);
 
-      final body = jsonEncode({
+      final body = {
         'id': id,
         'class': className,
         'properties': properties,
         'vector': embedding.vector,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/objects',
+        body: body,
+      );
 
       _logger.debug('Stored embedding with ID: $id in class: $className');
     } catch (e) {
@@ -115,11 +107,6 @@ class WeaviateVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/batch/objects');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
       final objects = embeddings.entries.map((entry) {
         final id = entry.key;
         final embedding = entry.value;
@@ -133,14 +120,15 @@ class WeaviateVectorStore implements VectorStore {
         };
       }).toList();
 
-      final body = jsonEncode({
+      final body = {
         'objects': objects,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/batch/objects',
+        body: body,
+      );
 
       _logger.debug('Stored ${embeddings.length} embeddings in batch in class: $className');
     } catch (e) {
@@ -199,23 +187,18 @@ class WeaviateVectorStore implements VectorStore {
       }
       ''';
 
-      final url = Uri.parse('$_baseUrl/v1/graphql');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'query': graphQlQuery,
-      });
+      };
 
-      request.write(body);
+      final result = await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/graphql',
+        body: body,
+      );
 
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final data = jsonResponse['data'] as Map<String, dynamic>;
+      if (result != null) {
+        final data = result['data'] as Map<String, dynamic>;
         final getResults = data['Get'] as Map<String, dynamic>;
         final results = getResults[className] as List<dynamic>;
 
@@ -240,7 +223,7 @@ class WeaviateVectorStore implements VectorStore {
         _logger.debug('Found ${scoredEmbeddings.length} similar embeddings in class: $className');
         return scoredEmbeddings;
       } else {
-        throw Exception('Failed to find similar embeddings. Status: ${response.statusCode}, Body: $responseBody');
+        throw Exception('Failed to find similar embeddings');
       }
     } catch (e) {
       _logger.error('Failed to find similar embeddings: $e');
@@ -253,23 +236,12 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects/$id');
-
-      final request = await _httpClient.deleteUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        _logger.debug('Deleted embedding with ID: $id');
-        return true;
-      } else if (response.statusCode == 404) {
-        _logger.warning('Embedding with ID: $id not found');
-        return false;
-      } else {
-        final responseBody = await _readResponseBody(response);
-        throw Exception('Failed to delete embedding. Status: ${response.statusCode}, Body: $responseBody');
-      }
+      await _makeRequest(
+        method: 'DELETE',
+        url: '$_baseUrl/v1/objects/$id',
+      );
+      _logger.debug('Deleted embedding with ID: $id');
+      return true;
     } catch (e) {
       _logger.error('Failed to delete embedding: $e');
       return false;
@@ -303,15 +275,11 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects/$id');
-
-      final request = await _httpClient.headUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      await response.drain(); // Discard response body
-
-      return response.statusCode == 200;
+      await _makeRequest(
+        method: 'HEAD',
+        url: '$_baseUrl/v1/objects/$id',
+      );
+      return true;
     } catch (e) {
       _logger.error('Failed to check if embedding exists: $e');
       return false;
@@ -323,23 +291,16 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects/$id?include=vector');
+      final result = await _makeRequest(
+        method: 'GET',
+        url: '$_baseUrl/v1/objects/$id?include=vector',
+      );
 
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final vector = (jsonResponse['vector'] as List<dynamic>).cast<double>();
-
+      if (result != null) {
+        final vector = (result['vector'] as List<dynamic>).cast<double>();
         return Embedding(vector);
-      } else if (response.statusCode == 404) {
-        return null;
       } else {
-        throw Exception('Failed to get embedding. Status: ${response.statusCode}, Body: $responseBody');
+        return null;
       }
     } catch (e) {
       _logger.error('Failed to get embedding: $e');
@@ -352,11 +313,6 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/schema');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
       // Create class definition
       final classDefinition = {
         'class': namespace,
@@ -396,10 +352,11 @@ class WeaviateVectorStore implements VectorStore {
         (classDefinition['properties'] as List).addAll(additionalProperties);
       }
 
-      request.write(jsonEncode(classDefinition));
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/schema',
+        body: classDefinition,
+      );
 
       _logger.info('Created namespace (class): $namespace');
     } catch (e) {
@@ -413,23 +370,12 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/schema/${Uri.encodeComponent(namespace)}');
-
-      final request = await _httpClient.deleteUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        _logger.info('Deleted namespace (class): $namespace');
-        return true;
-      } else if (response.statusCode == 404) {
-        _logger.warning('Namespace (class) not found: $namespace');
-        return false;
-      } else {
-        final responseBody = await _readResponseBody(response);
-        throw Exception('Failed to delete namespace. Status: ${response.statusCode}, Body: $responseBody');
-      }
+      await _makeRequest(
+        method: 'DELETE',
+        url: '$_baseUrl/v1/schema/${Uri.encodeComponent(namespace)}',
+      );
+      _logger.info('Deleted namespace (class): $namespace');
+      return true;
     } catch (e) {
       _logger.error('Failed to delete namespace: $e');
       return false;
@@ -441,17 +387,13 @@ class WeaviateVectorStore implements VectorStore {
     _checkInitialized();
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/schema');
+      final result = await _makeRequest(
+        method: 'GET',
+        url: '$_baseUrl/v1/schema',
+      );
 
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final classes = jsonResponse['classes'] as List<dynamic>?;
+      if (result != null) {
+        final classes = result['classes'] as List<dynamic>?;
 
         if (classes == null) {
           return [];
@@ -462,7 +404,7 @@ class WeaviateVectorStore implements VectorStore {
         _logger.debug('Listed ${namespaces.length} namespaces (classes)');
         return namespaces;
       } else {
-        throw Exception('Failed to list namespaces. Status: ${response.statusCode}, Body: $responseBody');
+        return [];
       }
     } catch (e) {
       _logger.error('Failed to list namespaces: $e');
@@ -487,17 +429,6 @@ class WeaviateVectorStore implements VectorStore {
     final embedding = Embedding(document.embedding!);
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      // Apply any custom options from _options if configured
-      Map<String, dynamic> requestOptions = {};
-      if (_options.containsKey('consistencyLevel')) {
-        requestOptions['consistencyLevel'] = _options['consistencyLevel'];
-      }
-
       // Build properties with document fields and metadata
       final properties = {
         'title': document.title,
@@ -506,17 +437,18 @@ class WeaviateVectorStore implements VectorStore {
         ...document.metadata,
       };
 
-      final body = jsonEncode({
+      final body = {
         'id': document.id,
         'class': className,
         'properties': properties,
         'vector': embedding.vector,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/objects',
+        body: body,
+      );
 
       _logger.debug('Upserted document with ID: ${document.id} in class: $className');
     } catch (e) {
@@ -543,11 +475,6 @@ class WeaviateVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/batch/objects');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
       final objects = validDocuments.map((doc) {
         final properties = {
           'title': doc.title,
@@ -564,14 +491,15 @@ class WeaviateVectorStore implements VectorStore {
         };
       }).toList();
 
-      final body = jsonEncode({
+      final body = {
         'objects': objects,
-      });
+      };
 
-      request.write(body);
-
-      final response = await request.close();
-      await _checkResponse(response);
+      await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/batch/objects',
+        body: body,
+      );
 
       _logger.debug('Upserted ${validDocuments.length} documents in batch in class: $className');
     } catch (e) {
@@ -590,26 +518,21 @@ class WeaviateVectorStore implements VectorStore {
     }
 
     try {
-      final url = Uri.parse('$_baseUrl/v1/objects/$id?include=vector&include=properties');
+      final result = await _makeRequest(
+        method: 'GET',
+        url: '$_baseUrl/v1/objects/$id?include=vector&include=properties',
+      );
 
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-
+      if (result != null) {
         // Check if the object belongs to the specified class
-        final objClass = jsonResponse['class'] as String?;
+        final objClass = result['class'] as String?;
         if (objClass != className) {
           _logger.warning('Object found but belongs to class $objClass, not $className');
           return null;
         }
 
-        final vector = (jsonResponse['vector'] as List<dynamic>).cast<double>();
-        final properties = jsonResponse['properties'] as Map<String, dynamic>? ?? {};
+        final vector = (result['vector'] as List<dynamic>).cast<double>();
+        final properties = result['properties'] as Map<String, dynamic>? ?? {};
 
         // Extract document fields from properties
         final title = properties['title'] as String? ?? 'Untitled';
@@ -631,10 +554,8 @@ class WeaviateVectorStore implements VectorStore {
           collectionId: namespace,
           updatedAt: updatedAtStr != null ? DateTime.parse(updatedAtStr) : DateTime.now(),
         );
-      } else if (response.statusCode == 404) {
-        return null;
       } else {
-        throw Exception('Failed to get document. Status: ${response.statusCode}, Body: $responseBody');
+        return null;
       }
     } catch (e) {
       _logger.error('Failed to get document: $e');
@@ -695,23 +616,18 @@ class WeaviateVectorStore implements VectorStore {
       }
       ''';
 
-      final url = Uri.parse('$_baseUrl/v1/graphql');
-
-      final request = await _httpClient.postUrl(url);
-      _setHeaders(request);
-
-      final body = jsonEncode({
+      final body = {
         'query': graphQlQuery,
-      });
+      };
 
-      request.write(body);
+      final result = await _makeRequest(
+        method: 'POST',
+        url: '$_baseUrl/v1/graphql',
+        body: body,
+      );
 
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final data = jsonResponse['data'] as Map<String, dynamic>;
+      if (result != null) {
+        final data = result['data'] as Map<String, dynamic>;
         final getResults = data['Get'] as Map<String, dynamic>;
         final results = getResults[className] as List<dynamic>;
 
@@ -751,7 +667,7 @@ class WeaviateVectorStore implements VectorStore {
         _logger.debug('Found ${scoredDocuments.length} similar documents in class: $className');
         return scoredDocuments;
       } else {
-        throw Exception('Failed to find similar documents. Status: ${response.statusCode}, Body: $responseBody');
+        throw Exception('Failed to find similar documents');
       }
     } catch (e) {
       _logger.error('Failed to find similar documents: $e');
@@ -765,28 +681,67 @@ class WeaviateVectorStore implements VectorStore {
     _logger.info('Closed Weaviate vector store connection');
   }
 
-  // Helper to set required headers
-  void _setHeaders(HttpClientRequest request) {
-    request.headers.set('Content-Type', 'application/json');
-    request.headers.set('Accept', 'application/json');
-
+  // Helper to get headers
+  Map<String, String> _getHeaders() {
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
     // Set API key if it's not empty
     if (_apiKey.isNotEmpty) {
-      request.headers.set('Authorization', 'Bearer $_apiKey');
+      headers['Authorization'] = 'Bearer $_apiKey';
     }
+    
+    return headers;
   }
 
-  // Helper to check response status
-  Future<void> _checkResponse(HttpClientResponse response) async {
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = await _readResponseBody(response);
-      throw Exception('API request failed with status ${response.statusCode}: $body');
-    }
-  }
+  // Helper to make HTTP request
+  Future<Map<String, dynamic>?> _makeRequest({
+    required String method,
+    required String url,
+    Map<String, dynamic>? body,
+  }) async {
+    try {
+      final uri = Uri.parse(url);
+      http.Response response;
+      
+      switch (method) {
+        case 'GET':
+          response = await _httpClient.get(uri, headers: _getHeaders());
+          break;
+        case 'POST':
+          response = await _httpClient.post(
+            uri,
+            headers: _getHeaders(),
+            body: body != null ? jsonEncode(body) : null,
+          );
+          break;
+        case 'DELETE':
+          response = await _httpClient.delete(uri, headers: _getHeaders());
+          break;
+        case 'HEAD':
+          response = await _httpClient.head(uri, headers: _getHeaders());
+          break;
+        default:
+          throw ArgumentError('Unsupported HTTP method: $method');
+      }
 
-  // Helper to read response body
-  Future<String> _readResponseBody(HttpClientResponse response) async {
-    return await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (response.body.isNotEmpty) {
+          return jsonDecode(response.body) as Map<String, dynamic>?;
+        }
+        return null;
+      } else if (response.statusCode == 404) {
+        // Return null for 404s to indicate not found
+        return null;
+      } else {
+        throw Exception('API request failed with status ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      _logger.error('HTTP request failed: $e');
+      rethrow;
+    }
   }
 
   // Helper to build Weaviate where filter
@@ -905,17 +860,13 @@ class WeaviateVectorStore implements VectorStore {
   Future<String> _buildPropertySelector(String className) async {
     try {
       // Try to get class schema to determine properties
-      final url = Uri.parse('$_baseUrl/v1/schema/${Uri.encodeComponent(className)}');
+      final result = await _makeRequest(
+        method: 'GET',
+        url: '$_baseUrl/v1/schema/${Uri.encodeComponent(className)}',
+      );
 
-      final request = await _httpClient.getUrl(url);
-      _setHeaders(request);
-
-      final response = await request.close();
-      final responseBody = await _readResponseBody(response);
-
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(responseBody) as Map<String, dynamic>;
-        final properties = jsonResponse['properties'] as List<dynamic>?;
+      if (result != null) {
+        final properties = result['properties'] as List<dynamic>?;
 
         if (properties != null) {
           // Extract property names, excluding special fields we already handle

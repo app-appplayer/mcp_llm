@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:http/http.dart' as http;
 
 import '../core/llm_interface.dart';
 import '../core/models.dart';
@@ -14,7 +15,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
   final String apiKey;
   final String model;
   final String? baseUrl;
-  final HttpClient _client = HttpClient();
+  final http.Client _client = http.Client();
 
   @override
   final Logger logger = Logger('mcp_llm.claude_provider');
@@ -73,26 +74,24 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
 
       // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
-      final httpRequest = await _client.postUrl(uri);
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('x-api-key', apiKey);
-      httpRequest.headers.set('anthropic-version', '2023-06-01');
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      };
 
-      // Add request body
-      final jsonString = jsonEncode(requestBody);
-      final encodedBody = utf8.encode(jsonString);
-      httpRequest.contentLength = encodedBody.length;
-      httpRequest.add(encodedBody);
-
-      // Get response
-      final httpResponse = await httpRequest.close();
-      final responseBody = await utf8.decoder.bind(httpResponse).join();
+      // Send request
+      final httpResponse = await _client.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(requestBody),
+      );
 
       // Handle response
       if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-        final responseJson = jsonDecode(responseBody) as Map<String, dynamic>;
+        final responseJson = jsonDecode(httpResponse.body) as Map<String, dynamic>;
         logger.debug('Claude API response received successfully');
 
         // Parse response
@@ -100,7 +99,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       } else {
         // Handle error
         final error =
-            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+            'Claude API Error: ${httpResponse.statusCode} - ${httpResponse.body}';
         logger.error(error);
 
         throw Exception(error);
@@ -124,29 +123,27 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         logger.debug('SENDING TOOLS TO CLAUDE: ${jsonEncode(requestBody['tools'])}');
       }
 
-      // Prepare API request with retry for connection phase
+      // Prepare API request
       final uri = Uri.parse(baseUrl ?? 'https://api.anthropic.com/v1/messages');
-      final httpRequest = await executeWithRetry(() async {
-        return await _client.postUrl(uri);
-      });
-
+      
       // Set headers
-      httpRequest.headers.set('Content-Type', 'application/json');
-      httpRequest.headers.set('x-api-key', apiKey);
-      httpRequest.headers.set('anthropic-version', '2023-06-01');
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      };
 
-      // Add request body
-      final jsonString = jsonEncode(requestBody);
-      final encodedBody = utf8.encode(jsonString);
-      httpRequest.contentLength = encodedBody.length;
-      httpRequest.add(encodedBody);
+      // Create streaming request
+      final httpRequest = http.Request('POST', uri)
+        ..headers.addAll(headers)
+        ..body = jsonEncode(requestBody);
 
-      // Get response with retry for connection phase
-      final httpResponse = await executeWithRetry(() async {
-        return await httpRequest.close();
+      // Send request and get streaming response
+      final streamedResponse = await executeWithRetry(() async {
+        return await _client.send(httpRequest);
       });
 
-      if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
+      if (streamedResponse.statusCode >= 200 && streamedResponse.statusCode < 300) {
         // Variables to collect tool call information
         final Map<String, Map<String, dynamic>> toolCallsMap = {}; // id -> tool call info
         List<LlmToolCall>? toolCalls;
@@ -171,7 +168,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         }
 
         // Handle streaming response
-        await for (final chunk in utf8.decoder.bind(httpResponse)) {
+        await for (final chunk in utf8.decoder.bind(streamedResponse.stream)) {
           // Parse SSE format
           for (final line in chunk.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
@@ -683,15 +680,15 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Handle error
-        final responseBody = await utf8.decoder.bind(httpResponse).join();
+        final responseBody = await utf8.decoder.bind(streamedResponse.stream).join();
         final error =
-            'Claude API Error: ${httpResponse.statusCode} - $responseBody';
+            'Claude API Error: ${streamedResponse.statusCode} - $responseBody';
         logger.error(error);
 
         yield LlmResponseChunk(
           textChunk: 'Error: Unable to get a streaming response from Claude.',
           isDone: true,
-          metadata: {'error': error, 'status_code': httpResponse.statusCode},
+          metadata: {'error': error, 'status_code': streamedResponse.statusCode},
         );
       }
     } catch (e) {

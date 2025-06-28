@@ -1,27 +1,17 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
-/// Compression configuration options
-class CompressionOptions {
-  /// Whether to compress strings
-  final bool compressStrings;
+import 'compression_interface.dart';
+export 'compression_interface.dart' show CompressionOptions;
 
-  /// Whether to compress binary data
-  final bool compressBinaryData;
-
-  /// Minimum size for compression (bytes)
-  final int minSizeForCompression;
-
-  CompressionOptions({
-    this.compressStrings = true,
-    this.compressBinaryData = true,
-    this.minSizeForCompression = 1024, // 1KB or more
-  });
-}
+// Import platform-specific implementation
+import 'compression_stub.dart'
+    if (dart.library.io) 'compression_io.dart'
+    if (dart.library.html) 'compression_web.dart';
 
 /// Data compression utility
 class DataCompressor {
+  static final CompressionInterface _compression = createCompression();
+
   /// Compress string and encode as base64
   static Future<String> compressAndEncodeString(String input) async {
     final inputBytes = utf8.encode(input);
@@ -38,20 +28,12 @@ class DataCompressor {
 
   /// Compress binary data
   static Future<List<int>> compressData(List<int> input) async {
-    final inputData = Uint8List.fromList(input);
-
-    // Use GZIP compression
-    final result = gzip.encode(inputData);
-    return result;
+    return await _compression.compress(input);
   }
 
   /// Decompress binary data
   static Future<List<int>> decompressData(List<int> input) async {
-    final compressedData = Uint8List.fromList(input);
-
-    // Decompress GZIP
-    final result = gzip.decode(compressedData);
-    return result;
+    return await _compression.decompress(input);
   }
 
   /// Calculate compression ratio

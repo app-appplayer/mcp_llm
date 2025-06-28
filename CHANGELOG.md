@@ -1,9 +1,25 @@
-# Changelog
 
-All notable changes to this project will be documented in this file.
+## [1.0.2] 
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Fixed
+- **Web Platform Compatibility**: Fixed web platform compatibility issues for Flutter web applications
+  - Replaced `dart:io` `HttpClient` with `package:http` in all LLM providers (Claude, OpenAI, Together)
+  - Added conditional imports for platform-specific storage implementations
+  - Created web-compatible storage using localStorage for browser environments
+  - Implemented platform-agnostic compression with conditional imports
+  - All LLM providers now work seamlessly on web, mobile, and desktop platforms
+- **Storage System**: Refactored storage to use interface pattern with platform-specific implementations
+  - Created `StorageInterface` for consistent API across platforms
+  - Implemented `IoStorage` for native platforms using file system
+  - Implemented `WebStorage` for web browsers using localStorage
+  - Added `ChatHistory.fromJson()` factory constructor for proper deserialization
+- **Compression Utilities**: Made compression platform-independent
+  - Created `CompressionInterface` for platform abstraction
+  - Native platforms use `dart:io` gzip compression
+  - Web platform returns uncompressed data (with TODO for future JS interop)
+
+### Note
+- Vector stores (Pinecone, Weaviate, Qdrant) still require web compatibility updates in a future release
 
 ## [1.0.1]
 

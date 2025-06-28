@@ -3,8 +3,10 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show File;
 import 'dart:math';
+
+import 'package:http/http.dart' as http;
 
 import '../../utils/logger.dart';
 import '../vector_store.dart';
@@ -60,7 +62,7 @@ class RealPineconeVectorStore implements VectorStore {
   final String environment;
   final String indexName;
   final int dimension;
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
   
   late String _baseUrl;
   bool _initialized = false;
@@ -70,8 +72,8 @@ class RealPineconeVectorStore implements VectorStore {
     required this.environment,
     required this.indexName,
     required this.dimension,
-    HttpClient? httpClient,
-  }) : _httpClient = httpClient ?? HttpClient() {
+    http.Client? httpClient,
+  }) : _httpClient = httpClient ?? http.Client() {
     _baseUrl = 'https://$indexName-$environment.svc.pinecone.io';
   }
 
@@ -384,39 +386,38 @@ class RealPineconeVectorStore implements VectorStore {
     Map<String, dynamic>? body,
   }) async {
     final url = Uri.parse('$_baseUrl$path');
-    late HttpClientRequest request;
+    http.Response response;
+    
+    final headers = {
+      'Api-Key': apiKey,
+      'Content-Type': 'application/json',
+    };
 
     switch (method.toUpperCase()) {
       case 'GET':
-        request = await _httpClient.getUrl(url);
+        response = await _httpClient.get(url, headers: headers);
         break;
       case 'POST':
-        request = await _httpClient.postUrl(url);
+        response = await _httpClient.post(
+          url,
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
         break;
       case 'DELETE':
-        request = await _httpClient.deleteUrl(url);
+        response = await _httpClient.delete(url, headers: headers);
         break;
       default:
         throw ArgumentError('Unsupported HTTP method: $method');
     }
 
-    // Set headers
-    request.headers.set('Api-Key', apiKey);
-    request.headers.set('Content-Type', 'application/json');
-
-    // Write body for POST requests
-    if (body != null) {
-      final jsonBody = jsonEncode(body);
-      request.write(jsonBody);
-    }
-
-    final response = await request.close();
-    final responseBody = await response.transform(utf8.decoder).join();
-
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return jsonDecode(responseBody) as Map<String, dynamic>;
+      if (response.body.isNotEmpty) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      return {};
     } else {
-      throw Exception('Pinecone API error: ${response.statusCode} - $responseBody');
+      throw Exception('Pinecone API error: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -439,7 +440,7 @@ class RealWeaviateVectorStore implements VectorStore {
   final String? apiKey;
   final String className;
   final int dimension;
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
   
   bool _initialized = false;
 
@@ -448,8 +449,8 @@ class RealWeaviateVectorStore implements VectorStore {
     this.apiKey,
     required this.className,
     required this.dimension,
-    HttpClient? httpClient,
-  }) : _httpClient = httpClient ?? HttpClient();
+    http.Client? httpClient,
+  }) : _httpClient = httpClient ?? http.Client();
 
   @override
   Future<void> initialize() async {
@@ -830,42 +831,38 @@ class RealWeaviateVectorStore implements VectorStore {
     Map<String, dynamic>? body,
   }) async {
     final requestUrl = Uri.parse('$url$path');
-    late HttpClientRequest request;
+    http.Response response;
+    
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (apiKey != null) {
+      headers['Authorization'] = 'Bearer $apiKey';
+    }
 
     switch (method.toUpperCase()) {
       case 'GET':
-        request = await _httpClient.getUrl(requestUrl);
+        response = await _httpClient.get(requestUrl, headers: headers);
         break;
       case 'POST':
-        request = await _httpClient.postUrl(requestUrl);
+        response = await _httpClient.post(
+          requestUrl,
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
         break;
       case 'DELETE':
-        request = await _httpClient.deleteUrl(requestUrl);
+        response = await _httpClient.delete(requestUrl, headers: headers);
         break;
       default:
         throw ArgumentError('Unsupported HTTP method: $method');
     }
 
-    // Set headers
-    request.headers.set('Content-Type', 'application/json');
-    if (apiKey != null) {
-      request.headers.set('Authorization', 'Bearer $apiKey');
-    }
-
-    // Write body for POST requests
-    if (body != null) {
-      final jsonBody = jsonEncode(body);
-      request.write(jsonBody);
-    }
-
-    final response = await request.close();
-    final responseBody = await response.transform(utf8.decoder).join();
-
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (responseBody.isEmpty) return {};
-      return jsonDecode(responseBody) as Map<String, dynamic>;
+      if (response.body.isEmpty) return {};
+      return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
-      throw Exception('Weaviate API error: ${response.statusCode} - $responseBody');
+      throw Exception('Weaviate API error: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -888,7 +885,7 @@ class RealQdrantVectorStore implements VectorStore {
   final String? apiKey;
   final String collectionName;
   final int dimension;
-  final HttpClient _httpClient;
+  final http.Client _httpClient;
   
   bool _initialized = false;
 
@@ -897,8 +894,8 @@ class RealQdrantVectorStore implements VectorStore {
     this.apiKey,
     required this.collectionName,
     required this.dimension,
-    HttpClient? httpClient,
-  }) : _httpClient = httpClient ?? HttpClient();
+    http.Client? httpClient,
+  }) : _httpClient = httpClient ?? http.Client();
 
   @override
   Future<void> initialize() async {
@@ -1250,45 +1247,45 @@ class RealQdrantVectorStore implements VectorStore {
     Map<String, dynamic>? body,
   }) async {
     final requestUrl = Uri.parse('$url$path');
-    late HttpClientRequest request;
+    http.Response response;
+    
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (apiKey != null) {
+      headers['Api-Key'] = apiKey!;
+    }
 
     switch (method.toUpperCase()) {
       case 'GET':
-        request = await _httpClient.getUrl(requestUrl);
+        response = await _httpClient.get(requestUrl, headers: headers);
         break;
       case 'POST':
-        request = await _httpClient.postUrl(requestUrl);
+        response = await _httpClient.post(
+          requestUrl,
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
         break;
       case 'PUT':
-        request = await _httpClient.putUrl(requestUrl);
+        response = await _httpClient.put(
+          requestUrl,
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        );
         break;
       case 'DELETE':
-        request = await _httpClient.deleteUrl(requestUrl);
+        response = await _httpClient.delete(requestUrl, headers: headers);
         break;
       default:
         throw ArgumentError('Unsupported HTTP method: $method');
     }
 
-    // Set headers
-    request.headers.set('Content-Type', 'application/json');
-    if (apiKey != null) {
-      request.headers.set('Api-Key', apiKey!);
-    }
-
-    // Write body for requests that support it
-    if (body != null) {
-      final jsonBody = jsonEncode(body);
-      request.write(jsonBody);
-    }
-
-    final response = await request.close();
-    final responseBody = await response.transform(utf8.decoder).join();
-
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (responseBody.isEmpty) return {};
-      return jsonDecode(responseBody) as Map<String, dynamic>;
+      if (response.body.isEmpty) return {};
+      return jsonDecode(response.body) as Map<String, dynamic>;
     } else {
-      throw Exception('Qdrant API error: ${response.statusCode} - $responseBody');
+      throw Exception('Qdrant API error: ${response.statusCode} - ${response.body}');
     }
   }
 
