@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 
 /// Compression configuration options
 class CompressionOptions {
