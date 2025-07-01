@@ -1,8 +1,13 @@
 # MCP LLM 
 
-If you find this package useful, consider supporting ongoing development on Patreon.
+## 🙌 Support This Project
 
-[![Support on Patreon](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/mcpdevstudio)
+If you find this package useful, consider supporting ongoing development on PayPal.
+
+[![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/ncp/payment/F7G56QD9LSJ92)  
+Support makemind via [PayPal](https://www.paypal.com/ncp/payment/F7G56QD9LSJ92)
+
+---
 
 ### 🔗 MCP Dart Package Family
 
@@ -18,7 +23,7 @@ If you find this package useful, consider supporting ongoing development on Patr
 
 A powerful Dart package for integrating Large Language Models (LLMs) with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This package provides comprehensive tools for LLM communication, multi-client support, advanced processing capabilities, and full 2025-03-26 MCP specification compliance.
 
-## ✨ What's New in v1.0.0 (2025-03-26)
+## ✨ What's New in v1.0.0
 
 🚀 **Major version 1.0.0 release with full 2025-03-26 MCP specification support:**
 
