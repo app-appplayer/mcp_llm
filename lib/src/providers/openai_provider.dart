@@ -68,7 +68,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       final requestBody = _buildRequestBody(request);
 
       // Prepare API request
-      final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/chat/completions');
+      final uri = Uri.parse('${baseUrl ?? 'https://api.openai.com'}/v1/chat/completions');
       
       // Set headers
       final headers = {
@@ -603,7 +603,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       logger.debug('OpenAI embeddings request');
 
       // Prepare API request
-      final uri = Uri.parse(baseUrl ?? 'https://api.openai.com/v1/embeddings');
+      final uri = Uri.parse('${baseUrl ?? 'https://api.openai.com'}/v1/embeddings');
       
       // Set headers
       final headers = {

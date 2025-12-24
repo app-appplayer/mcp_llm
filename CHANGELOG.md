@@ -1,3 +1,9 @@
+## [1.0.3]
+
+### Fixed
+- **OpenAI Provider**: Fixed baseUrl handling inconsistency in `complete` and `getEmbeddings` methods
+  - Now correctly appends `/v1/chat/completions` and `/v1/embeddings` paths when custom baseUrl is provided
+  - Consistent behavior with `streamComplete` method
 
 ## [1.0.2] 
 
