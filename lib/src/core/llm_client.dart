@@ -986,13 +986,14 @@ class LlmClient {
       }
 
       // Store assistant message with tool_calls metadata
+      // NOTE: arguments stored as Map - each provider handles JSON encoding
       final assistantMessage = LlmMessage(
         role: 'assistant',
         content: {
           'tool_calls': validToolCalls.map((tc) => {
             'id': tc.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}',
             'name': tc.name,
-            'arguments': jsonEncode(tc.arguments),
+            'arguments': tc.arguments,
           }).toList(),
         },
         metadata: {'tool_call': true},

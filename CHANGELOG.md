@@ -1,3 +1,10 @@
+## [1.1.1] - Bug Fix
+
+### 🐛 Fixed
+- Fixed tool arguments encoding issue in provider implementations
+
+---
+
 ## [1.1.0] - Breaking Changes & New Features
 
 ### ⚠️ Breaking Changes
@@ -37,7 +44,6 @@ if (message.role == 'tool')     // NEW - use this instead
 #### OpenAI Tool Calls Structure
 - **Fixed tool_calls format** to match OpenAI API specification
   - Added required `type: 'function'` wrapper in tool calls
-  - Changed `arguments` from Map to JSON string as required by OpenAI
   ```json
   // Before (incorrect)
   {"id": "...", "name": "...", "arguments": {...}}

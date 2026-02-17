@@ -24,11 +24,12 @@ Support makemind via [PayPal](https://www.paypal.com/ncp/payment/F7G56QD9LSJ92)
 
 A powerful Dart package for integrating Large Language Models (LLMs) with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This package provides comprehensive tools for LLM communication, multi-client support, advanced processing capabilities, and full 2025-03-26 MCP specification compliance.
 
-## ✨ What's New in v1.1.0
+## ✨ What's New in v1.1.1
 
-### 🐛 Critical Bug Fixes
+### 🐛 Bug Fixes
 - **SSE Buffering Fix**: Fixed "Unterminated string" JSON parse errors in all streaming providers (OpenAI, Claude, Together)
 - **OpenAI Tool Calls**: Fixed tool_calls structure to match OpenAI API specification
+- Fixed tool arguments encoding issue in provider implementations
 
 ### ✨ New Features
 - **Deferred Tool Loading**: 60-80% token reduction with `useDeferredLoading: true`
@@ -38,8 +39,6 @@ A powerful Dart package for integrating Large Language Models (LLMs) with [Model
 ### ⚠️ Breaking Changes
 - **Tool Message Role**: Changed from `'function'` to `'tool'` (OpenAI API standard)
 - **LlmMessage.tool()**: Added `toolCallId` and `arguments` parameters
-
-See [Migration Guide](#migration-from-v10x-to-v110) below for details.
 
 ---
 
@@ -100,7 +99,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  mcp_llm: ^1.1.0
+  mcp_llm: ^1.1.1
 ```
 
 ### Basic Usage (2025-03-26)
@@ -573,7 +572,7 @@ final llmClient = LlmClient(
 );
 ```
 
-## Migration from v1.0.x to v1.1.0
+## Migration from v1.0.x to v1.1.1
 
 ### Breaking Change: Tool Message Role
 
@@ -587,7 +586,7 @@ if (message.role == 'function') {
   // Handle tool message
 }
 
-// AFTER (v1.1.0)
+// AFTER (v1.1.1)
 if (message.role == 'tool') {
   // Handle tool message
 }
@@ -605,7 +604,7 @@ final toolMessage = LlmMessage.tool(
   metadata: {'source': 'mcp'},
 );
 
-// AFTER (v1.1.0) - existing code still works, but you can now add:
+// AFTER (v1.1.1) - existing code still works, but you can now add:
 final toolMessage = LlmMessage.tool(
   'calculator',
   {'result': 42},
@@ -632,9 +631,10 @@ final client = LlmClient(
 
 ## Version History
 
-- **v1.1.0**: Breaking changes & new features
+- **v1.1.1**: Bug fixes & new features
   - Fixed SSE buffering bug causing JSON parse errors in streaming
   - Fixed OpenAI tool_calls structure format
+  - Fixed tool arguments encoding issue in provider implementations
   - Changed tool message role from 'function' to 'tool'
   - Added deferred tool loading for token optimization
   - Added multi-round tool calling support
