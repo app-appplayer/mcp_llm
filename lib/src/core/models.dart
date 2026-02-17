@@ -945,3 +945,54 @@ class LlmConfiguration {
   }
 }
 
+/// Simple validation result for tool call validation
+class ValidationResult {
+  final bool isValid;
+  final String? error;
+
+  const ValidationResult._(this.isValid, this.error);
+
+  factory ValidationResult.valid() => const ValidationResult._(true, null);
+  factory ValidationResult.invalid(String error) =>
+      ValidationResult._(false, error);
+
+  @override
+  String toString() =>
+      isValid ? 'ValidationResult(valid)' : 'ValidationResult(invalid: $error)';
+}
+
+/// Lightweight tool metadata (name + description only)
+/// Used for token-efficient LLM context in deferred loading mode
+class LlmToolMetadata {
+  final String name;
+  final String description;
+
+  const LlmToolMetadata({
+    required this.name,
+    required this.description,
+  });
+
+  factory LlmToolMetadata.fromMap(Map<String, dynamic> map) => LlmToolMetadata(
+        name: map['name'] as String,
+        description: map['description'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'description': description,
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LlmToolMetadata &&
+          name == other.name &&
+          description == other.description;
+
+  @override
+  int get hashCode => Object.hash(name, description);
+
+  @override
+  String toString() => 'LlmToolMetadata(name: $name)';
+}
+

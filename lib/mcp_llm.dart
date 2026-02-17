@@ -70,6 +70,9 @@ export 'src/rag/vector_stores/pinecone_vector_store.dart';
 export 'src/rag/vector_stores/weaviate_vector_store.dart';
 export 'src/rag/vector_stores/real_vector_stores.dart';
 
+// Deferred Tool Loading
+export 'src/deferred/deferred_tool_manager.dart';
+
 // Utilities
 export 'src/utils/logger.dart';
 export 'src/utils/token_counter.dart';

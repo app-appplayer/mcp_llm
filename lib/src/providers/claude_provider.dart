@@ -167,10 +167,20 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
           }
         }
 
-        // Handle streaming response
+        // Handle streaming response with SSE buffering
+        // TCP chunks can split JSON data mid-line, causing "Unterminated string" errors
+        final StringBuffer lineBuffer = StringBuffer();
         await for (final chunk in utf8.decoder.bind(streamedResponse.stream)) {
-          // Parse SSE format
-          for (final line in chunk.split('\n')) {
+          lineBuffer.write(chunk);
+          final text = lineBuffer.toString();
+          final lastNewline = text.lastIndexOf('\n');
+          if (lastNewline == -1) continue; // No complete line yet
+          final toProcess = text.substring(0, lastNewline);
+          lineBuffer.clear();
+          lineBuffer.write(text.substring(lastNewline + 1));
+
+          // Parse SSE format - process only complete lines
+          for (final line in toProcess.split('\n')) {
             if (line.startsWith('data: ') && line.length > 6) {
               final data = line.substring(6);
               if (data == '[DONE]') {
@@ -1043,7 +1053,7 @@ class ClaudeProviderFactory implements LlmProviderFactory {
 
     return ClaudeProvider(
       apiKey: apiKey,
-      model: config.model ?? 'claude-3-sonnet-20240229',
+      model: config.model ?? 'claude-sonnet-4-20250514',
       baseUrl: config.baseUrl,
       config: config,
     );

@@ -39,7 +39,7 @@ void main() {
         providerName: 'claude',
         config: LlmConfiguration(
           apiKey: anthropicApiKey,
-          model: 'claude-3-sonnet-20240229',
+          model: 'claude-sonnet-4-20250514',
         ),
       );
 

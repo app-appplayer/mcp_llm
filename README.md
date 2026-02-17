@@ -24,6 +24,25 @@ Support makemind via [PayPal](https://www.paypal.com/ncp/payment/F7G56QD9LSJ92)
 
 A powerful Dart package for integrating Large Language Models (LLMs) with [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). This package provides comprehensive tools for LLM communication, multi-client support, advanced processing capabilities, and full 2025-03-26 MCP specification compliance.
 
+## ✨ What's New in v1.1.0
+
+### 🐛 Critical Bug Fixes
+- **SSE Buffering Fix**: Fixed "Unterminated string" JSON parse errors in all streaming providers (OpenAI, Claude, Together)
+- **OpenAI Tool Calls**: Fixed tool_calls structure to match OpenAI API specification
+
+### ✨ New Features
+- **Deferred Tool Loading**: 60-80% token reduction with `useDeferredLoading: true`
+- **Multi-Round Tool Calling**: Chain multiple tool calls with `maxToolRounds` parameter
+- **Resource Tool Bridge**: Access MCP resources via `mcp_read_resource` and `mcp_list_resources` synthetic tools
+
+### ⚠️ Breaking Changes
+- **Tool Message Role**: Changed from `'function'` to `'tool'` (OpenAI API standard)
+- **LlmMessage.tool()**: Added `toolCallId` and `arguments` parameters
+
+See [Migration Guide](#migration-from-v10x-to-v110) below for details.
+
+---
+
 ## ✨ What's New in v1.0.0
 
 🚀 **Major version 1.0.0 release with full 2025-03-26 MCP specification support:**
@@ -81,7 +100,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  mcp_llm: ^1.0.3
+  mcp_llm: ^1.1.0
 ```
 
 ### Basic Usage (2025-03-26)
@@ -554,8 +573,72 @@ final llmClient = LlmClient(
 );
 ```
 
+## Migration from v1.0.x to v1.1.0
+
+### Breaking Change: Tool Message Role
+
+The `LlmMessage.tool()` factory now uses `'tool'` role instead of `'function'` to align with current OpenAI API standards:
+
+```dart
+// If you manually check tool message roles, update your code:
+
+// BEFORE (v1.0.x)
+if (message.role == 'function') {
+  // Handle tool message
+}
+
+// AFTER (v1.1.0)
+if (message.role == 'tool') {
+  // Handle tool message
+}
+```
+
+### Extended LlmMessage.tool() Signature
+
+New optional parameters for better tool call tracking:
+
+```dart
+// BEFORE (v1.0.x)
+final toolMessage = LlmMessage.tool(
+  'calculator',
+  {'result': 42},
+  metadata: {'source': 'mcp'},
+);
+
+// AFTER (v1.1.0) - existing code still works, but you can now add:
+final toolMessage = LlmMessage.tool(
+  'calculator',
+  {'result': 42},
+  metadata: {'source': 'mcp'},
+  toolCallId: 'call_abc123',        // NEW: Track tool call ID
+  arguments: {'a': 10, 'b': 32},    // NEW: Store original arguments
+);
+```
+
+### New Features (Opt-in)
+
+These features are disabled by default - no changes needed unless you want to use them:
+
+```dart
+// Enable deferred tool loading for token optimization
+final client = LlmClient(
+  llmProvider: provider,
+  useDeferredLoading: true,  // NEW: 60-80% token reduction
+  maxToolRounds: 3,          // NEW: Allow multi-round tool calls
+);
+```
+
+---
+
 ## Version History
 
+- **v1.1.0**: Breaking changes & new features
+  - Fixed SSE buffering bug causing JSON parse errors in streaming
+  - Fixed OpenAI tool_calls structure format
+  - Changed tool message role from 'function' to 'tool'
+  - Added deferred tool loading for token optimization
+  - Added multi-round tool calling support
+  - Added MCP resource tool bridge
 - **v1.0.0** (2025-03-26): Major release with full 2025-03-26 MCP specification support
   - OAuth 2.1 authentication with PKCE support
   - JSON-RPC 2.0 batch processing optimization (40-60% performance improvement)

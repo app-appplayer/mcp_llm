@@ -92,46 +92,54 @@ class ChatSession {
     _logger.debug('Added system message to chat session');
   }
 
-// Method to add tool result
+  /// Add a pre-built tool message to the chat
+  void addToolMessage(LlmMessage message) {
+    _history.addMessage(message);
+    _persistHistory();
+
+    _logger.debug('Added tool message to chat session');
+  }
+
+  /// Add tool result with structured messages
   void addToolResult(String toolName, Map<String, dynamic> arguments, List<dynamic> results, {String? toolCallId}) {
     final callId = toolCallId ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Convert tool results to text
-    String resultContent = '';
+    // Convert tool results to content
+    dynamic resultContent;
     if (results.isNotEmpty) {
       if (results.first is Map) {
         resultContent = jsonEncode(results.first);
       } else {
         resultContent = results.first.toString();
       }
+    } else {
+      resultContent = '';
     }
 
-    // Convert tool call message to plain text
-    final toolCallText = "Using tool: $toolName with arguments: ${jsonEncode(arguments)}";
-
-    // Add as regular assistant message
-    addAssistantMessage(toolCallText);
-
-    // Convert tool result message to plain text and add
-    final resultText = "Tool result: $resultContent";
-    addAssistantMessage(resultText);
+    // Add structured tool result message
+    final toolMessage = LlmMessage.tool(
+      toolName,
+      resultContent,
+      toolCallId: callId,
+      arguments: arguments,
+    );
+    addToolMessage(toolMessage);
 
     _logger.debug('Added tool result to chat session: $toolName (ID: $callId)');
   }
 
-// Method to add tool error
+  /// Add tool error with structured messages
   void addToolError(String toolName, String errorMessage, {String? toolCallId}) {
     final callId = toolCallId ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Convert tool call message to plain text
-    final toolCallText = "Attempting to use tool: $toolName";
-
-    // Add as regular assistant message
-    addAssistantMessage(toolCallText);
-
-    // Convert error message to plain text and add
-    final errorText = "Tool error: $errorMessage";
-    addAssistantMessage(errorText);
+    // Add structured tool error message
+    final toolMessage = LlmMessage.tool(
+      toolName,
+      {'error': errorMessage},
+      toolCallId: callId,
+      metadata: {'is_error': true},
+    );
+    addToolMessage(toolMessage);
 
     _logger.debug('Added tool error to chat session: $toolName - $errorMessage (ID: $callId)');
   }

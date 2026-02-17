@@ -25,6 +25,16 @@ class LlmClient {
   /// Enhanced error handler for 2025-03-26 error handling
   late final EnhancedErrorHandler? _errorHandler;
 
+  /// Deferred tool manager - created automatically when useDeferredLoading=true
+  /// Null when useDeferredLoading=false (no overhead for existing users)
+  DeferredToolManager? _deferredToolManager;
+
+  /// Whether deferred loading is enabled
+  final bool _useDeferredLoading;
+
+  /// Maximum number of tool calling rounds
+  final int _maxToolRounds;
+
   /// Storage manager
   final StorageManager? storageManager;
 
@@ -60,10 +70,14 @@ class LlmClient {
     bool enableLifecycleManagement = true, // Enable lifecycle management (2025-03-26)
     bool enableEnhancedErrorHandling = true, // Enable enhanced error handling (2025-03-26)
     bool enableDebugLogging = false, // Enable debug logging (2025-03-26)
+    bool useDeferredLoading = false, // Enable deferred tool loading (opt-in)
+    int maxToolRounds = 1, // Maximum tool calling rounds (1 = single round)
   })
       : _mcpClientManager = _initMcpClientManager(mcpClient, mcpClients),
         pluginManager = pluginManager ?? PluginManager(),
-        _performanceMonitor = performanceMonitor ?? PerformanceMonitor() {
+        _performanceMonitor = performanceMonitor ?? PerformanceMonitor(),
+        _useDeferredLoading = useDeferredLoading,
+        _maxToolRounds = maxToolRounds.clamp(1, 10) {
     
     // Initialize logging configuration (2025-03-26)
     if (enableDebugLogging) {
@@ -84,6 +98,12 @@ class LlmClient {
     _capabilityManager = enableCapabilityManagement ? _initCapabilityManager() : null;
     _lifecycleManager = enableLifecycleManagement ? _initLifecycleManager() : null;
     _errorHandler = enableEnhancedErrorHandling ? _initErrorHandler(errorConfig) : null;
+
+    // AUTO CONFIGURATION: Create DeferredToolManager if enabled
+    if (_useDeferredLoading) {
+      _deferredToolManager = DeferredToolManager();
+      _logger.info('Deferred tool loading enabled - token optimization active');
+    }
   }
 
   /// Initialize the MCP client manager
@@ -386,14 +406,20 @@ class LlmClient {
     );
 
     if (includeSystemPrompt && availableResources.isNotEmpty) {
-        enhancedPrompt.write('\nResource usage guidelines:\n');
-        enhancedPrompt.write('1. When the user requests a resource list, show them the above resource list with details.\n');
-        enhancedPrompt.write('2. When using resources, reference the resource name accurately.\n');
+        enhancedPrompt.write('\nResource Access Guidelines:\n');
+        enhancedPrompt.write('1. Use the "mcp_read_resource" tool to fetch resource content.\n');
+        enhancedPrompt.write('2. Use the "mcp_list_resources" tool to see all available resources.\n');
+        enhancedPrompt.write('3. Provide either "uri" or "resourceName" parameter to mcp_read_resource.\n');
 
       enhancedPrompt.write('\n\nAvailable resources:\n');
       for (int i = 0; i < availableResources.length; i++) {
         final resource = availableResources[i];
         enhancedPrompt.write('${i+1}. ${resource['name']} - ${resource['description']}\n');
+
+        // Add resource URI
+        if (resource['uri'] != null) {
+          enhancedPrompt.write('   URI: ${resource['uri']}\n');
+        }
 
         // Add resource details
         if (resource['mimeType'] != null) {
@@ -572,8 +598,9 @@ class LlmClient {
       // Send request to LLM
       LlmResponse response = await llmProvider.complete(request);
 
-      // Add to chat session only if there's initial text
-      if (response.text.isNotEmpty) {
+      // Add to chat session only if there's text AND no tool calls
+      // When tool calls exist, _handleToolCalls stores the structured assistant message
+      if (response.text.isNotEmpty && (response.toolCalls == null || response.toolCalls!.isEmpty)) {
         chatSession.addAssistantMessage(response.text);
       }
 
@@ -582,14 +609,30 @@ class LlmClient {
 
       // Handle tool calls if any
       if (response.toolCalls != null && response.toolCalls!.isNotEmpty) {
-        final toolResponse = await _handleToolCalls(
+        LlmResponse toolResponse;
+
+        // === DEFERRED LOADING PATH (NEW) ===
+        if (_useDeferredLoading && _deferredToolManager != null) {
+          toolResponse = await _handleDeferredToolCalls(
             response,
             userInput,
             enableTools,
             enablePlugins,
             parameters,
-            context
-        );
+            context,
+          );
+        }
+        // === EXISTING PATH (UNCHANGED) ===
+        else {
+          toolResponse = await _handleToolCalls(
+            response,
+            userInput,
+            enableTools,
+            enablePlugins,
+            parameters,
+            context,
+          );
+        }
 
         // Add only the follow-up response to chat session
         if (toolResponse.text.isNotEmpty) {
@@ -769,8 +812,9 @@ class LlmClient {
           toolCalls: collectedToolCalls,
         );
 
-        // Add the initial response to chat session
-        if (fullResponse.text.isNotEmpty) {
+        // Add the initial response to chat session only if no tool calls
+        // When tool calls exist, _handleToolCalls stores the structured assistant message
+        if (fullResponse.text.isNotEmpty && (fullResponse.toolCalls == null || fullResponse.toolCalls!.isEmpty)) {
           chatSession.addAssistantMessage(fullResponse.text);
         }
 
@@ -796,8 +840,9 @@ class LlmClient {
             return;
           }
 
+          // Signal tool processing via metadata only (no text pollution)
           yield LlmResponseChunk(
-            textChunk: "\n\n[Processing tool calls...]\n\n",
+            textChunk: "",
             isDone: false,
             metadata: {'processing_tools': true},
           );
@@ -900,155 +945,325 @@ class LlmClient {
     }
   }
 
-  /// Handle tool calls in response
+  /// Handle tool calls in response with multi-round support
   Future<LlmResponse> _handleToolCalls(LlmResponse response,
       String userInput,
       bool enableTools,
       bool enablePlugins,
       Map<String, dynamic> parameters,
       LlmContext? context) async {
-    // Tool call validation - filter tool calls without arguments
-    final validToolCalls = <LlmToolCall>[];
 
-    final Set<String> processedSignatures = {};
+    for (int round = 0; round < _maxToolRounds; round++) {
+      _logger.debug('Tool round ${round + 1}/$_maxToolRounds');
 
-    for (final toolCall in response.toolCalls!) {
-      // Skip tool calls with empty arguments
-      if (toolCall.arguments.isEmpty) {
-        _logger.warning('Skipping empty tool call for "${toolCall.name}" - no arguments provided');
-        continue;
+      // Tool call validation - filter tool calls without arguments
+      final validToolCalls = <LlmToolCall>[];
+      final Set<String> processedSignatures = {};
+
+      for (final toolCall in response.toolCalls!) {
+        if (toolCall.arguments.isEmpty) {
+          _logger.warning('Skipping empty tool call for "${toolCall.name}" - no arguments provided');
+          continue;
+        }
+
+        final signature = '${toolCall.name}:${jsonEncode(toolCall.arguments)}';
+        if (processedSignatures.contains(signature)) {
+          _logger.warning('Skipping duplicate tool call for "${toolCall.name}" with identical arguments');
+          continue;
+        }
+
+        processedSignatures.add(signature);
+        validToolCalls.add(toolCall);
+        _logger.debug('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
       }
 
-      // Generate tool call signature (tool name + hash of argument values)
-      final signature = '${toolCall.name}:${jsonEncode(toolCall.arguments)}';
-
-      // Skip tool calls with identical signatures that have already been processed
-      if (processedSignatures.contains(signature)) {
-        _logger.warning('Skipping duplicate tool call for "${toolCall.name}" with identical arguments');
-        continue;
+      if (validToolCalls.isEmpty) {
+        _logger.warning('All tool calls had empty arguments - skipping tool execution');
+        return LlmResponse(
+          text: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
+          metadata: {'error': 'empty_tool_calls'},
+        );
       }
 
-      // Add signature and register as valid tool call
-      processedSignatures.add(signature);
-      validToolCalls.add(toolCall);
-      _logger.debug('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
-    }
-
-    // Stop processing if there are no valid tool calls
-    if (validToolCalls.isEmpty) {
-      // Return error message if all tool calls are empty
-      _logger.warning('All tool calls had empty arguments - skipping tool execution');
-      return LlmResponse(
-        text: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
-        metadata: {'error': 'empty_tool_calls'},
+      // Store assistant message with tool_calls metadata
+      final assistantMessage = LlmMessage(
+        role: 'assistant',
+        content: {
+          'tool_calls': validToolCalls.map((tc) => {
+            'id': tc.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}',
+            'name': tc.name,
+            'arguments': jsonEncode(tc.arguments),
+          }).toList(),
+        },
+        metadata: {'tool_call': true},
       );
-    }
+      chatSession.addToolMessage(assistantMessage);
 
-    // Tool call result map (ID -> result)
-    final Map<String, dynamic> toolResults = {};
-    final Map<String, String> toolErrors = {};
+      // Execute all valid tools
+      final Map<String, dynamic> toolResults = {};
+      final Map<String, String> toolErrors = {};
 
-    // Execute all valid tools
-    for (final toolCall in validToolCalls) {
-      final toolId = toolCall.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
+      for (final toolCall in validToolCalls) {
+        final toolId = toolCall.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
 
-      try {
-        // Execute tool
-        final toolResult = await executeTool(
-          toolCall.name,
-          toolCall.arguments,
+        try {
+          final toolResult = await executeTool(
+            toolCall.name,
+            toolCall.arguments,
+            enableMcpTools: enableTools,
+            enablePlugins: enablePlugins,
+          );
+
+          toolResults[toolId] = toolResult;
+
+          chatSession.addToolResult(
+            toolCall.name,
+            toolCall.arguments,
+            [toolResult],
+            toolCallId: toolId,
+          );
+          _logger.debug('toolResult $toolResult');
+        } catch (e) {
+          _logger.error('Error executing tool ${toolCall.name}: $e');
+
+          toolErrors[toolId] = e.toString();
+
+          chatSession.addToolError(
+            toolCall.name,
+            e.toString(),
+            toolCallId: toolId,
+          );
+        }
+      }
+
+      // Return error if all tools failed
+      if (toolResults.isEmpty && toolErrors.isNotEmpty) {
+        final firstErrorEntry = toolErrors.entries.first;
+        return LlmResponse(
+          text: "I tried to use a tool, but encountered an error: ${firstErrorEntry.value}",
+          metadata: {'error': firstErrorEntry.value, 'tool_call_id': firstErrorEntry.key},
+        );
+      }
+
+      // Create follow-up request with tool results
+      if (toolResults.isNotEmpty) {
+        final toolResultsInfo = toolResults.entries.map((entry) =>
+        "Tool result for call ${entry.key}: ${entry.value}").join("\n");
+
+        // Collect tools for follow-up request
+        final availableTools = await _collectAvailableTools(
           enableMcpTools: enableTools,
           enablePlugins: enablePlugins,
         );
 
-        // Save to result map
-        toolResults[toolId] = toolResult;
+        final followUpParameters = Map<String, dynamic>.from(parameters);
+        if (availableTools.isNotEmpty) {
+          final toolDescriptions = availableTools.map((tool) => {
+            'name': tool['name'],
+            'description': tool['description'],
+            'parameters': tool['inputSchema'],
+          }).toList();
+          followUpParameters['tools'] = toolDescriptions;
+        }
 
-        // Add tool result to session
-        chatSession.addToolResult(
-          toolCall.name,
-          toolCall.arguments,
-          [toolResult],
-          toolCallId: toolId,  // Pass ID
+        final followUpRequest = LlmRequest(
+          prompt: "Based on the tool results, answer the original question: \"$userInput\"\n\nTool results:\n$toolResultsInfo",
+          history: chatSession.getMessagesForContext(),
+          parameters: followUpParameters,
+          context: context,
         );
-        _logger.debug('toolResult $toolResult');
-      } catch (e) {
-        _logger.error('Error executing tool ${toolCall.name}: $e');
 
-        // Save to error map
-        toolErrors[toolId] = e.toString();
+        try {
+          response = await llmProvider.complete(followUpRequest);
+        } catch (e) {
+          _logger.error('Error getting follow-up response: $e');
+          return LlmResponse(
+            text: "I tried to use tools to answer your question, but encountered an error processing the results: $e",
+            metadata: {'error': e.toString()},
+          );
+        }
 
-        // Add tool error to session
-        chatSession.addToolError(
-          toolCall.name,
-          e.toString(),
-          toolCallId: toolId,  // Pass ID
-        );
-      }
-    }
+        // Check if follow-up response has more tool calls
+        if (response.toolCalls != null && response.toolCalls!.isNotEmpty) {
+          if (round + 1 < _maxToolRounds) {
+            // Continue loop for next round
+            _logger.debug('Follow-up response has tool calls, continuing to round ${round + 2}');
+            continue;
+          } else {
+            _logger.warning('Max tool rounds reached ($_maxToolRounds), returning response with pending tool calls');
+          }
+        }
 
-    // Return error response if there are errors
-    if (toolResults.isEmpty && toolErrors.isNotEmpty) {
-      // Use the first error message
-      final firstErrorEntry = toolErrors.entries.first;
-      return LlmResponse(
-        text: "I tried to use a tool, but encountered an error: ${firstErrorEntry.value}",
-        metadata: {'error': firstErrorEntry.value, 'tool_call_id': firstErrorEntry.key},
-      );
-    }
-
-    // If there are tool results, create a follow-up request
-    if (toolResults.isNotEmpty) {
-      // Create message with tool result information
-      final toolResultsInfo = toolResults.entries.map((entry) =>
-      "Tool result for call ${entry.key}: ${entry.value}").join("\n");
-
-      // Create follow-up request
-      final followUpRequest = LlmRequest(
-        prompt: "Based on the tool results, answer the original question: \"$userInput\"\n\nTool results:\n$toolResultsInfo",
-        history: chatSession.getMessagesForContext(),
-        parameters: parameters,
-        context: context,
-      );
-
-      // Get follow-up response
-      try {
-        response = await llmProvider.complete(followUpRequest);
-      } catch (e) {
-        _logger.error('Error getting follow-up response: $e');
-        return LlmResponse(
-          text: "I tried to use tools to answer your question, but encountered an error processing the results: $e",
-          metadata: {'error': e.toString()},
-        );
+        // No more tool calls or max rounds reached
+        break;
       }
     }
 
     return response;
   }
 
+  /// Handle tool calls with deferred loading
+  /// Validates arguments against cached schema and retries with full schema if needed
+  Future<LlmResponse> _handleDeferredToolCalls(
+    LlmResponse response,
+    String userInput,
+    bool enableTools,
+    bool enablePlugins,
+    Map<String, dynamic> parameters,
+    LlmContext? context,
+  ) async {
+    final toolCalls = response.toolCalls!;
+
+    for (final toolCall in toolCalls) {
+      final toolName = toolCall.name;
+
+      // Validate arguments against cached schema
+      final validationResult = _deferredToolManager!.validateToolCall(
+        toolName,
+        toolCall.arguments,
+      );
+
+      if (!validationResult.isValid) {
+        // LLM made incorrect call (missing/wrong params)
+        // Provide full schema and ask LLM to retry
+        _logger.info('Tool call validation failed for $toolName: ${validationResult.error}');
+        return await _retryWithFullSchema(
+          toolName: toolName,
+          originalResponse: response,
+          userInput: userInput,
+          parameters: parameters,
+          context: context,
+          validationError: validationResult.error,
+          enableTools: enableTools,
+          enablePlugins: enablePlugins,
+        );
+      }
+    }
+
+    // All tool calls are valid, execute them using existing method
+    return await _handleToolCalls(
+      response,
+      userInput,
+      enableTools,
+      enablePlugins,
+      parameters,
+      context,
+    );
+  }
+
+  /// Retry LLM request with full tool schema
+  /// Uses ephemeral context to avoid polluting session history
+  Future<LlmResponse> _retryWithFullSchema({
+    required String toolName,
+    required LlmResponse originalResponse,
+    required String userInput,
+    required Map<String, dynamic> parameters,
+    required LlmContext? context,
+    required bool enableTools,
+    required bool enablePlugins,
+    String? validationError,
+  }) async {
+    _logger.info('Retrying with full schema for tool: $toolName');
+
+    final fullSchema = _deferredToolManager!.getFullSchema(toolName);
+    if (fullSchema == null) {
+      throw Exception('Tool not found in registry: $toolName');
+    }
+
+    // Build retry message with full schema
+    final schemaInfo = '''
+The tool "$toolName" requires specific parameters. Here is the full schema:
+
+Tool: ${fullSchema['name']}
+Description: ${fullSchema['description']}
+Parameters: ${jsonEncode(fullSchema['inputSchema'])}
+
+${validationError != null ? 'Previous error: $validationError' : ''}
+
+Please call the tool again with the correct parameters.
+''';
+
+    // === EPHEMERAL CONTEXT (NOT POLLUTING SESSION HISTORY) ===
+    // Get current history WITHOUT adding retry message permanently
+    final currentHistory = chatSession.getMessagesForContext();
+
+    // Create ephemeral history with schema info
+    final ephemeralHistory = [
+      ...currentHistory,
+      LlmMessage(role: 'system', content: [LlmTextContent(text: schemaInfo)]),
+    ];
+
+    // Create new request with full schema available
+    final retryTools = <Map<String, dynamic>>[fullSchema];
+    final retryParams = Map<String, dynamic>.from(parameters);
+    retryParams['tools'] = retryTools;
+
+    final retryRequest = LlmRequest(
+      prompt: 'Please proceed with the tool call using the correct parameters.',
+      history: ephemeralHistory, // Ephemeral, not saved to session
+      parameters: retryParams,
+      context: context,
+    );
+
+    final retryResponse = await llmProvider.complete(retryRequest);
+
+    // If retry succeeds with tool calls, execute them
+    if (retryResponse.toolCalls != null && retryResponse.toolCalls!.isNotEmpty) {
+      return await _handleToolCalls(
+        retryResponse,
+        userInput,
+        enableTools,
+        enablePlugins,
+        parameters,
+        context,
+      );
+    }
+
+    return retryResponse;
+  }
+
   /// Collect available tools from MCP clients and plugins
   Future<List<Map<String, dynamic>>> _collectAvailableTools({
     bool enableMcpTools = true,
     bool enablePlugins = true,
+    bool enableResourceTools = true,
     String? mcpClientId, // Option to fetch tools from a specific client
   }) async {
     final tools = <Map<String, dynamic>>[];
 
     // Get tools from MCP clients
     if (enableMcpTools && _mcpClientManager != null) {
-      try {
-        final mcpTools = await _mcpClientManager.getTools(mcpClientId);
-        for (var tool in mcpTools) {
-          try {
-            // Improved logging for clearer tool information display
-            _logger.debug('Tool information: ${jsonEncode(tool)}');
-          } catch (e) {
-            _logger.warning('Failed to serialize tool information: $e');
+      // === DEFERRED LOADING PATH (NEW) ===
+      if (_useDeferredLoading && _deferredToolManager != null) {
+        try {
+          // Lazy initialization on first use
+          if (!_deferredToolManager!.isInitialized) {
+            await _deferredToolManager!.initialize(_mcpClientManager);
           }
+          // Send only metadata to LLM context (token optimization)
+          final metadataTools = _deferredToolManager!.getMetadataForLlm();
+          tools.addAll(metadataTools);
+          _logger.debug('Using deferred loading: ${metadataTools.length} tool metadata loaded');
+        } catch (e) {
+          _logger.warning('Failed to get tools with deferred loading: $e');
         }
-        tools.addAll(mcpTools);
-      } catch (e) {
-        _logger.warning('Failed to get tools from MCP clients: $e');
+      }
+      // === EXISTING PATH (UNCHANGED) ===
+      else {
+        try {
+          final mcpTools = await _mcpClientManager.getTools(mcpClientId);
+          for (var tool in mcpTools) {
+            try {
+              // Improved logging for clearer tool information display
+              _logger.debug('Tool information: ${jsonEncode(tool)}');
+            } catch (e) {
+              _logger.warning('Failed to serialize tool information: $e');
+            }
+          }
+          tools.addAll(mcpTools);
+        } catch (e) {
+          _logger.warning('Failed to get tools from MCP clients: $e');
+        }
       }
     }
 
@@ -1066,6 +1281,54 @@ class LlmClient {
         }
       } catch (e) {
         _logger.warning('Failed to get tools from plugins: $e');
+      }
+    }
+
+    // Add synthetic resource tools if resources are available
+    if (enableResourceTools) {
+      try {
+        final availableResources = await _collectAvailableResources(
+          enableMcpResources: true,
+        );
+
+        if (availableResources.isNotEmpty) {
+          final resourceNames = availableResources.map((r) => r['name']).join(', ');
+
+          // Add mcp_read_resource tool
+          tools.add({
+            'name': 'mcp_read_resource',
+            'description': 'Read content from an MCP resource. Available resources: $resourceNames',
+            'inputSchema': {
+              'type': 'object',
+              'properties': {
+                'uri': {
+                  'type': 'string',
+                  'description': 'The resource URI to read'
+                },
+                'resourceName': {
+                  'type': 'string',
+                  'description': 'Resource name from available list: $resourceNames'
+                }
+              },
+              'required': []
+            }
+          });
+
+          // Add mcp_list_resources tool
+          tools.add({
+            'name': 'mcp_list_resources',
+            'description': 'List all available MCP resources with their URIs and descriptions',
+            'inputSchema': {
+              'type': 'object',
+              'properties': {},
+              'required': []
+            }
+          });
+
+          _logger.info('Added 2 synthetic resource tools for ${availableResources.length} resources');
+        }
+      } catch (e) {
+        _logger.warning('Failed to add synthetic resource tools: $e');
       }
     }
 
@@ -1193,6 +1456,15 @@ class LlmClient {
     String? mcpClientId,
     bool tryAllMcpClients = true,
   }) async {
+    // Handle synthetic resource tools first
+    if (toolName == 'mcp_read_resource') {
+      return await _executeReadResourceTool(args);
+    }
+
+    if (toolName == 'mcp_list_resources') {
+      return await _executeListResourcesTool();
+    }
+
     // Try MCP clients
     if (enableMcpTools && _mcpClientManager != null) {
       try {
@@ -1246,6 +1518,63 @@ class LlmClient {
     }
 
     throw Exception('Tool not found or execution failed: $toolName');
+  }
+
+  /// Execute mcp_read_resource synthetic tool
+  Future<dynamic> _executeReadResourceTool(Map<String, dynamic> args) async {
+    String? uri = args['uri'] as String?;
+    final resourceName = args['resourceName'] as String?;
+
+    // If resourceName provided but not uri, find the URI from available resources
+    if (uri == null && resourceName != null) {
+      final resources = await _collectAvailableResources(enableMcpResources: true);
+      final resource = resources.firstWhere(
+        (r) => r['name'] == resourceName,
+        orElse: () => <String, dynamic>{},
+      );
+      uri = resource['uri'] as String?;
+    }
+
+    if (uri == null || uri.isEmpty) {
+      final resources = await _collectAvailableResources(enableMcpResources: true);
+      return {
+        'error': 'Resource URI or valid resourceName is required',
+        'availableResources': resources.map((r) => {
+          'name': r['name'],
+          'uri': r['uri'],
+          'description': r['description'],
+        }).toList(),
+      };
+    }
+
+    try {
+      final result = await readResource(uri, tryAllClients: true);
+      _logger.debug('Successfully read resource: $uri');
+      return result;
+    } catch (e) {
+      _logger.error('Error reading resource $uri: $e');
+      return {'error': 'Failed to read resource: $e'};
+    }
+  }
+
+  /// Execute mcp_list_resources synthetic tool
+  Future<dynamic> _executeListResourcesTool() async {
+    try {
+      final resources = await _collectAvailableResources(enableMcpResources: true);
+      return {
+        'resources': resources.map((r) => {
+          'name': r['name'],
+          'uri': r['uri'],
+          'description': r['description'],
+          'mimeType': r['mimeType'],
+        }).toList(),
+        'count': resources.length,
+        'message': 'Found ${resources.length} available resources',
+      };
+    } catch (e) {
+      _logger.error('Error listing resources: $e');
+      return {'error': 'Failed to list resources: $e'};
+    }
   }
 
   /// Execute specific tool on a specific MCP client

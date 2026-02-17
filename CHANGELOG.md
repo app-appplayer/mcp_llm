@@ -1,3 +1,87 @@
+## [1.1.0] - Breaking Changes & New Features
+
+### ⚠️ Breaking Changes
+
+#### Tool Message API Changes
+- **`LlmMessage.tool()` role changed**: Changed from deprecated `'function'` to `'tool'` to align with current OpenAI API standards
+- **`LlmMessage.tool()` signature extended**: Added optional `toolCallId` and `arguments` parameters for proper tool call tracking
+  ```dart
+  // Before (v1.0.x)
+  LlmMessage.tool(toolName, result, metadata: metadata)
+
+  // After (v1.1.0)
+  LlmMessage.tool(toolName, result,
+    metadata: metadata,
+    toolCallId: 'call_123',
+    arguments: {'param': 'value'},
+  )
+  ```
+
+#### Migration Required
+If your code creates tool messages manually, update the role handling:
+```dart
+// If you check for tool messages by role
+if (message.role == 'function') // OLD - will no longer match
+if (message.role == 'tool')     // NEW - use this instead
+```
+
+### 🐛 Fixed
+
+#### SSE Buffering Bug (Critical)
+- **Fixed "Unterminated string" JSON parse errors** in all streaming providers
+  - TCP chunks can split JSON data mid-line causing incomplete JSON parsing
+  - Implemented StringBuffer pattern to accumulate complete lines before parsing
+  - Affects: OpenAI, Claude, and Together providers
+  - This fix resolves random streaming failures in production environments
+
+#### OpenAI Tool Calls Structure
+- **Fixed tool_calls format** to match OpenAI API specification
+  - Added required `type: 'function'` wrapper in tool calls
+  - Changed `arguments` from Map to JSON string as required by OpenAI
+  ```json
+  // Before (incorrect)
+  {"id": "...", "name": "...", "arguments": {...}}
+
+  // After (correct OpenAI format)
+  {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+  ```
+
+### ✨ Added
+
+#### Deferred Tool Loading (Token Optimization)
+- **60-80% token reduction** for tool definitions in LLM context
+- Enable with `useDeferredLoading: true` in LlmClient constructor
+- Sends only tool metadata initially, full schema on-demand when needed
+- Zero overhead when disabled (opt-in feature)
+- New `DeferredToolManager` class for managing deferred tool schemas
+
+#### Multi-Round Tool Calling
+- **Sequential tool execution** with `maxToolRounds` parameter (1-10)
+- Allows LLM to chain multiple tool calls in a single conversation turn
+- Default: 1 (single round, same as before)
+```dart
+LlmClient(
+  llmProvider: provider,
+  maxToolRounds: 3, // Allow up to 3 rounds of tool calls
+)
+```
+
+#### Resource Tool Bridge
+- **Synthetic tools for MCP resource access**
+  - `mcp_read_resource`: Read content from MCP resources
+  - `mcp_list_resources`: List all available MCP resources
+- Automatically added when resources are available
+- Enables LLM to access MCP resources through standard tool calling
+
+#### Chat Session Enhancements
+- `addToolResult()` method now properly tracks `arguments` parameter
+- Structured tool messages with `tool_call_id` for proper conversation flow
+
+### 📦 New Exports
+- `src/deferred/deferred_tool_manager.dart` - Deferred tool loading manager
+
+---
+
 ## [1.0.3]
 
 ### Fixed
