@@ -1,3 +1,19 @@
+## [1.2.0] - 2026-04-28 - Contract Layer & Cloud Providers
+
+### Added
+- **Contract Layer adapters** for `mcp_bundle` ports — `LlmPortAdapter`, `AsrPortAdapter`, `OcrPortAdapter`, `VisionPortAdapter`, `StoragePortAdapter`. Bridge `mcp_llm` providers to the Contract Layer used by knowledge / skill / profile packages.
+- **Six new LLM providers** — Bedrock, Cohere, Gemini, Groq, Mistral, Together (in addition to existing Claude / OpenAI / Vertex AI / Custom).
+- **Cloud Vision providers** — Google Cloud Vision, OpenAI GPT-4 Vision.
+- **ASR providers** — OpenAI Whisper, Google Cloud Speech-to-Text.
+- **OCR providers** — Google Cloud Vision OCR, AWS Textract.
+- **Binary storage providers** — AWS S3, Google Cloud Storage.
+- **Cloud provider registry** for centralized capability discovery.
+
+### Changed
+- New dependency: `mcp_bundle ^0.3.0` for Contract Layer types.
+
+---
+
 ## [1.1.1] - Bug Fix
 
 ### 🐛 Fixed

@@ -7,6 +7,9 @@ export 'src/adapter/mcp_server_manager.dart';
 export 'src/adapter/llm_client_adapter.dart';
 export 'src/adapter/mcp_auth_adapter.dart';
 
+// Contract Layer Adapter (mcp_bundle integration)
+export 'src/adapter/llm_port_adapter.dart';
+
 // 2025-03-26 MCP Enhancements
 export 'src/batch/batch_request_manager.dart';
 export 'src/health/health_monitor.dart';
@@ -20,15 +23,23 @@ export 'src/core/llm_client.dart';
 export 'src/core/llm_server.dart';
 export 'src/core/llm_context.dart';
 export 'src/core/llm_registry.dart';
+// Export mcp_llm internal types (different from bundle types)
 export 'src/core/models.dart';
 export 'src/core/llm_server_extensions.dart';
 
 // Provider implementations
-export 'src/providers/provider.dart';
+// Hide LlmProvider which is defined in llm_interface.dart
+export 'src/providers/provider.dart' hide LlmProvider;
 export 'src/providers/claude_provider.dart';
 export 'src/providers/openai_provider.dart';
 export 'src/providers/together_provider.dart';
 export 'src/providers/custom_provider.dart';
+export 'src/providers/groq_provider.dart';
+export 'src/providers/mistral_provider.dart';
+export 'src/providers/gemini_provider.dart';
+export 'src/providers/vertex_ai_provider.dart';
+export 'src/providers/cohere_provider.dart';
+export 'src/providers/bedrock_provider.dart';
 
 // Multi llm support
 export 'src/multi_llm/llm_client_manager.dart';
@@ -39,6 +50,7 @@ export 'src/multi_llm/default_service_balancer.dart';
 
 // Chat modules
 export 'src/chat/chat_session.dart';
+// Export mcp_llm internal LlmMessage type
 export 'src/chat/message.dart';
 export 'src/chat/history.dart';
 export 'src/chat/conversation.dart';
@@ -78,6 +90,47 @@ export 'src/utils/logger.dart';
 export 'src/utils/token_counter.dart';
 export 'src/utils/error_handler.dart';
 export 'src/utils/performance_monitor.dart';
+
+// =============================================================================
+// Cloud API Extension Providers
+// =============================================================================
+
+// Vision providers (Google Cloud Vision, OpenAI GPT-4 Vision)
+export 'src/providers/vision/vision_provider.dart';
+export 'src/providers/vision/google_vision_provider.dart';
+export 'src/providers/vision/openai_vision_provider.dart';
+
+// ASR providers (OpenAI Whisper, Google Cloud Speech-to-Text)
+export 'src/providers/asr/asr_provider.dart';
+export 'src/providers/asr/openai_whisper_provider.dart';
+export 'src/providers/asr/google_speech_provider.dart';
+
+// OCR providers (Google Cloud Vision OCR, AWS Textract)
+export 'src/providers/ocr/ocr_provider.dart';
+export 'src/providers/ocr/google_vision_ocr_provider.dart';
+export 'src/providers/ocr/aws_textract_provider.dart';
+
+// Storage providers (AWS S3, Google Cloud Storage)
+export 'src/providers/storage/binary_storage_provider.dart';
+export 'src/providers/storage/s3_storage_provider.dart';
+export 'src/providers/storage/gcs_storage_provider.dart';
+
+// =============================================================================
+// Contract Layer Port Adapters (mcp_bundle integration)
+// =============================================================================
+
+// Port adapters - bridge mcp_llm providers to mcp_bundle ports
+export 'src/adapter/vision_port_adapter.dart';
+export 'src/adapter/asr_port_adapter.dart';
+export 'src/adapter/ocr_port_adapter.dart';
+export 'src/adapter/storage_port_adapter.dart';
+
+// =============================================================================
+// Cloud Provider Registry
+// =============================================================================
+
+// Central registry for all cloud providers
+export 'src/registry/cloud_provider_registry.dart';
 
 import 'src/core/llm_registry.dart';
 import 'src/core/llm_client.dart';
@@ -525,7 +578,7 @@ class McpLlm {
       aggregator: aggregator,
     );
 
-    // Create request
+    // Create request using mcp_llm's internal LlmRequest
     final request = LlmRequest(
       prompt: query,
       parameters: parameters,

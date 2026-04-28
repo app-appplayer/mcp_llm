@@ -1,10 +1,9 @@
 name: mcp_llm
 description: Advanced Dart package for Large Language Model (LLM) integration with Model Context Protocol (MCP) 2025-03-26 specification. Features OAuth 2.1 authentication, JSON-RPC 2.0 batch processing, health monitoring, capability management, and enhanced error handling.
-version: 1.1.1
+version: 1.2.0
 homepage: https://app-appplayer.github.io/makemind
 repository: https://github.com/app-appplayer/mcp_llm
 issue_tracker: https://github.com/app-appplayer/mcp_llm/issues
-documentation: https://github.com/app-appplayer/mcp_llm/wiki
 
 topics:
   - llm
@@ -17,12 +16,16 @@ environment:
   sdk: ^3.7.2
 
 dependencies:
+  # Contract Layer for knowledge package integration
+  mcp_bundle: ^0.3.0
+
   # Core dependencies
   http: ^1.1.0
   json_annotation: ^4.9.0
   uuid: ^4.0.0
   collection: ^1.19.1
   logging: ^1.2.0
+  crypto: ^3.0.3
   
   # Storage and persistence
   sqlite3: ^2.1.0
@@ -46,9 +49,6 @@ dev_dependencies:
   # Additional testing for 2025-03-26 features
   faker: ^2.1.0  # For generating test data
   
-funding:
-  - https://www.patreon.com/mcpdevstudio
-
 # Dart package metadata
 platforms:
   android:

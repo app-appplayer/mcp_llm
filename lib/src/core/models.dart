@@ -1,6 +1,10 @@
+import 'package:uuid/uuid.dart';
+
 import '../adapter/llm_server_adapter.dart';
 import '../chat/message.dart';
 import 'llm_context.dart';
+
+const _uuid = Uuid();
 
 /// Content type enum
 enum LlmContentType {
@@ -230,7 +234,7 @@ class LlmToolCall {
 
   // Method to create ID if it doesn't exist
   String getOrCreateId() {
-    return id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
+    return id ?? 'call_${_uuid.v4()}';
   }
 
   Map<String, dynamic> toJson() {

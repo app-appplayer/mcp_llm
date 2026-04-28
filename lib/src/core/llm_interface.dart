@@ -1,75 +1,58 @@
-import '../../mcp_llm.dart';
+import '../utils/logger.dart';
+import 'models.dart';
 
-/// Interface for LLM providers
-abstract class LlmInterface {
-  /// Generate a completion from the LLM
+/// LLM provider interface for mcp_llm internal use.
+///
+/// This is mcp_llm's internal interface using its own type system.
+/// For integration with other MCP packages, use LlmPortAdapter which
+/// implements mcp_bundle.LlmPort and converts between type systems.
+abstract class LlmProvider {
+  /// Initialize the LLM with configuration.
   ///
-  /// [request] The request containing prompt, parameters and history
+  /// [config] The configuration for the LLM.
   ///
-  /// Returns a response with generated text
-  ///
-  /// Throws [AuthenticationError] if API key is invalid
-  /// Throws [TimeoutError] if request times out
-  /// Throws [NetworkError] if connection fails
-  Future<LlmResponse> complete(LlmRequest request);
-
-  /// Stream a completion from the LLM
-  ///
-  /// [request] The request containing prompt, parameters and history
-  ///
-  /// Returns a stream of response chunks
-  ///
-  /// Throws [AuthenticationError] if API key is invalid
-  /// Throws [NetworkError] if connection fails
-  Stream<LlmResponseChunk> streamComplete(LlmRequest request);
-
-  /// Get embeddings for text
-  ///
-  /// [text] The text to embed
-  ///
-  /// Returns a vector of floating-point numbers representing the text
-  ///
-  /// Throws [AuthenticationError] if API key is invalid
-  /// Throws [TimeoutError] if request times out
-  Future<List<double>> getEmbeddings(String text);
-
-  /// Initialize the LLM with configuration
-  ///
-  /// [config] The configuration for the LLM
-  ///
-  /// Throws [AuthenticationError] if API key is invalid
-  /// Throws [ValidationError] if configuration is invalid
+  /// Throws [AuthenticationError] if API key is invalid.
+  /// Throws [ValidationError] if configuration is invalid.
   Future<void> initialize(LlmConfiguration config);
 
-  /// Close and cleanup resources
+  /// Close and cleanup resources.
   Future<void> close();
 
-  /// Checks if a metadata map contains tool call information
+  /// Complete a request using mcp_llm's internal types.
+  Future<LlmResponse> complete(LlmRequest request);
+
+  /// Stream completion using mcp_llm's internal types.
+  Stream<LlmResponseChunk> streamComplete(LlmRequest request);
+
+  /// Get embeddings for text.
+  Future<List<double>> getEmbeddings(String text);
+
+  /// Checks if a metadata map contains tool call information.
   ///
-  /// [metadata] The metadata map to check
+  /// [metadata] The metadata map to check.
   ///
-  /// Returns true if the metadata contains tool call information
+  /// Returns true if the metadata contains tool call information.
   bool hasToolCallMetadata(Map<String, dynamic> metadata);
 
-  /// Extracts a tool call from metadata if present
+  /// Extracts a tool call from metadata if present.
   ///
-  /// [metadata] The metadata map to extract from
+  /// [metadata] The metadata map to extract from.
   ///
-  /// Returns a tool call if one could be extracted, null otherwise
+  /// Returns a tool call if one could be extracted, null otherwise.
   LlmToolCall? extractToolCallFromMetadata(Map<String, dynamic> metadata);
 
-  /// Standardizes the provider-specific metadata to a common format
-  /// This can be used to ensure consistent metadata across different providers
+  /// Standardizes the provider-specific metadata to a common format.
+  /// This can be used to ensure consistent metadata across different providers.
   ///
-  /// [metadata] The original provider-specific metadata
+  /// [metadata] The original provider-specific metadata.
   ///
-  /// Returns a standardized metadata map
+  /// Returns a standardized metadata map.
   Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata);
 }
 
-/// Extension to add retry capabilities to LLM providers
-extension RetryCapabilities on LlmInterface {
-  /// Execute request with retry logic
+/// Extension to add retry capabilities to LLM providers.
+extension RetryCapabilities on LlmProvider {
+  /// Execute request with retry logic.
   Future<T> executeWithRetry<T>({
     required Future<T> Function() operation,
     required LlmConfiguration config,
@@ -93,7 +76,8 @@ extension RetryCapabilities on LlmInterface {
           throw Exception('Max retry attempts reached: $e\n$stackTrace');
         }
 
-        logger.warning('Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
+        logger.warning(
+            'Attempt $attempts failed, retrying in ${currentDelay.inMilliseconds}ms: $e');
         await Future.delayed(currentDelay);
 
         // Apply exponential backoff if enabled
@@ -107,3 +91,7 @@ extension RetryCapabilities on LlmInterface {
     }
   }
 }
+
+/// Backward compatibility: LlmInterface is now an alias for LlmProvider.
+@Deprecated('Use LlmProvider instead')
+typedef LlmInterface = LlmProvider;
