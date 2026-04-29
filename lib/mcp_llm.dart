@@ -5,6 +5,7 @@ library;
 export 'src/adapter/mcp_client_manager.dart';
 export 'src/adapter/mcp_server_manager.dart';
 export 'src/adapter/llm_client_adapter.dart';
+export 'src/adapter/llm_server_adapter.dart';
 export 'src/adapter/mcp_auth_adapter.dart';
 
 // Contract Layer Adapter (mcp_bundle integration)
