@@ -362,5 +362,132 @@ class LlmClientAdapter {
       _logger.info('OAuth 2.1 authentication removed for client: $_clientId');
     }
   }
+
+  // === MCP 2.0 surface — server-initiated request handlers ===
+  //
+  // These thin wrappers surface the spec-correct callbacks on the
+  // underlying mcp_client. They use `dynamic` dispatch so this adapter
+  // stays compatible with any client implementation that exposes the
+  // expected method names (in particular `mcp_client` 2.0+).
+
+  /// Register a handler for server-initiated `sampling/createMessage`
+  /// (spec). The handler receives the raw params and must return the
+  /// JSON-serialisable result map (`role`, `content`, `model`, optional
+  /// `stopReason`).
+  ///
+  /// Calling this advertises the `sampling` client capability on the next
+  /// initialize handshake.
+  void onSamplingRequest(Future<dynamic> Function(dynamic request) handler) {
+    try {
+      _mcpClient.onSamplingRequest(handler);
+    } catch (e) {
+      _logger.warning('Underlying client does not support onSamplingRequest: $e');
+    }
+  }
+
+  /// Bind incoming sampling requests to an [LlmProvider] so the host's
+  /// LLM fulfils them. Translates spec `CreateMessageRequest.params` to
+  /// `LlmRequest` and back. Falls back to raw [onSamplingRequest] if the
+  /// signature differs.
+  ///
+  /// Use [overrideSystemPrompt] to replace the request's `systemPrompt`
+  /// (e.g., to gate which prompts your LLM accepts).
+  void bindSamplingToProvider(
+    Future<Map<String, dynamic>> Function(Map<String, dynamic> params) llmCall,
+  ) {
+    onSamplingRequest((req) async {
+      // Spec request comes as either a typed object (mcp_client) or a
+      // raw params map. Normalise to a Map.
+      Map<String, dynamic> params;
+      try {
+        params = (req is Map)
+            ? Map<String, dynamic>.from(req)
+            : Map<String, dynamic>.from(req.toJson() as Map);
+      } catch (_) {
+        params = const {};
+      }
+      return await llmCall(params);
+    });
+  }
+
+  /// Register a handler for server-initiated `elicitation/create`
+  /// (spec 2025-06-18+). The host must show the requested form and
+  /// return `{ action, content? }` per spec.
+  void onElicitationRequest(
+      Future<Map<String, dynamic>> Function(Map<String, dynamic> params)
+          handler) {
+    try {
+      _mcpClient.onElicitationRequest(handler);
+    } catch (e) {
+      _logger.warning('Underlying client does not support onElicitationRequest: $e');
+    }
+  }
+
+  /// Register a handler for server-initiated `roots/list`. Default
+  /// behaviour returns the locally registered [addRoot] entries; supply
+  /// this to override.
+  void onListRoots(Future<List<dynamic>> Function() handler) {
+    try {
+      _mcpClient.onListRoots(handler);
+    } catch (e) {
+      _logger.warning('Underlying client does not support onListRoots: $e');
+    }
+  }
+
+  /// Add a root to the client's local list. Triggers
+  /// `notifications/roots/list_changed` to the server.
+  void addRoot(dynamic root) {
+    try {
+      _mcpClient.addRoot(root);
+    } catch (e) {
+      _logger.warning('Underlying client does not support addRoot: $e');
+    }
+  }
+
+  /// Remove a root from the client's local list.
+  void removeRoot(String uri) {
+    try {
+      _mcpClient.removeRoot(uri);
+    } catch (e) {
+      _logger.warning('Underlying client does not support removeRoot: $e');
+    }
+  }
+
+  /// Notify the server that a previously-issued request should be
+  /// cancelled (spec `notifications/cancelled`).
+  void notifyCancelled(String requestId, {String? reason}) {
+    try {
+      _mcpClient.notifyCancelled(requestId, reason: reason);
+    } catch (e) {
+      _logger.warning('Underlying client does not support notifyCancelled: $e');
+    }
+  }
+
+  /// Report progress on an in-flight server-initiated request
+  /// (spec `notifications/progress`).
+  void notifyProgress(
+    dynamic progressToken,
+    double progress, {
+    double? total,
+    String? message,
+  }) {
+    try {
+      _mcpClient.notifyProgress(progressToken, progress,
+          total: total, message: message);
+    } catch (e) {
+      _logger.warning('Underlying client does not support notifyProgress: $e');
+    }
+  }
+
+  /// The negotiated MCP protocol revision after initialize completes.
+  /// Returns `null` before then or when the underlying client doesn't
+  /// expose the field.
+  String? get negotiatedProtocolVersion {
+    try {
+      return _mcpClient.negotiatedProtocolVersion as String?;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 

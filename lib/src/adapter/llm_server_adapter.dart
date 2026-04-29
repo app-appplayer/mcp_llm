@@ -318,6 +318,159 @@ class LlmServerAdapter {
     }).toList();
   }
 
+  // === MCP 2.0 surface — server-initiated outbound + new APIs ===
+
+  /// Server-initiated request: ask the connected client's LLM to
+  /// generate a completion (spec `sampling/createMessage`). Returns the
+  /// spec `CreateMessageResult` map.
+  ///
+  /// [params] follows the spec shape — `messages`, `maxTokens` (required)
+  /// plus optional `modelPreferences`, `systemPrompt`, `includeContext`,
+  /// `temperature`, `stopSequences`, `metadata`. Spec 2025-11-25 also
+  /// allows `tools` / `toolChoice`.
+  Future<Map<String, dynamic>> requestSampling(
+    String sessionId,
+    Map<String, dynamic> params, {
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    if (!hasServer) {
+      throw StateError('MCP server is not available');
+    }
+    final result = await _mcpServer.requestClientSampling(
+      sessionId,
+      params,
+      timeout: timeout,
+    );
+    return result is Map<String, dynamic>
+        ? result
+        : Map<String, dynamic>.from(result as Map);
+  }
+
+  /// Server-initiated request: ask the connected client to elicit input
+  /// from the user (spec 2025-06-18+ `elicitation/create`). Returns
+  /// `{ action, content? }` per spec.
+  Future<Map<String, dynamic>> requestElicitation(
+    String sessionId,
+    Map<String, dynamic> params, {
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    if (!hasServer) {
+      throw StateError('MCP server is not available');
+    }
+    final result = await _mcpServer.requestClientElicitation(
+      sessionId,
+      params,
+      timeout: timeout,
+    );
+    return result is Map<String, dynamic>
+        ? result
+        : Map<String, dynamic>.from(result as Map);
+  }
+
+  /// Server-initiated request: ask the connected client for its current
+  /// roots (spec `roots/list`). Returns the raw list of root maps.
+  Future<List<dynamic>> requestRoots(
+    String sessionId, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (!hasServer) {
+      throw StateError('MCP server is not available');
+    }
+    final list = await _mcpServer.requestClientRoots(sessionId, timeout: timeout);
+    if (list is List) return list;
+    return const <dynamic>[];
+  }
+
+  /// Register a `completion/complete` handler for argument autocompletion
+  /// (spec). [refType] is `'prompt'` or `'resource'`; [refKey] is the
+  /// prompt name or resource template URI; pass `'*'` for a wildcard.
+  Future<bool> registerCompletion({
+    required String refType,
+    required String refKey,
+    required Future<Map<String, dynamic>> Function(
+      Map<String, dynamic> ref,
+      Map<String, dynamic> argument,
+      Map<String, dynamic>? context,
+    ) handler,
+  }) async {
+    if (!hasServer) return false;
+    try {
+      _mcpServer.addCompletion(
+        refType: refType,
+        refKey: refKey,
+        handler: handler,
+      );
+      return true;
+    } catch (e) {
+      _logger.warning('Underlying server does not support addCompletion: $e');
+      return false;
+    }
+  }
+
+  /// Register a tool with structured output support (spec 2025-06-18+).
+  /// Pairs an [outputSchema] with the tool so clients can validate the
+  /// `structuredContent` field of the result.
+  Future<bool> registerStructuredTool({
+    required String name,
+    required String description,
+    required Map<String, dynamic> inputSchema,
+    required Map<String, dynamic> outputSchema,
+    required ToolHandler handler,
+    String? title,
+    List<Map<String, dynamic>>? icons,
+    Map<String, dynamic>? meta,
+  }) async {
+    if (!hasServer) return false;
+    try {
+      await _mcpServer.addTool(
+        name: name,
+        description: description,
+        inputSchema: inputSchema,
+        outputSchema: outputSchema,
+        title: title,
+        icons: icons,
+        meta: meta,
+        handler: handler,
+      );
+      return true;
+    } catch (e) {
+      _logger.warning(
+          'Underlying server does not accept structured-tool kwargs: $e');
+      // Fallback to the legacy-shape registerTool.
+      return registerTool(
+        name: name,
+        description: description,
+        inputSchema: inputSchema,
+        handler: handler,
+      );
+    }
+  }
+
+  /// Configure the OAuth Protected Resource metadata served at
+  /// `/.well-known/oauth-protected-resource` (spec 2025-06-18+ /
+  /// RFC 9728).
+  void configureProtectedResource({
+    required String resource,
+    required List<String> authorizationServers,
+    List<String>? scopesSupported,
+    List<String>? bearerMethodsSupported,
+    String? resourceDocumentation,
+  }) {
+    if (!hasServer) return;
+    try {
+      _mcpServer.configureProtectedResource(
+        resource: resource,
+        authorizationServers: authorizationServers,
+        scopesSupported: scopesSupported,
+        bearerMethodsSupported: bearerMethodsSupported,
+        resourceDocumentation: resourceDocumentation,
+      );
+    } catch (e) {
+      _logger.warning(
+          'Underlying server does not support configureProtectedResource: $e');
+    }
+  }
+
   /// Helper method to normalize server status
   Map<String, dynamic> _normalizeServerStatus(dynamic status) {
     if (status == null) {
