@@ -3,7 +3,6 @@ import 'llm_client_adapter.dart';
 import 'mcp_auth_adapter.dart';
 import '../health/health_monitor.dart';
 import '../capabilities/capability_manager.dart';
-import '../batch/batch_request_manager.dart';
 import '../core/models.dart';
 
 /// Manages multiple MCP clients for a single LLM client with OAuth 2.1 support (2025-03-26)
@@ -29,28 +28,19 @@ class McpClientManager {
   /// Capability manager for 2025-03-26 MCP capability management
   late final McpCapabilityManager _capabilityManager;
 
-  /// Batch request manager for 2025-03-26 JSON-RPC 2.0 optimization
-  BatchRequestManager? _batchManager;
-
   /// Create a new MCP client manager
   McpClientManager({
-    dynamic defaultClient, 
+    dynamic defaultClient,
     String? defaultClientId,
     HealthCheckConfig? healthConfig,
-    BatchConfig? batchConfig,
-    bool enableBatchProcessing = false,
   }) {
     // Initialize health monitor
-    _healthMonitor = McpHealthMonitor(config: healthConfig ?? const HealthCheckConfig());
-    
+    _healthMonitor =
+        McpHealthMonitor(config: healthConfig ?? const HealthCheckConfig());
+
     // Initialize capability manager
     _capabilityManager = McpCapabilityManager();
-    
-    // Initialize batch manager if enabled
-    if (enableBatchProcessing) {
-      _batchManager = BatchRequestManager(config: batchConfig ?? const BatchConfig());
-    }
-    
+
     if (defaultClient != null) {
       final id = defaultClientId ?? 'default';
       addClient(id, defaultClient);
@@ -72,14 +62,11 @@ class McpClientManager {
     
     // Register with capability manager
     _capabilityManager.registerClient(clientId, mcpClient);
-    
-    // Register with batch manager if enabled
-    _batchManager?.registerClient(clientId, mcpClient);
 
     // Set as default if this is the first client
     _defaultClientId ??= clientId;
 
-    _logger.info('Added MCP client: $clientId with 2025-03-26 features');
+    _logger.info('Added MCP client: $clientId');
   }
 
   /// Add a new MCP client with OAuth 2.1 authentication (2025-03-26)
@@ -111,13 +98,10 @@ class McpClientManager {
     // Register with capability manager with auth adapter
     _capabilityManager.registerClient(clientId, mcpClient, authAdapter: authAdapter);
     
-    // Register with batch manager if enabled
-    _batchManager?.registerClient(clientId, mcpClient, authAdapter: authAdapter);
-
     // Set as default if this is the first client
     _defaultClientId ??= clientId;
 
-    _logger.info('Added MCP client with OAuth 2.1 authentication: $clientId with 2025-03-26 features');
+    _logger.info('Added MCP client with OAuth 2.1 authentication: $clientId');
 
     // Attempt automatic authentication
     try {
@@ -149,9 +133,6 @@ class McpClientManager {
     
     // Unregister from capability manager
     _capabilityManager.unregisterClient(clientId);
-    
-    // Unregister from batch manager if enabled
-    _batchManager?.unregisterClient(clientId);
 
     // Clear default if it was this client
     if (_defaultClientId == clientId) {
@@ -919,75 +900,26 @@ class McpClientManager {
     return _capabilityManager.getCapabilityStatistics();
   }
 
-  /// Enable batch processing
-  void enableBatchProcessing({BatchConfig? config}) {
-    if (_batchManager == null) {
-      _batchManager = BatchRequestManager(config: config ?? const BatchConfig());
-      
-      // Register existing clients with batch manager
-      for (final entry in _mcpClients.entries) {
-        final authAdapter = _authAdapters[entry.key];
-        _batchManager!.registerClient(entry.key, entry.value, authAdapter: authAdapter);
-      }
-      
-      _logger.info('Enabled JSON-RPC 2.0 batch processing with ${_mcpClients.length} clients');
-    }
-  }
+  // JSON-RPC batch processing was removed in MCP 2025-06-18 (PR #416).
+  // The previous `enableBatchProcessing` / `addBatchRequest` /
+  // `getBatchStatistics` helpers are gone in 2.0; LLM-level fan-out (multi
+  // request → multi response without batching on the wire) lives in
+  // ParallelExecutor / MultiLlm.
 
-  /// Disable batch processing
-  void disableBatchProcessing() {
-    _batchManager?.dispose();
-    _batchManager = null;
-    _logger.info('Disabled JSON-RPC 2.0 batch processing');
-  }
-
-  /// Check if batch processing is enabled
-  bool get isBatchProcessingEnabled => _batchManager != null;
-
-  /// Add request to batch queue
-  Future<Map<String, dynamic>> addBatchRequest(
-    String method,
-    Map<String, dynamic> params, {
-    String? clientId,
-    bool forceImmediate = false,
-  }) {
-    if (_batchManager == null) {
-      throw StateError('Batch processing is not enabled. Call enableBatchProcessing() first.');
-    }
-    
-    return _batchManager!.addRequest(
-      method,
-      params,
-      clientId: clientId,
-      forceImmediate: forceImmediate,
-    );
-  }
-
-  /// Get batch processing statistics
-  Map<String, dynamic> getBatchStatistics() {
-    return _batchManager?.getStatistics() ?? {
-      'enabled': false,
-      'message': 'Batch processing is not enabled',
-    };
-  }
-
-  /// Cleanup all OAuth 2.1 resources and 2025-03-26 managers
+  /// Cleanup all OAuth 2.1 resources and managers
   void dispose() {
     // Dispose auth adapters
     for (final authAdapter in _authAdapters.values) {
       authAdapter.dispose();
     }
     _authAdapters.clear();
-    
+
     // Dispose health monitor
     _healthMonitor.dispose();
-    
+
     // Dispose capability manager
     _capabilityManager.dispose();
-    
-    // Dispose batch manager if enabled
-    _batchManager?.dispose();
-    
-    _logger.info('Disposed all OAuth 2.1 authentication adapters and 2025-03-26 managers');
+
+    _logger.info('Disposed all OAuth 2.1 authentication adapters and managers');
   }
 }

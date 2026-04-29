@@ -10,9 +10,6 @@ class LlmClient {
   /// MCP client manager for multiple clients
   late final McpClientManager? _mcpClientManager;
 
-  /// Batch request manager for JSON-RPC 2.0 optimization (2025-03-26)
-  late final BatchRequestManager? _batchRequestManager;
-
   /// Health monitor for MCP client monitoring (2025-03-26)
   late final McpHealthMonitor? _healthMonitor;
 
@@ -62,7 +59,6 @@ class LlmClient {
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
     this.retrievalManager,
-    BatchConfig? batchConfig, // Batch processing configuration (2025-03-26)
     HealthCheckConfig? healthConfig, // Health monitoring configuration (2025-03-26)
     ErrorHandlingConfig? errorConfig, // Error handling configuration (2025-03-26)
     bool enableHealthMonitoring = true, // Enable health monitoring (2025-03-26)
@@ -92,8 +88,7 @@ class LlmClient {
       storageManager: storageManager,
     );
     
-    // Initialize 2025-03-26 feature managers
-    _batchRequestManager = _initBatchRequestManager(batchConfig);
+    // Initialize feature managers
     _healthMonitor = enableHealthMonitoring ? _initHealthMonitor(healthConfig) : null;
     _capabilityManager = enableCapabilityManagement ? _initCapabilityManager() : null;
     _lifecycleManager = enableLifecycleManagement ? _initLifecycleManager() : null;
@@ -123,37 +118,6 @@ class LlmClient {
 
     // No MCP clients
     return McpClientManager();
-  }
-
-  /// Initialize the batch request manager for 2025-03-26 optimization
-  BatchRequestManager? _initBatchRequestManager(BatchConfig? batchConfig) {
-    if (_mcpClientManager == null) return null;
-    
-    final batchManager = BatchRequestManager(config: batchConfig ?? const BatchConfig());
-    
-    // Register all MCP clients with batch manager
-    for (final clientId in _mcpClientManager.clientIds) {
-      final mcpClient = _mcpClientManager.getClient(clientId);
-      // Get auth adapter if available
-      McpAuthAdapter? authAdapter;
-      try {
-        // Check if client has authentication enabled
-        final authStatus = _mcpClientManager.getAuthStatus();
-        if (authStatus[clientId]?['authentication_required'] == true) {
-          // For now, we'll leave authAdapter as null and let the batch manager handle it
-          // In a real implementation, you might want to extract this from the manager
-        }
-      } catch (e) {
-        _logger.debug('Could not get auth adapter for client $clientId: $e');
-      }
-      
-      if (mcpClient != null) {
-        batchManager.registerClient(clientId, mcpClient, authAdapter: authAdapter);
-      }
-    }
-    
-    _logger.info('Batch request manager initialized with JSON-RPC 2.0 optimization');
-    return batchManager;
   }
 
   /// Initialize health monitor for 2025-03-26 health monitoring
@@ -222,9 +186,6 @@ class LlmClient {
     _mcpClientManager!.addClient(clientId, mcpClient);
     
     // Register with all 2025-03-26 managers if available
-    if (_batchRequestManager != null) {
-      _batchRequestManager.registerClient(clientId, mcpClient);
-    }
     if (_healthMonitor != null) {
       _healthMonitor.registerClient(clientId, mcpClient);
     }
@@ -240,9 +201,6 @@ class LlmClient {
     }
     
     // Unregister from all 2025-03-26 managers if available
-    if (_batchRequestManager != null) {
-      _batchRequestManager.unregisterClient(clientId);
-    }
     if (_healthMonitor != null) {
       _healthMonitor.unregisterClient(clientId);
     }
@@ -1714,144 +1672,16 @@ Please call the tool again with the correct parameters.
     return await llmProvider.getEmbeddings(text);
   }
 
-  /// Execute multiple tools in batch for JSON-RPC 2.0 optimization (2025-03-26)
-  Future<List<Map<String, dynamic>>> executeBatchTools(
-    List<Map<String, dynamic>> toolRequests, {
-    String? clientId,
-    bool forceImmediate = false,
-  }) async {
-    if (_batchRequestManager == null) {
-      throw StateError('Batch request manager is not initialized');
-    }
-
-    final futures = <Future<Map<String, dynamic>>>[];
-    
-    for (final request in toolRequests) {
-      final toolName = request['name'] as String;
-      final rawArgs = request['arguments'];
-      final args = rawArgs is Map<String, dynamic> 
-          ? rawArgs 
-          : (rawArgs is Map ? Map<String, dynamic>.from(rawArgs) : <String, dynamic>{});
-      
-      futures.add(_batchRequestManager.addRequest(
-        'tools/call',
-        {'name': toolName, 'arguments': args},
-        clientId: clientId,
-        forceImmediate: forceImmediate,
-      ));
-    }
-    
-    return await Future.wait(futures);
-  }
-
-  /// Get tools from multiple clients in batch (2025-03-26 optimization)
-  Future<Map<String, List<Map<String, dynamic>>>> getBatchToolsByClient(
-    List<String> clientIds, {
-    bool forceImmediate = false,
-  }) async {
-    if (_batchRequestManager == null) {
-      throw StateError('Batch request manager is not initialized');
-    }
-
-    final futures = <String, Future<Map<String, dynamic>>>{};
-    
-    for (final clientId in clientIds) {
-      futures[clientId] = _batchRequestManager.addRequest(
-        'tools/list',
-        {},
-        clientId: clientId,
-        forceImmediate: forceImmediate,
-      );
-    }
-    
-    final results = <String, List<Map<String, dynamic>>>{};
-    
-    for (final entry in futures.entries) {
-      try {
-        final result = await entry.value;
-        if (result['result'] != null && result['result'] is List) {
-          results[entry.key] = List<Map<String, dynamic>>.from(result['result']);
-        } else {
-          results[entry.key] = [];
-        }
-      } catch (e) {
-        _logger.error('Error getting tools from client ${entry.key}: $e');
-        results[entry.key] = [];
-      }
-    }
-    
-    return results;
-  }
-
-  /// Execute multiple prompts in batch (2025-03-26 optimization)
-  Future<List<Map<String, dynamic>>> executeBatchPrompts(
-    List<Map<String, dynamic>> promptRequests, {
-    String? clientId,
-    bool forceImmediate = false,
-  }) async {
-    if (_batchRequestManager == null) {
-      throw StateError('Batch request manager is not initialized');
-    }
-
-    final futures = <Future<Map<String, dynamic>>>[];
-    
-    for (final request in promptRequests) {
-      final promptName = request['name'] as String;
-      final args = request['arguments'] as Map<String, dynamic>? ?? {};
-      
-      futures.add(_batchRequestManager.addRequest(
-        'prompts/get',
-        {'name': promptName, 'arguments': args},
-        clientId: clientId,
-        forceImmediate: forceImmediate,
-      ));
-    }
-    
-    return await Future.wait(futures);
-  }
-
-  /// Read multiple resources in batch (2025-03-26 optimization)
-  Future<List<Map<String, dynamic>>> readBatchResources(
-    List<String> resourceUris, {
-    String? clientId,
-    bool forceImmediate = false,
-  }) async {
-    if (_batchRequestManager == null) {
-      throw StateError('Batch request manager is not initialized');
-    }
-
-    final futures = <Future<Map<String, dynamic>>>[];
-    
-    for (final uri in resourceUris) {
-      futures.add(_batchRequestManager.addRequest(
-        'resources/read',
-        {'uri': uri},
-        clientId: clientId,
-        forceImmediate: forceImmediate,
-      ));
-    }
-    
-    return await Future.wait(futures);
-  }
-
-  /// Get batch processing statistics
-  Map<String, dynamic> getBatchStatistics() {
-    if (_batchRequestManager == null) {
-      return {'error': 'Batch request manager not initialized'};
-    }
-    
-    return _batchRequestManager.getStatistics();
-  }
-
-  /// Flush all pending batch requests
-  Future<void> flushBatchRequests() async {
-    if (_batchRequestManager != null) {
-      await _batchRequestManager.flush();
-    }
-  }
-
-  /// Check if batch processing is available
-  bool get hasBatchProcessing => _batchRequestManager != null;
+  // JSON-RPC batching was removed in MCP 2025-06-18 (PR #416). The
+  // `executeBatchTools` / `getBatchToolsByClient` / `executeBatchPrompts`
+  // / `readBatchResources` / `getBatchStatistics` / `flushBatchRequests`
+  // / `hasBatchProcessing` helpers from 1.x are gone in 2.0.
+  //
+  // For multi-client fan-out without wire batching, iterate over the
+  // individual `callTool` / `getPrompt` / `readResource` methods (or use
+  // ParallelExecutor / MultiLlm for LLM-level concurrency) — the
+  // underlying transport will dispatch each request individually as the
+  // current spec mandates.
 
   // === 2025-03-26 Health Monitoring Methods ===
 
@@ -2116,15 +1946,13 @@ Please call the tool again with the correct parameters.
 
   // === 2025-03-26 Integration Status ===
 
-  /// Get 2025-03-26 feature status
+  /// Feature flags for the managers wired into this client.
   Map<String, dynamic> get featureStatus {
     return {
-      'batch_processing': _batchRequestManager != null,
       'health_monitoring': _healthMonitor != null,
       'capability_management': _capabilityManager != null,
       'lifecycle_management': _lifecycleManager != null,
       'enhanced_error_handling': _errorHandler != null,
-      'protocol_version': '2025-03-26',
       'oauth_2_1_support': true,
     };
   }
@@ -2133,10 +1961,6 @@ Please call the tool again with the correct parameters.
   Future<void> close() async {
     await llmProvider.close();
 
-    // Close all 2025-03-26 managers if they exist
-    if (_batchRequestManager != null) {
-      _batchRequestManager.dispose();
-    }
     if (_healthMonitor != null) {
       _healthMonitor.dispose();
     }

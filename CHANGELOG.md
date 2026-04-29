@@ -1,3 +1,17 @@
+## [2.0.0] - upcoming - MCP spec compliance + 2025-11-25 alignment
+
+Big-Bang spec normalization. Pairs with mcp_server 2.0 / mcp_client 2.0.
+
+### Breaking
+- **JSON-RPC batching helpers removed.** The MCP spec dropped JSON-RPC batching in 2025-06-18 (PR #416). The 1.x `BatchRequestManager`, `BatchConfig`, `LlmClient.executeBatchTools` / `getBatchToolsByClient` / `executeBatchPrompts` / `readBatchResources` / `getBatchStatistics` / `flushBatchRequests` / `hasBatchProcessing`, `McpClientManager.enableBatchProcessing` / `addBatchRequest`, and the `mcp_llm.batch.*` exports are all deleted. For multi-target fan-out without wire batching, iterate over `callTool` / `getPrompt` / `readResource` directly or use `ParallelExecutor` / `MultiLlm` for LLM-level concurrency.
+- **`LlmClient` constructor**: the `batchConfig` parameter is removed.
+
+### Notes
+- The `pubspec.yaml` description no longer claims "JSON-RPC 2.0 batch processing".
+- `LlmClient.featureStatus` no longer reports `batch_processing`.
+
+---
+
 ## [1.2.0] - 2026-04-28 - Contract Layer & Cloud Providers
 
 ### Added

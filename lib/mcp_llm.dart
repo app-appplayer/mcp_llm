@@ -10,8 +10,7 @@ export 'src/adapter/mcp_auth_adapter.dart';
 // Contract Layer Adapter (mcp_bundle integration)
 export 'src/adapter/llm_port_adapter.dart';
 
-// 2025-03-26 MCP Enhancements
-export 'src/batch/batch_request_manager.dart';
+// MCP Enhancements
 export 'src/health/health_monitor.dart';
 export 'src/capabilities/capability_manager.dart';
 export 'src/lifecycle/lifecycle_manager.dart';
