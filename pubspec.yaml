@@ -1,6 +1,6 @@
 name: mcp_llm
-description: Advanced Dart package for Large Language Model (LLM) integration with Model Context Protocol (MCP). Features OAuth 2.1 authentication, health monitoring, capability management, and enhanced error handling. Compatible with MCP spec 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25.
-version: 1.2.0
+description: Dart package for Large Language Model integration with Model Context Protocol (MCP). Multi-provider LLM access (Claude / OpenAI / Gemini / Vertex / Bedrock / Cohere / Mistral / Groq / Together / Custom), MCP client + server orchestration, and Contract Layer adapters for the mcp_bundle ecosystem. Compatible with MCP spec 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25.
+version: 2.0.0
 homepage: https://app-appplayer.github.io/makemind
 repository: https://github.com/app-appplayer/mcp_llm
 issue_tracker: https://github.com/app-appplayer/mcp_llm/issues
@@ -31,25 +31,13 @@ dependencies:
   sqlite3: ^2.1.0
   path: ^1.8.3
   
-  # 2025-03-26 MCP enhancements
-  # Note: These are core Dart dependencies for the enhanced features
-  # - OAuth 2.1 authentication (implemented with core Dart)
-  # - JSON-RPC 2.0 batch processing (implemented with core Dart)
-  # - Health monitoring (implemented with core Dart)
-  # - Capability management (implemented with core Dart)
-  # - Enhanced error handling (implemented with core Dart)
-
 dev_dependencies:
-  # Development and testing
   lints: ^5.0.0
   test: ^1.24.0
   mockito: ^5.4.5
   build_runner: ^2.4.15
-  
-  # Additional testing for 2025-03-26 features
-  faker: ^2.1.0  # For generating test data
-  
-# Dart package metadata
+  faker: ^2.1.0  # test data
+
 platforms:
   android:
   ios:
@@ -57,28 +45,3 @@ platforms:
   macos:
   web:
   windows:
-
-# Screenshots for pub.dev (when available)
-# screenshots:
-#   - description: 'MCP LLM v1.0.0 with 2025-03-26 features'
-#     path: screenshots/mcp_llm_v1_features.png
-#   - description: 'OAuth 2.1 authentication integration'
-#     path: screenshots/oauth_integration.png
-#   - description: 'Batch processing performance comparison'
-#     path: screenshots/batch_performance.png
-
-# Example usage
-example:
-  # Complete 2025-03-26 feature example
-  - path: example/mcp_2025_complete_example.dart
-    description: 'Comprehensive example showcasing all v1.0.0 features'
-  
-  # Specific feature examples
-  - path: example/batch_processing_2025_example.dart
-    description: 'JSON-RPC 2.0 batch processing optimization'
-    
-  - path: example/logging_example.dart
-    description: 'Updated logging system with standard Dart logging package'
-    
-  - path: example/simple_test_example.dart
-    description: 'Simple usage example for quick start'

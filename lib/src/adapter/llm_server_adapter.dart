@@ -85,12 +85,34 @@ class LlmServerAdapter {
       return false;
     }
 
+    // Normalise each argument to a spec-shaped map so we can route through
+    // mcp_server's `addPromptMap` sibling. The typed entry point would
+    // refuse `List<dynamic>` at runtime (List is invariant in Dart), and
+    // we don't want this adapter to depend on mcp_server's `PromptArgument`
+    // type just to satisfy a typed signature.
+    final argsMaps = <Map<String, dynamic>>[];
+    for (final arg in arguments) {
+      if (arg is Map<String, dynamic>) {
+        argsMaps.add(arg);
+      } else {
+        try {
+          final j = (arg as dynamic).toJson();
+          argsMaps.add(j is Map<String, dynamic>
+              ? j
+              : Map<String, dynamic>.from(j as Map));
+        } catch (e) {
+          _logger.error(
+              'Prompt argument is not a Map and has no toJson(): $arg ($e)');
+          return false;
+        }
+      }
+    }
     try {
-      // Call addPrompt with named parameters
-      await _mcpServer.addPrompt(
+      // Prefer the Map-based sibling (added in mcp_server 2.0+).
+      await _mcpServer.addPromptMap(
         name: name,
         description: description,
-        arguments: arguments,
+        arguments: argsMaps,
         handler: handler,
       );
       _logger.info('Successfully registered prompt: $name');

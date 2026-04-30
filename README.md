@@ -30,7 +30,9 @@ Cloud capability providers:
 
 - Multi-client and multi-server management
 - Service routing, balancing, and pooling
-- 2025-03-26 MCP specification compliance (OAuth 2.1, JSON-RPC 2.0 batch, health monitoring, capability management, lifecycle control, enhanced error handling)
+- MCP spec compliance across revisions 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25, with per-version capability gating
+- OAuth 2.1 authentication
+- Health monitoring, capability management, lifecycle control, and enhanced error handling
 - Deferred Tool Loading (60–80% token reduction)
 - Multi-round tool calling
 - Resource Tool Bridge (`mcp_read_resource`, `mcp_list_resources`)
@@ -96,10 +98,8 @@ final bundle.LlmPort llmPort = LlmPortAdapter(provider);
 
 ## Examples
 
-- `example/mcp_2025_complete_example.dart` — full 2025-03-26 feature walkthrough
-- `example/batch_processing_2025_example.dart` — JSON-RPC 2.0 batch processing
-- `example/logging_example.dart` — unified logging
-- `example/simple_test_example.dart` — minimal usage
+- `example/simple_test_example.dart` — minimal LlmClient + mock MCP client usage
+- `example/logging_example.dart` — unified logging via the Dart `logging` package
 
 ## Support
 

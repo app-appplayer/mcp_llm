@@ -11,8 +11,11 @@ class LlmServer {
   /// LLM provider
   final LlmInterface llmProvider;
 
-  /// MCP server manager
-  late final McpServerManager? serverManager;
+  /// MCP server manager. Mutable so that `addMcpServer` can lazily
+  /// instantiate the manager when the constructor was called without
+  /// any backing servers — declaring this `late final` would throw
+  /// `LateInitializationError` on the second assignment from `??=`.
+  McpServerManager? serverManager;
 
   /// Storage manager
   final StorageManager? storageManager;

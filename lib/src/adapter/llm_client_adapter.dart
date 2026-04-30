@@ -378,10 +378,26 @@ class LlmClientAdapter {
   /// Calling this advertises the `sampling` client capability on the next
   /// initialize handshake.
   void onSamplingRequest(Future<dynamic> Function(dynamic request) handler) {
+    // mcp_client's typed `onSamplingRequest` expects
+    // `Future<CreateMessageResult> Function(CreateMessageRequest)` —
+    // forwarding our `Future<dynamic> Function(dynamic)` would fail the
+    // runtime function-subtype check on the return. Use the Map sibling
+    // so the registered handler stays Map-typed and the typed wrapper is
+    // bypassed entirely.
+    Future<Map<String, dynamic>> wrapped(Map<String, dynamic> params) async {
+      final raw = await handler(params);
+      if (raw is Map<String, dynamic>) return raw;
+      return Map<String, dynamic>.from(raw as Map);
+    }
     try {
-      _mcpClient.onSamplingRequest(handler);
-    } catch (e) {
-      _logger.warning('Underlying client does not support onSamplingRequest: $e');
+      _mcpClient.onSamplingRequestMap(wrapped);
+    } catch (_) {
+      try {
+        _mcpClient.onSamplingRequest(handler);
+      } catch (e) {
+        _logger.warning(
+            'Underlying client does not support onSamplingRequest: $e');
+      }
     }
   }
 
@@ -427,18 +443,37 @@ class LlmClientAdapter {
   /// behaviour returns the locally registered [addRoot] entries; supply
   /// this to override.
   void onListRoots(Future<List<dynamic>> Function() handler) {
+    // mcp_client's typed `onListRoots` expects `Future<List<Root>>` —
+    // route through the Map sibling so we don't have to import Root.
+    Future<List<Map<String, dynamic>>> wrapped() async {
+      final list = await handler();
+      return list
+          .map<Map<String, dynamic>>((r) => r is Map<String, dynamic>
+              ? r
+              : Map<String, dynamic>.from(r as Map))
+          .toList();
+    }
     try {
-      _mcpClient.onListRoots(handler);
-    } catch (e) {
-      _logger.warning('Underlying client does not support onListRoots: $e');
+      _mcpClient.onListRootsMap(wrapped);
+    } catch (_) {
+      try {
+        _mcpClient.onListRoots(handler);
+      } catch (e) {
+        _logger.warning('Underlying client does not support onListRoots: $e');
+      }
     }
   }
 
   /// Add a root to the client's local list. Triggers
-  /// `notifications/roots/list_changed` to the server.
+  /// `notifications/roots/list_changed` to the server. Accepts either a
+  /// raw map (`{'uri': ..., 'name': ...}`) or a typed `Root` instance.
   void addRoot(dynamic root) {
     try {
-      _mcpClient.addRoot(root);
+      if (root is Map) {
+        _mcpClient.addRootMap(Map<String, dynamic>.from(root));
+      } else {
+        _mcpClient.addRoot(root);
+      }
     } catch (e) {
       _logger.warning('Underlying client does not support addRoot: $e');
     }

@@ -69,22 +69,18 @@ void main() async {
   // Create simple mock client
   final mockClient = SimpleMockMcpClient();
 
-  // Create LLM client with 2025-03-26 features
   final llmClient = LlmClient(
     llmProvider: SimpleMockLlmProvider(),
     mcpClients: {
       'test': mockClient,
     },
-    // Enable basic 2025-03-26 features
-    batchConfig: const BatchConfig(maxBatchSize: 5),
     enableHealthMonitoring: true,
     enableCapabilityManagement: true,
     enableEnhancedErrorHandling: true,
   );
 
-  print('✅ LLM Client created with 2025-03-26 features');
+  print('✅ LLM Client created');
 
-  // Test feature status
   final featureStatus = llmClient.featureStatus;
   print('📊 Feature Status:');
   featureStatus.forEach((feature, enabled) {
@@ -92,15 +88,9 @@ void main() async {
     print('   $status ${feature.replaceAll('_', ' ').toUpperCase()}');
   });
 
-  // Test basic chat functionality
   print('\n💬 Testing basic chat...');
   final response = await llmClient.chat('Hello, test!');
   print('   Response: ${response.text}');
-
-  // Test batch statistics
-  print('\n📈 Batch Statistics:');
-  final batchStats = llmClient.getBatchStatistics();
-  print('   Registered clients: ${batchStats['registered_clients']}');
 
   // Test health monitoring
   print('\n🏥 Health Monitoring:');
