@@ -769,8 +769,14 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
     };
+
+    // `temperature` is opt-in — some newer models (e.g. o-series
+    // reasoning models) reject the parameter. Only forward when the
+    // caller explicitly provides a value.
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
 
     if (request.parameters.containsKey('top_p')) {
       body['top_p'] = request.parameters['top_p'];

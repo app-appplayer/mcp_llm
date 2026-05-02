@@ -900,8 +900,14 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
     };
+
+    // `temperature` is conditional — Claude Opus 4.x rejects requests
+    // that include the key (`temperature is deprecated for this model`).
+    // Only forward it when the caller explicitly asks for one.
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
 
     if (request.parameters.containsKey('top_p')) {
       body['top_p'] = request.parameters['top_p'];

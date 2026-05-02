@@ -698,8 +698,13 @@ class MistralProvider implements LlmInterface, RetryableLlmProvider {
       'model': resolvedModel,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
     };
+
+    // `temperature` is opt-in to stay forward-compatible with models
+    // that deprecate or reject the parameter.
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
 
     if (request.parameters.containsKey('top_p')) {
       body['top_p'] = request.parameters['top_p'];

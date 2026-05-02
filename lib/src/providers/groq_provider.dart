@@ -660,8 +660,13 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
       'model': resolvedModel,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
     };
+
+    // Conditional `temperature` — keep forward-compatible with models
+    // that may reject the parameter.
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
 
     if (request.parameters.containsKey('top_p')) {
       body['top_p'] = request.parameters['top_p'];

@@ -321,9 +321,13 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'prompt': fullPrompt,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
       'stop': ['</assistant>'],
     };
+
+    // Conditional `temperature` — opt-in to keep forward-compatible.
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
 
     // Add optional parameters
     if (request.parameters.containsKey('top_p')) {

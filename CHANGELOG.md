@@ -1,3 +1,28 @@
+## [2.0.1] - 2026-05-02 - `temperature` is now opt-in across all providers
+
+### Fixed
+- **Claude Opus 4.x compatibility.** `claude-opus-4-7` (and other models in
+  the same family) reject requests that carry `temperature` with
+  `400 invalid_request_error: "temperature is deprecated for this model"`.
+  The provider was always injecting `temperature: 0.7` even when the
+  caller didn't ask for one, making mcp_llm unusable on those models.
+- All seven providers that hardcoded `'temperature': … ?? 0.7` —
+  `ClaudeProvider`, `OpenAiProvider`, `MistralProvider`, `GroqProvider`,
+  `TogetherProvider`, `CustomProvider`, and the Llama / Titan paths in
+  `BedrockProvider` — now only forward `temperature` when the caller
+  explicitly provides one. Without it the key is omitted from the
+  request body and the backend's own default applies.
+- `GeminiProvider`, `VertexAiProvider`, and `CohereProvider` already
+  used the conditional pattern and are unchanged.
+
+### Behavior
+- Backwards-compatible for callers that do pass `temperature`: the value
+  is forwarded as before.
+- Callers that relied on the implicit `0.7` default now get the
+  provider's own default (typically `1.0` for Claude / OpenAI). Pass
+  `parameters: {'temperature': 0.7}` explicitly to keep the previous
+  behavior.
+
 ## [2.0.0] - 2026-04-30 - MCP spec compliance + 2025-11-25 alignment
 
 Big-Bang spec normalization. Pairs with mcp_server 2.0 / mcp_client 2.0.

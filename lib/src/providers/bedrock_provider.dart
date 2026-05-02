@@ -825,12 +825,15 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
 
     prompt.write('[INST] ${request.prompt} [/INST]');
 
-    return {
+    final body = <String, dynamic>{
       'prompt': prompt.toString(),
       'max_gen_len': request.parameters['max_tokens'] ?? 1024,
-      'temperature': request.parameters['temperature'] ?? 0.7,
       'top_p': request.parameters['top_p'] ?? 0.9,
     };
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
+    return body;
   }
 
   Map<String, dynamic> _buildTitanRequestBody(LlmRequest request) {
@@ -846,13 +849,16 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
 
     inputText.write('User: ${request.prompt}\nBot:');
 
+    final config = <String, dynamic>{
+      'maxTokenCount': request.parameters['max_tokens'] ?? 1024,
+      'topP': request.parameters['top_p'] ?? 0.9,
+    };
+    if (request.parameters['temperature'] != null) {
+      config['temperature'] = request.parameters['temperature'];
+    }
     return {
       'inputText': inputText.toString(),
-      'textGenerationConfig': {
-        'maxTokenCount': request.parameters['max_tokens'] ?? 1024,
-        'temperature': request.parameters['temperature'] ?? 0.7,
-        'topP': request.parameters['top_p'] ?? 0.9,
-      },
+      'textGenerationConfig': config,
     };
   }
 

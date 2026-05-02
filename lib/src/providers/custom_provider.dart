@@ -60,12 +60,17 @@ abstract class CustomLlmProvider implements LlmInterface {
 
   /// Transform a request for the specific provider
   Future<Map<String, dynamic>> transformRequest(LlmRequest request) async {
-    // Base implementation - override in provider-specific subclasses
-    return {
+    // Base implementation - override in provider-specific subclasses.
+    // `temperature` is conditional so subclasses don't accidentally
+    // forward it to backends that reject the parameter.
+    final body = <String, dynamic>{
       'prompt': request.prompt,
-      'temperature': request.parameters['temperature'] ?? 0.7,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
     };
+    if (request.parameters['temperature'] != null) {
+      body['temperature'] = request.parameters['temperature'];
+    }
+    return body;
   }
 
   /// Transform a response from the provider format

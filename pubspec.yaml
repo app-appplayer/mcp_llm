@@ -1,6 +1,6 @@
 name: mcp_llm
 description: Dart package for Large Language Model integration with Model Context Protocol (MCP). Multi-provider LLM access (Claude / OpenAI / Gemini / Vertex / Bedrock / Cohere / Mistral / Groq / Together / Custom), MCP client + server orchestration, and Contract Layer adapters for the mcp_bundle ecosystem. Compatible with MCP spec 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25.
-version: 2.0.0
+version: 2.0.1
 homepage: https://app-appplayer.github.io/makemind
 repository: https://github.com/app-appplayer/mcp_llm
 issue_tracker: https://github.com/app-appplayer/mcp_llm/issues
