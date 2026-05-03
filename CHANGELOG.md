@@ -1,3 +1,17 @@
+## [2.1.0] - 2026-05-03 - Prompt caching across all providers
+
+### Added
+- `CacheHints` (`core/models.dart`) — provider-agnostic intent for prompt caching (`system`, `tools`, `messages`, `ttl`). Attached to `LlmRequest.cacheHints`.
+- `LlmCacheMetadataKeys` — canonical metadata keys (`cache_creation_tokens` / `cache_read_tokens`) so callers can compute savings without provider-specific branches.
+- `LlmProvider.supportsPromptCaching` — getter on the base interface so callers can branch on capability.
+- **Anthropic Claude / Bedrock-on-Anthropic** — `cache_control: ephemeral` markers on system, last tool, and last 2 messages by default. Length guard (Sonnet/Opus 1024 tok min, Haiku 2048 tok min) skips the marker when content is too small to be cacheable.
+- **OpenAI** — `prompt_cache_key` forwarded from `parameters` for explicit cache partitioning. Server-side automatic caching surfaces under `prompt_tokens_details.cached_tokens` → `cache_read_tokens` on the response metadata.
+- **Gemini / Vertex AI** — `cachedContent` resource reference forwarded from `parameters['cached_content']` (caller manages lifecycle). Default OFF because of the per-minute storage charge and 32K-token minimum on Pro models — small/one-shot prompts would cost more than they save.
+
+### Notes
+- Per-provider default policy when `cacheHints` is `null` documented in `README.md` § Prompt Caching.
+- API is fully additive: existing callers continue to work unchanged.
+
 ## [2.0.1] - 2026-05-02 - `temperature` is now opt-in across all providers
 
 ### Fixed

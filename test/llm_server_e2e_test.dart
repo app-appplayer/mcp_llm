@@ -36,6 +36,9 @@ class _StubLlm implements llm.LlmProvider {
   Future<void> close() async {}
 
   @override
+  bool get supportsPromptCaching => false;
+
+  @override
   Future<llm.LlmResponse> complete(llm.LlmRequest request) async {
     calls.add(request);
     return llm.LlmResponse(

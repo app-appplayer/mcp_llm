@@ -53,6 +53,13 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
+  /// Anthropic-on-Bedrock supports the same `cache_control` markers as
+  /// the direct Anthropic API. Llama / Titan model families do not, so
+  /// `_buildAnthropicRequestBody` is the only path that actually
+  /// applies hints — the others silently ignore them.
+  @override
+  bool get supportsPromptCaching => true;
+
   String get _baseUrl => 'https://bedrock-runtime.$region.amazonaws.com';
 
   String _resolveModel(String modelName) {
@@ -170,6 +177,15 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
               switch (modelFamily) {
                 case 'anthropic':
                   final result = _parseAnthropicStreamChunk(payload, toolCalls);
+                  final cacheMeta =
+                      result['cacheMetadata'] as Map<String, dynamic>?;
+                  if (cacheMeta != null && cacheMeta.isNotEmpty) {
+                    yield LlmResponseChunk(
+                      textChunk: '',
+                      isDone: false,
+                      metadata: cacheMeta,
+                    );
+                  }
                   if (result['text'] != null) {
                     responseText.write(result['text']);
                     yield LlmResponseChunk(
@@ -289,6 +305,29 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
     final type = payload['type'] as String?;
 
     switch (type) {
+      case 'message_start':
+        // Surface prompt-cache usage from `message.usage` so streaming
+        // callers can observe cache hits via response chunk metadata.
+        final msg = payload['message'];
+        if (msg is Map<String, dynamic>) {
+          final usage = msg['usage'];
+          if (usage is Map<String, dynamic>) {
+            final cacheMeta = <String, dynamic>{};
+            final created = usage['cache_creation_input_tokens'];
+            final read = usage['cache_read_input_tokens'];
+            if (created is int) {
+              cacheMeta[LlmCacheMetadataKeys.cacheCreationTokens] = created;
+            }
+            if (read is int) {
+              cacheMeta[LlmCacheMetadataKeys.cacheReadTokens] = read;
+            }
+            if (cacheMeta.isNotEmpty) {
+              result['cacheMetadata'] = cacheMeta;
+            }
+          }
+        }
+        break;
+
       case 'content_block_delta':
         final delta = payload['delta'] as Map<String, dynamic>?;
         if (delta != null) {
@@ -776,8 +815,23 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
       'messages': messages,
     };
 
+    // Anthropic on Bedrock honours the same `cache_control` markers as
+    // the direct Anthropic API. Apply hints with the same default-ON
+    // policy and length guard.
+    final hints = request.cacheHints ?? CacheHints.all;
+
     if (systemContent != null && systemContent.isNotEmpty) {
-      body['system'] = systemContent;
+      if (hints.system && _meetsBedrockAnthropicCacheMinimum(systemContent)) {
+        body['system'] = [
+          {
+            'type': 'text',
+            'text': systemContent,
+            'cache_control': {'type': 'ephemeral'},
+          }
+        ];
+      } else {
+        body['system'] = systemContent;
+      }
     }
 
     if (request.parameters.containsKey('temperature')) {
@@ -786,16 +840,76 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
 
     if (request.parameters.containsKey('tools')) {
       final tools = request.parameters['tools'] as List<dynamic>;
-      body['tools'] = tools.map((tool) {
+      final claudeTools = tools.map((tool) {
         return {
           'name': tool['name'],
           'description': tool['description'],
           'input_schema': tool['parameters'],
         };
       }).toList();
+      if (hints.tools && claudeTools.isNotEmpty) {
+        claudeTools.last['cache_control'] = {'type': 'ephemeral'};
+      }
+      body['tools'] = claudeTools;
+    }
+
+    if (hints.messages > 0 && messages.isNotEmpty) {
+      // Anthropic-on-Bedrock shares the 4-breakpoint limit. Cap
+      // message marks at the remaining budget after system + tools.
+      final budget = 4 -
+          (body['system'] is List ? 1 : 0) -
+          (hints.tools && body['tools'] is List ? 1 : 0);
+      final messageCount =
+          hints.messages > budget ? budget : hints.messages;
+      if (messageCount > 0) {
+        _markBedrockMessageCacheBreakpoints(messages, messageCount);
+      }
     }
 
     return body;
+  }
+
+  /// Anthropic-on-Bedrock minimum-cacheable size guard. Mirrors the
+  /// direct Anthropic API tiering (Haiku 2048, others 1024).
+  bool _meetsBedrockAnthropicCacheMinimum(String content) {
+    final approxTokens = (content.length / 4).ceil();
+    final minimum = model.toLowerCase().contains('haiku') ? 2048 : 1024;
+    return approxTokens >= minimum;
+  }
+
+  void _markBedrockMessageCacheBreakpoints(
+      List<Map<String, dynamic>> messages, int count) {
+    var marked = 0;
+    for (var i = messages.length - 1; i >= 0 && marked < count; i--) {
+      final msg = messages[i];
+      final content = msg['content'];
+      if (content is String) {
+        if (content.isEmpty) continue;
+        msg['content'] = [
+          {
+            'type': 'text',
+            'text': content,
+            'cache_control': {'type': 'ephemeral'},
+          }
+        ];
+        marked++;
+      } else if (content is List && content.isNotEmpty) {
+        final last = content.last;
+        if (last is Map<String, dynamic> && _isBedrockMarkableBlock(last)) {
+          last['cache_control'] = {'type': 'ephemeral'};
+          marked++;
+        }
+      }
+    }
+  }
+
+  /// Anthropic-on-Bedrock has the same empty-text restriction as the
+  /// direct Anthropic API.
+  bool _isBedrockMarkableBlock(Map<String, dynamic> block) {
+    final type = block['type'];
+    if (type != 'text') return true;
+    final text = block['text'];
+    return text is String && text.isNotEmpty;
   }
 
   Map<String, dynamic> _buildLlamaRequestBody(LlmRequest request) {
@@ -912,6 +1026,17 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
 
     if (response.containsKey('usage')) {
       metadata['usage'] = response['usage'];
+      final usage = response['usage'];
+      if (usage is Map<String, dynamic>) {
+        final created = usage['cache_creation_input_tokens'];
+        final read = usage['cache_read_input_tokens'];
+        if (created is int) {
+          metadata[LlmCacheMetadataKeys.cacheCreationTokens] = created;
+        }
+        if (read is int) {
+          metadata[LlmCacheMetadataKeys.cacheReadTokens] = read;
+        }
+      }
     }
 
     if (toolCalls != null && toolCalls.isNotEmpty) {

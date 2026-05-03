@@ -27,6 +27,10 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
+  /// Together does not expose a prompt-caching mechanism.
+  @override
+  bool get supportsPromptCaching => false;
+
   // Concrete implementation of the executeWithRetry method
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {

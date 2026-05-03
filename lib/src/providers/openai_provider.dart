@@ -24,6 +24,15 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
+  /// OpenAI applies prompt caching automatically on shared prefixes
+  /// (≥ 1024 tokens). The provider exposes the cache as supported so
+  /// callers can branch on `supportsPromptCaching`, but the actual
+  /// hint shape (`CacheHints`) is informational here — OpenAI does
+  /// not need explicit markers. The only opt-in is `prompt_cache_key`,
+  /// forwarded from `parameters` in `_buildRequestBody`.
+  @override
+  bool get supportsPromptCaching => true;
+
   /// Concrete implementation of the executeWithRetry method from RetryableLlmProvider
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
@@ -107,6 +116,11 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       // Generate request body
       final requestBody = _buildRequestBody(request);
       requestBody['stream'] = true;
+      // Ask OpenAI to emit a final usage payload chunk so streaming
+      // callers can observe `cached_tokens`. Without this option the
+      // SSE stream omits usage entirely. Existing callers can opt out
+      // by passing `stream_options.include_usage: false` themselves.
+      requestBody['stream_options'] ??= {'include_usage': true};
       logger.debug('OpenAI API request body structure created');
 
       // Prepare API request
@@ -186,6 +200,27 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
+
+                // Final usage payload — OpenAI emits a chunk with
+                // `choices: []` and `usage: {...}` when
+                // `stream_options.include_usage` is enabled. Surface
+                // cached prefix tokens on the canonical mcp_llm key.
+                final usage = chunkJson['usage'];
+                if (usage is Map<String, dynamic>) {
+                  final details = usage['prompt_tokens_details'];
+                  if (details is Map) {
+                    final cached = details['cached_tokens'];
+                    if (cached is int) {
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: false,
+                        metadata: {
+                          LlmCacheMetadataKeys.cacheReadTokens: cached,
+                        },
+                      );
+                    }
+                  }
+                }
 
                 // Extract information from response chunk
                 final choices = chunkJson['choices'] as List<dynamic>?;
@@ -802,6 +837,17 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       }
     }
 
+    // OpenAI applies prompt caching automatically (≥ 1024-token shared
+    // prefix). The optional `prompt_cache_key` parameter lets callers
+    // partition the cache space (e.g. per tenant) so unrelated traffic
+    // does not evict each other. We forward it from `parameters` when
+    // present; the canonical default is to leave it off so OpenAI's
+    // implicit hashing covers shared work.
+    final cacheKey = request.parameters['prompt_cache_key'];
+    if (cacheKey is String && cacheKey.isNotEmpty) {
+      body['prompt_cache_key'] = cacheKey;
+    }
+
     logger.debug('OpenAI API request body prepared: ${body.keys.join(', ')}');
     return body;
   }
@@ -887,6 +933,21 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     // Add usage info if available
     if (response.containsKey('usage')) {
       metadata['usage'] = response['usage'];
+      final usage = response['usage'];
+      if (usage is Map<String, dynamic>) {
+        // OpenAI surfaces cached input under
+        // `prompt_tokens_details.cached_tokens`. Promote to the
+        // canonical mcp_llm key so callers do not need an OpenAI
+        // branch. There is no separate "creation" counter here —
+        // OpenAI does not bill cache writes differently.
+        final details = usage['prompt_tokens_details'];
+        if (details is Map) {
+          final cached = details['cached_tokens'];
+          if (cached is int) {
+            metadata[LlmCacheMetadataKeys.cacheReadTokens] = cached;
+          }
+        }
+      }
     }
 
     // Add tool call IDs to metadata

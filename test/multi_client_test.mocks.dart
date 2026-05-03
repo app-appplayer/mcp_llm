@@ -23,8 +23,8 @@ import 'package:mockito/src/dummies.dart' as _i4;
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
 
-class _FakeLlmInterface_0 extends _i1.SmartFake implements _i2.LlmInterface {
-  _FakeLlmInterface_0(Object parent, Invocation parentInvocation)
+class _FakeLlmProvider_0 extends _i1.SmartFake implements _i2.LlmProvider {
+  _FakeLlmProvider_0(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
@@ -43,6 +43,28 @@ class _FakeLlmResponse_3 extends _i1.SmartFake implements _i2.LlmResponse {
     : super(parent, parentInvocation);
 }
 
+class _FakeHealthReport_4 extends _i1.SmartFake implements _i2.HealthReport {
+  _FakeHealthReport_4(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeCapabilityUpdateResponse_5 extends _i1.SmartFake
+    implements _i2.CapabilityUpdateResponse {
+  _FakeCapabilityUpdateResponse_5(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeLifecycleResponse_6 extends _i1.SmartFake
+    implements _i2.LifecycleResponse {
+  _FakeLifecycleResponse_6(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeFuture_7<T1> extends _i1.SmartFake implements _i3.Future<T1> {
+  _FakeFuture_7(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
 /// A class which mocks [LlmClient].
 ///
 /// See the documentation for Mockito's code generation for more information.
@@ -52,15 +74,15 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
   }
 
   @override
-  _i2.LlmInterface get llmProvider =>
+  _i2.LlmProvider get llmProvider =>
       (super.noSuchMethod(
             Invocation.getter(#llmProvider),
-            returnValue: _FakeLlmInterface_0(
+            returnValue: _FakeLlmProvider_0(
               this,
               Invocation.getter(#llmProvider),
             ),
           )
-          as _i2.LlmInterface);
+          as _i2.LlmProvider);
 
   @override
   _i2.PluginManager get pluginManager =>
@@ -105,6 +127,30 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
             returnValue: false,
           )
           as bool);
+
+  @override
+  bool get allClientsHealthy =>
+      (super.noSuchMethod(
+            Invocation.getter(#allClientsHealthy),
+            returnValue: false,
+          )
+          as bool);
+
+  @override
+  List<String> get unhealthyClients =>
+      (super.noSuchMethod(
+            Invocation.getter(#unhealthyClients),
+            returnValue: <String>[],
+          )
+          as List<String>);
+
+  @override
+  Map<String, dynamic> get featureStatus =>
+      (super.noSuchMethod(
+            Invocation.getter(#featureStatus),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
 
   @override
   void addMcpClient(String? clientId, dynamic mcpClient) => super.noSuchMethod(
@@ -159,43 +205,6 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
             ),
           )
           as _i3.Future<String>);
-
-  @override
-  _i3.Future<Map<String, dynamic>> executePrompt(
-    String? promptName,
-    Map<String, dynamic>? args, {
-    String? clientId,
-    bool? tryAllClients = false,
-  }) =>
-      (super.noSuchMethod(
-            Invocation.method(
-              #executePrompt,
-              [promptName, args],
-              {#clientId: clientId, #tryAllClients: tryAllClients},
-            ),
-            returnValue: _i3.Future<Map<String, dynamic>>.value(
-              <String, dynamic>{},
-            ),
-          )
-          as _i3.Future<Map<String, dynamic>>);
-
-  @override
-  _i3.Future<Map<String, dynamic>> readResource(
-    String? resourceUri, {
-    String? clientId,
-    bool? tryAllClients = false,
-  }) =>
-      (super.noSuchMethod(
-            Invocation.method(
-              #readResource,
-              [resourceUri],
-              {#clientId: clientId, #tryAllClients: tryAllClients},
-            ),
-            returnValue: _i3.Future<Map<String, dynamic>>.value(
-              <String, dynamic>{},
-            ),
-          )
-          as _i3.Future<Map<String, dynamic>>);
 
   @override
   _i3.Future<void> updateSystemPrompt({
@@ -288,6 +297,30 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
           as _i3.Stream<_i2.LlmResponseChunk>);
 
   @override
+  _i3.Future<dynamic> executeTool(
+    String? toolName,
+    Map<String, dynamic>? args, {
+    bool? enableMcpTools = true,
+    bool? enablePlugins = true,
+    String? mcpClientId,
+    bool? tryAllMcpClients = true,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #executeTool,
+              [toolName, args],
+              {
+                #enableMcpTools: enableMcpTools,
+                #enablePlugins: enablePlugins,
+                #mcpClientId: mcpClientId,
+                #tryAllMcpClients: tryAllMcpClients,
+              },
+            ),
+            returnValue: _i3.Future<dynamic>.value(),
+          )
+          as _i3.Future<dynamic>);
+
+  @override
   _i3.Future<dynamic> executeToolWithSpecificClient(
     String? toolName,
     Map<String, dynamic>? args,
@@ -342,6 +375,43 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
           as _i3.Future<Map<String, List<Map<String, dynamic>>>>);
 
   @override
+  _i3.Future<Map<String, dynamic>> executePrompt(
+    String? promptName,
+    Map<String, dynamic>? args, {
+    String? clientId,
+    bool? tryAllClients = false,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #executePrompt,
+              [promptName, args],
+              {#clientId: clientId, #tryAllClients: tryAllClients},
+            ),
+            returnValue: _i3.Future<Map<String, dynamic>>.value(
+              <String, dynamic>{},
+            ),
+          )
+          as _i3.Future<Map<String, dynamic>>);
+
+  @override
+  _i3.Future<Map<String, dynamic>> readResource(
+    String? resourceUri, {
+    String? clientId,
+    bool? tryAllClients = false,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #readResource,
+              [resourceUri],
+              {#clientId: clientId, #tryAllClients: tryAllClients},
+            ),
+            returnValue: _i3.Future<Map<String, dynamic>>.value(
+              <String, dynamic>{},
+            ),
+          )
+          as _i3.Future<Map<String, dynamic>>);
+
+  @override
   _i3.Future<List<_i2.Document>> retrieveRelevantDocuments(
     String? query, {
     int? topK = 5,
@@ -394,6 +464,371 @@ class MockLlmClient extends _i1.Mock implements _i2.LlmClient {
             returnValue: _i3.Future<List<double>>.value(<double>[]),
           )
           as _i3.Future<List<double>>);
+
+  @override
+  _i3.Future<_i2.HealthReport> performHealthCheck({List<String>? clientIds}) =>
+      (super.noSuchMethod(
+            Invocation.method(#performHealthCheck, [], {#clientIds: clientIds}),
+            returnValue: _i3.Future<_i2.HealthReport>.value(
+              _FakeHealthReport_4(
+                this,
+                Invocation.method(#performHealthCheck, [], {
+                  #clientIds: clientIds,
+                }),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.HealthReport>);
+
+  @override
+  _i2.HealthCheckResult? getClientHealth(String? clientId) =>
+      (super.noSuchMethod(Invocation.method(#getClientHealth, [clientId]))
+          as _i2.HealthCheckResult?);
+
+  @override
+  Map<String, dynamic> getHealthStatistics() =>
+      (super.noSuchMethod(
+            Invocation.method(#getHealthStatistics, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
+
+  @override
+  _i3.Future<_i2.CapabilityUpdateResponse> updateClientCapabilities(
+    _i2.CapabilityUpdateRequest? request,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateClientCapabilities, [request]),
+            returnValue: _i3.Future<_i2.CapabilityUpdateResponse>.value(
+              _FakeCapabilityUpdateResponse_5(
+                this,
+                Invocation.method(#updateClientCapabilities, [request]),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.CapabilityUpdateResponse>);
+
+  @override
+  Map<String, _i2.McpCapability> getClientCapabilities(String? clientId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getClientCapabilities, [clientId]),
+            returnValue: <String, _i2.McpCapability>{},
+          )
+          as Map<String, _i2.McpCapability>);
+
+  @override
+  Map<String, Map<String, _i2.McpCapability>> getAllCapabilities() =>
+      (super.noSuchMethod(
+            Invocation.method(#getAllCapabilities, []),
+            returnValue: <String, Map<String, _i2.McpCapability>>{},
+          )
+          as Map<String, Map<String, _i2.McpCapability>>);
+
+  @override
+  _i3.Future<bool> enableClientCapability(
+    String? clientId,
+    String? capabilityName,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#enableClientCapability, [
+              clientId,
+              capabilityName,
+            ]),
+            returnValue: _i3.Future<bool>.value(false),
+          )
+          as _i3.Future<bool>);
+
+  @override
+  _i3.Future<bool> disableClientCapability(
+    String? clientId,
+    String? capabilityName,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#disableClientCapability, [
+              clientId,
+              capabilityName,
+            ]),
+            returnValue: _i3.Future<bool>.value(false),
+          )
+          as _i3.Future<bool>);
+
+  @override
+  Map<String, dynamic> getCapabilityStatistics() =>
+      (super.noSuchMethod(
+            Invocation.method(#getCapabilityStatistics, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
+
+  @override
+  _i3.Future<void> refreshAllCapabilities() =>
+      (super.noSuchMethod(
+            Invocation.method(#refreshAllCapabilities, []),
+            returnValue: _i3.Future<void>.value(),
+            returnValueForMissingStub: _i3.Future<void>.value(),
+          )
+          as _i3.Future<void>);
+
+  @override
+  String generateCapabilityRequestId() =>
+      (super.noSuchMethod(
+            Invocation.method(#generateCapabilityRequestId, []),
+            returnValue: _i4.dummyValue<String>(
+              this,
+              Invocation.method(#generateCapabilityRequestId, []),
+            ),
+          )
+          as String);
+
+  @override
+  _i3.Future<_i2.LifecycleResponse> startServer(
+    String? serverId, {
+    _i2.LifecycleTransitionReason? reason =
+        _i2.LifecycleTransitionReason.userRequest,
+    Map<String, dynamic>? parameters = const {},
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #startServer,
+              [serverId],
+              {#reason: reason, #parameters: parameters},
+            ),
+            returnValue: _i3.Future<_i2.LifecycleResponse>.value(
+              _FakeLifecycleResponse_6(
+                this,
+                Invocation.method(
+                  #startServer,
+                  [serverId],
+                  {#reason: reason, #parameters: parameters},
+                ),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.LifecycleResponse>);
+
+  @override
+  _i3.Future<_i2.LifecycleResponse> stopServer(
+    String? serverId, {
+    _i2.LifecycleTransitionReason? reason =
+        _i2.LifecycleTransitionReason.userRequest,
+    Map<String, dynamic>? parameters = const {},
+    Duration? timeout,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #stopServer,
+              [serverId],
+              {#reason: reason, #parameters: parameters, #timeout: timeout},
+            ),
+            returnValue: _i3.Future<_i2.LifecycleResponse>.value(
+              _FakeLifecycleResponse_6(
+                this,
+                Invocation.method(
+                  #stopServer,
+                  [serverId],
+                  {#reason: reason, #parameters: parameters, #timeout: timeout},
+                ),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.LifecycleResponse>);
+
+  @override
+  _i3.Future<_i2.LifecycleResponse> restartServer(
+    String? serverId, {
+    _i2.LifecycleTransitionReason? reason =
+        _i2.LifecycleTransitionReason.userRequest,
+    Map<String, dynamic>? parameters = const {},
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #restartServer,
+              [serverId],
+              {#reason: reason, #parameters: parameters},
+            ),
+            returnValue: _i3.Future<_i2.LifecycleResponse>.value(
+              _FakeLifecycleResponse_6(
+                this,
+                Invocation.method(
+                  #restartServer,
+                  [serverId],
+                  {#reason: reason, #parameters: parameters},
+                ),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.LifecycleResponse>);
+
+  @override
+  _i3.Future<_i2.LifecycleResponse> pauseServer(
+    String? serverId, {
+    _i2.LifecycleTransitionReason? reason =
+        _i2.LifecycleTransitionReason.userRequest,
+    Map<String, dynamic>? parameters = const {},
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #pauseServer,
+              [serverId],
+              {#reason: reason, #parameters: parameters},
+            ),
+            returnValue: _i3.Future<_i2.LifecycleResponse>.value(
+              _FakeLifecycleResponse_6(
+                this,
+                Invocation.method(
+                  #pauseServer,
+                  [serverId],
+                  {#reason: reason, #parameters: parameters},
+                ),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.LifecycleResponse>);
+
+  @override
+  _i3.Future<_i2.LifecycleResponse> resumeServer(
+    String? serverId, {
+    _i2.LifecycleTransitionReason? reason =
+        _i2.LifecycleTransitionReason.userRequest,
+    Map<String, dynamic>? parameters = const {},
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #resumeServer,
+              [serverId],
+              {#reason: reason, #parameters: parameters},
+            ),
+            returnValue: _i3.Future<_i2.LifecycleResponse>.value(
+              _FakeLifecycleResponse_6(
+                this,
+                Invocation.method(
+                  #resumeServer,
+                  [serverId],
+                  {#reason: reason, #parameters: parameters},
+                ),
+              ),
+            ),
+          )
+          as _i3.Future<_i2.LifecycleResponse>);
+
+  @override
+  _i2.ServerInfo? getServerInfo(String? serverId) =>
+      (super.noSuchMethod(Invocation.method(#getServerInfo, [serverId]))
+          as _i2.ServerInfo?);
+
+  @override
+  Map<String, _i2.ServerInfo> getAllServersInfo() =>
+      (super.noSuchMethod(
+            Invocation.method(#getAllServersInfo, []),
+            returnValue: <String, _i2.ServerInfo>{},
+          )
+          as Map<String, _i2.ServerInfo>);
+
+  @override
+  _i2.ServerLifecycleState? getServerState(String? serverId) =>
+      (super.noSuchMethod(Invocation.method(#getServerState, [serverId]))
+          as _i2.ServerLifecycleState?);
+
+  @override
+  Map<String, dynamic> getLifecycleStatistics() =>
+      (super.noSuchMethod(
+            Invocation.method(#getLifecycleStatistics, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
+
+  @override
+  void setServerAutoRestart(String? serverId, bool? enabled) =>
+      super.noSuchMethod(
+        Invocation.method(#setServerAutoRestart, [serverId, enabled]),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  bool isServerAutoRestartEnabled(String? serverId) =>
+      (super.noSuchMethod(
+            Invocation.method(#isServerAutoRestartEnabled, [serverId]),
+            returnValue: false,
+          )
+          as bool);
+
+  @override
+  _i3.Future<T> executeWithErrorHandling<T>(
+    _i3.Future<T> Function()? operation, {
+    String? clientId,
+    _i2.McpErrorCategory? expectedCategory,
+    Map<String, dynamic>? context = const {},
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #executeWithErrorHandling,
+              [operation],
+              {
+                #clientId: clientId,
+                #expectedCategory: expectedCategory,
+                #context: context,
+              },
+            ),
+            returnValue:
+                _i4.ifNotNull(
+                  _i4.dummyValueOrNull<T>(
+                    this,
+                    Invocation.method(
+                      #executeWithErrorHandling,
+                      [operation],
+                      {
+                        #clientId: clientId,
+                        #expectedCategory: expectedCategory,
+                        #context: context,
+                      },
+                    ),
+                  ),
+                  (T v) => _i3.Future<T>.value(v),
+                ) ??
+                _FakeFuture_7<T>(
+                  this,
+                  Invocation.method(
+                    #executeWithErrorHandling,
+                    [operation],
+                    {
+                      #clientId: clientId,
+                      #expectedCategory: expectedCategory,
+                      #context: context,
+                    },
+                  ),
+                ),
+          )
+          as _i3.Future<T>);
+
+  @override
+  Map<String, dynamic> getErrorStatistics() =>
+      (super.noSuchMethod(
+            Invocation.method(#getErrorStatistics, []),
+            returnValue: <String, dynamic>{},
+          )
+          as Map<String, dynamic>);
+
+  @override
+  List<_i2.McpEnhancedError> getClientErrorHistory(String? clientId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getClientErrorHistory, [clientId]),
+            returnValue: <_i2.McpEnhancedError>[],
+          )
+          as List<_i2.McpEnhancedError>);
+
+  @override
+  Map<String, List<_i2.McpEnhancedError>> getAllErrorHistory() =>
+      (super.noSuchMethod(
+            Invocation.method(#getAllErrorHistory, []),
+            returnValue: <String, List<_i2.McpEnhancedError>>{},
+          )
+          as Map<String, List<_i2.McpEnhancedError>>);
+
+  @override
+  void clearErrorHistory([String? clientId]) => super.noSuchMethod(
+    Invocation.method(#clearErrorHistory, [clientId]),
+    returnValueForMissingStub: null,
+  );
 
   @override
   _i3.Future<void> close() =>

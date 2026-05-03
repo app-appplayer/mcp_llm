@@ -96,6 +96,53 @@ final bundle.LlmPort llmPort = LlmPortAdapter(provider);
 // Pass llmPort into mcp_skill / mcp_profile / mcp_knowledge runtimes.
 ```
 
+## Prompt Caching
+
+`LlmRequest.cacheHints` carries provider-agnostic intent (what to mark
+as cacheable) and each provider translates it into its own mechanism.
+Per-provider default policy when `cacheHints` is `null`:
+
+| Provider | Default | Mechanism | Notes |
+|----------|:-------:|-----------|-------|
+| Anthropic Claude | **ON** | `cache_control: ephemeral` markers on system, last tool, last 2 messages | length guard skips the marker when content is below the model minimum (Sonnet/Opus 1024 tok, Haiku 2048 tok) |
+| Bedrock (Anthropic) | **ON** | same as direct Anthropic | Llama / Titan model families silently ignore hints |
+| OpenAI | **ON (no-op)** | server-side automatic on shared prefixes ≥ 1024 tok | optional `parameters['prompt_cache_key']` partitions the cache space (e.g. per tenant) |
+| Gemini | **OFF** | `cachedContent` resource (separate POST + reference) | persistent storage charge ($/min) + 32K-token minimum on Pro models — small/one-shot prompts cost more than they save. Caller manages lifecycle and forwards `parameters['cached_content']` |
+| Vertex AI | **OFF** | same as Gemini, with project/region scoping | same opt-in pattern |
+| Mistral / Cohere / Groq / Together | OFF (noop) | not exposed by provider | hints silently ignored |
+
+Cache usage is surfaced on `LlmResponse.metadata` under canonical keys
+so callers can compute savings without provider-specific branches:
+
+- `LlmCacheMetadataKeys.cacheCreationTokens` — tokens written into the
+  cache by this call (Anthropic only — priced higher than regular input)
+- `LlmCacheMetadataKeys.cacheReadTokens` — tokens served from the cache
+  (priced ~10% of regular input on Anthropic; bills as regular on
+  OpenAI / Gemini)
+
+To opt out on Anthropic / OpenAI:
+
+```dart
+final response = await provider.complete(LlmRequest(
+  prompt: '...',
+  cacheHints: CacheHints.none,  // explicit no-cache
+));
+```
+
+To opt in on Gemini / Vertex AI: create a `cachedContent` resource via
+the provider's HTTP API, then forward the resource name on subsequent
+calls:
+
+```dart
+final response = await provider.complete(LlmRequest(
+  prompt: '...',
+  parameters: {'cached_content': 'cachedContents/abc-123'},
+));
+```
+
+`provider.supportsPromptCaching` returns `true` when the provider has
+any caching path; `false` for the four noop providers.
+
 ## Examples
 
 - `example/simple_test_example.dart` — minimal LlmClient + mock MCP client usage

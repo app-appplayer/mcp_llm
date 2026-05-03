@@ -403,6 +403,72 @@ class LlmGetPromptResult {
   }
 }
 
+/// Provider-agnostic prompt caching hints attached to an [LlmRequest].
+///
+/// Each provider translates the hints into its own caching mechanism
+/// (Anthropic `cache_control` markers, OpenAI `prompt_cache_key`, Gemini
+/// `cachedContent`, etc.). Providers that do not support caching
+/// silently ignore the hints.
+class CacheHints {
+  /// When true, the system instruction is marked as a cacheable boundary.
+  /// Providers map this to their first cache breakpoint (typically the
+  /// system block, before tools and messages).
+  final bool system;
+
+  /// When true, the tools/function-definitions block is marked as a
+  /// cacheable boundary. Most providers cache through the *end* of the
+  /// tools block, so the system+tools prefix is reused across calls.
+  final bool tools;
+
+  /// Number of trailing user/assistant messages to mark as cache
+  /// breakpoints. `0` disables history caching; `2` (typical) caches
+  /// through the second-to-last and last messages so multi-turn dialog
+  /// keeps reusing prior turns.
+  final int messages;
+
+  /// Optional cache TTL hint. Providers that support a settable TTL
+  /// (Anthropic 1h beta, Gemini cachedContent) honour it; others ignore.
+  final Duration? ttl;
+
+  const CacheHints({
+    this.system = false,
+    this.tools = false,
+    this.messages = 0,
+    this.ttl,
+  });
+
+  /// Hints with everything off — explicit no-cache declaration.
+  static const CacheHints none = CacheHints();
+
+  /// All-on convenience: system + tools + last 2 messages.
+  static const CacheHints all = CacheHints(
+    system: true,
+    tools: true,
+    messages: 2,
+  );
+
+  bool get isEmpty => !system && !tools && messages == 0;
+
+  Map<String, dynamic> toJson() => {
+        'system': system,
+        'tools': tools,
+        'messages': messages,
+        if (ttl != null) 'ttl_seconds': ttl!.inSeconds,
+      };
+}
+
+/// Standard keys that providers use to surface prompt-caching usage on
+/// [LlmResponse.metadata]. Keep these stable across providers so callers
+/// can compute savings without provider-specific branches.
+abstract class LlmCacheMetadataKeys {
+  /// Tokens written into the cache by this call (priced higher than
+  /// regular input on most providers).
+  static const String cacheCreationTokens = 'cache_creation_tokens';
+
+  /// Tokens served from the cache (priced ~10% of regular input).
+  static const String cacheReadTokens = 'cache_read_tokens';
+}
+
 /// Represents a request to an LLM
 class LlmRequest {
   /// The prompt to send to the LLM
@@ -417,12 +483,18 @@ class LlmRequest {
   /// Optional context for the request
   final LlmContext? context;
 
+  /// Provider-agnostic prompt-caching hints. When `null`, providers fall
+  /// back to their package-level default policy (Anthropic / OpenAI ON,
+  /// Gemini OFF — see `mcp_llm` package docs).
+  final CacheHints? cacheHints;
+
   /// Create a new LLM request
   LlmRequest({
     required this.prompt,
     this.history = const [],
     this.parameters = const {},
     this.context,
+    this.cacheHints,
   });
 
   /// Create a copy with modified values
@@ -431,12 +503,14 @@ class LlmRequest {
     List<LlmMessage>? history,
     Map<String, dynamic>? parameters,
     LlmContext? context,
+    CacheHints? cacheHints,
   }) {
     return LlmRequest(
       prompt: prompt ?? this.prompt,
       history: history ?? this.history,
       parameters: parameters ?? Map<String, dynamic>.from(this.parameters),
       context: context ?? this.context,
+      cacheHints: cacheHints ?? this.cacheHints,
     );
   }
 
@@ -474,6 +548,7 @@ class LlmRequest {
       'history': history.map((h) => h.toJson()).toList(),
       'parameters': parameters,
       if (context != null) 'context': context is Map ? context : context?.toJson(),
+      if (cacheHints != null) 'cacheHints': cacheHints!.toJson(),
     };
   }
 }

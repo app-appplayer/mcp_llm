@@ -48,6 +48,12 @@ abstract class LlmProvider {
   ///
   /// Returns a standardized metadata map.
   Map<String, dynamic> standardizeMetadata(Map<String, dynamic> metadata);
+
+  /// Whether this provider applies the [CacheHints] on a request.
+  /// Providers that do not implement prompt caching return `false` and
+  /// silently ignore hints. See `mcp_llm` package docs for the per-
+  /// provider default policy when `LlmRequest.cacheHints` is null.
+  bool get supportsPromptCaching => false;
 }
 
 /// Extension to add retry capabilities to LLM providers.

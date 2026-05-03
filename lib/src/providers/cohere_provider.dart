@@ -43,6 +43,10 @@ class CohereProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
+  /// Cohere does not expose a prompt-caching mechanism.
+  @override
+  bool get supportsPromptCaching => false;
+
   /// Resolve model alias to actual model ID.
   String _resolveModel(String modelName) {
     return modelAliases[modelName] ?? modelName;

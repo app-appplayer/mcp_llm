@@ -38,6 +38,14 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
   /// Default location.
   static const String defaultLocation = 'us-central1';
 
+  /// Vertex AI uses the same `cachedContent` resource model as direct
+  /// Gemini (with project/region scoping). Default policy is OFF —
+  /// see `mcp_llm` package docs for the rationale (per-minute storage
+  /// charge + 32K token minimum on Pro models). Callers opt in by
+  /// providing a cachedContent resource name.
+  @override
+  bool get supportsPromptCaching => true;
+
   VertexAiProvider({
     this.accessToken,
     required this.projectId,
@@ -170,6 +178,23 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
 
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
+
+                // Vertex AI emits `usageMetadata` on each SSE chunk
+                // (same shape as Gemini direct). Surface cached prefix
+                // tokens on the canonical mcp_llm key.
+                final usage = chunkJson['usageMetadata'];
+                if (usage is Map<String, dynamic>) {
+                  final cached = usage['cachedContentTokenCount'];
+                  if (cached is int) {
+                    yield LlmResponseChunk(
+                      textChunk: '',
+                      isDone: false,
+                      metadata: {
+                        LlmCacheMetadataKeys.cacheReadTokens: cached,
+                      },
+                    );
+                  }
+                }
 
                 final candidates = chunkJson['candidates'] as List<dynamic>?;
                 if (candidates != null && candidates.isNotEmpty) {
@@ -527,6 +552,22 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
       ];
     }
 
+    // Vertex AI uses the same cachedContent resource model as Gemini
+    // direct (with project/region scoping). Default policy is OFF;
+    // callers manage lifecycle and forward the resource name.
+    //
+    // Constraint: a request that carries `cachedContent` MUST NOT
+    // also carry `systemInstruction` or `tools` — Vertex rejects the
+    // combination with 400 INVALID_ARGUMENT because the cached
+    // resource already pins those. Strip them when forwarding.
+    final cachedContent = request.parameters['cached_content'] ??
+        request.parameters['cachedContent'];
+    if (cachedContent is String && cachedContent.isNotEmpty) {
+      body['cachedContent'] = cachedContent;
+      body.remove('systemInstruction');
+      body.remove('tools');
+    }
+
     return body;
   }
 
@@ -616,6 +657,13 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
 
     if (response.containsKey('usageMetadata')) {
       metadata['usage'] = response['usageMetadata'];
+      final usage = response['usageMetadata'];
+      if (usage is Map<String, dynamic>) {
+        final cached = usage['cachedContentTokenCount'];
+        if (cached is int) {
+          metadata[LlmCacheMetadataKeys.cacheReadTokens] = cached;
+        }
+      }
     }
 
     if (toolCalls != null && toolCalls.isNotEmpty) {

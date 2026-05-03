@@ -40,6 +40,9 @@ class SimpleMockLlmProvider implements LlmInterface {
 
   @override
   Future<void> close() async {}
+
+  @override
+  bool get supportsPromptCaching => false;
 }
 
 /// Simple mock MCP client

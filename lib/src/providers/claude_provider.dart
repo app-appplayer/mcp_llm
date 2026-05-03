@@ -27,6 +27,9 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     required this.config,
   });
 
+  @override
+  bool get supportsPromptCaching => true;
+
   /// Concrete implementation of the executeWithRetry method from RetryableLlmProvider
   @override
   Future<T> executeWithRetry<T>(Future<T> Function() operation) async {
@@ -195,7 +198,36 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                 // Check for different chunk types
                 final chunkType = chunkJson['type'] as String?;
 
-                if (chunkType == 'content_block_start') {
+                if (chunkType == 'message_start') {
+                  // Anthropic emits prompt-cache usage on the first
+                  // SSE event (`message_start.message.usage`). Surface
+                  // the canonical mcp_llm metadata keys on a no-text
+                  // chunk so callers can still observe cache hits in
+                  // streaming mode.
+                  final msg = chunkJson['message'];
+                  if (msg is Map<String, dynamic>) {
+                    final usage = msg['usage'];
+                    if (usage is Map<String, dynamic>) {
+                      final created = usage['cache_creation_input_tokens'];
+                      final read = usage['cache_read_input_tokens'];
+                      final meta = <String, dynamic>{};
+                      if (created is int) {
+                        meta[LlmCacheMetadataKeys.cacheCreationTokens] =
+                            created;
+                      }
+                      if (read is int) {
+                        meta[LlmCacheMetadataKeys.cacheReadTokens] = read;
+                      }
+                      if (meta.isNotEmpty) {
+                        yield LlmResponseChunk(
+                          textChunk: '',
+                          isDone: false,
+                          metadata: meta,
+                        );
+                      }
+                    }
+                  }
+                } else if (chunkType == 'content_block_start') {
                   final blockType = chunkJson['content_block']?['type'] as String?;
                   logger.debug('Content block start: $blockType');
 
@@ -934,13 +966,117 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       }
     }
 
+    // Resolve cache policy. Anthropic default is ON when cacheHints is
+    // null (system + tools + last 2 messages). Length guards below
+    // skip the marker when the content is too small to be cacheable
+    // by the model (Sonnet/Opus 1024 tok, Haiku 2048 tok min).
+    final hints = request.cacheHints ?? CacheHints.all;
+
     if (systemContent != null && systemContent.isNotEmpty) {
-      body['system'] = systemContent;
+      if (hints.system && _meetsCacheMinimum(systemContent)) {
+        body['system'] = [
+          {
+            'type': 'text',
+            'text': systemContent,
+            'cache_control': {'type': 'ephemeral'},
+          }
+        ];
+      } else {
+        body['system'] = systemContent;
+      }
       logger.debug('Claude API system: $systemContent');
+    }
+
+    if (hints.tools && body['tools'] is List) {
+      final toolsList = body['tools'] as List;
+      if (toolsList.isNotEmpty) {
+        final last = toolsList.last as Map<String, dynamic>;
+        last['cache_control'] = {'type': 'ephemeral'};
+      }
+    }
+
+    if (hints.messages > 0 && messages.isNotEmpty) {
+      // Anthropic enforces at most 4 cache breakpoints per request.
+      // system + tools already account for up to 2; cap message
+      // marks at the remaining budget so the API never sees an
+      // over-budget request.
+      final budget = 4 -
+          (body['system'] is List ? 1 : 0) -
+          (hints.tools && body['tools'] is List ? 1 : 0);
+      final messageCount =
+          hints.messages > budget ? budget : hints.messages;
+      if (messageCount > 0) {
+        _markMessageCacheBreakpoints(messages, messageCount);
+      }
     }
 
     logger.debug('Claude API request body prepared: ${body.keys.join(', ')}');
     return body;
+  }
+
+  /// Approximate token count from character length (~4 chars/token in
+  /// English). Used by the cache-minimum guard; intentionally a quick
+  /// estimate — false positives just produce a noop server-side, false
+  /// negatives lose a cache opportunity but never error.
+  static int _approxTokens(String text) => (text.length / 4).ceil();
+
+  /// Returns the minimum cacheable size (tokens) for this provider's
+  /// model. Haiku has a higher floor than Sonnet/Opus.
+  int _modelCacheMinimum() {
+    final m = model.toLowerCase();
+    if (m.contains('haiku')) return 2048;
+    return 1024;
+  }
+
+  bool _meetsCacheMinimum(String content) =>
+      _approxTokens(content) >= _modelCacheMinimum();
+
+  /// Mark the last [count] user/assistant messages with `cache_control`
+  /// so multi-turn dialog history stays cached across calls. Operates
+  /// in-place on the provided `messages` list.
+  ///
+  /// Anthropic rejects `cache_control` on empty text blocks (400 with
+  /// "cache_control cannot be set for empty text blocks"), so any
+  /// candidate block that would carry empty text is skipped — the
+  /// loop walks earlier in the conversation until it finds a
+  /// markable block or exhausts the count budget.
+  void _markMessageCacheBreakpoints(
+      List<Map<String, dynamic>> messages, int count) {
+    var marked = 0;
+    for (var i = messages.length - 1; i >= 0 && marked < count; i--) {
+      final msg = messages[i];
+      final content = msg['content'];
+      if (content is String) {
+        if (content.isEmpty) continue;
+        // Promote string content to a single text block so we can
+        // attach cache_control to it.
+        msg['content'] = [
+          {
+            'type': 'text',
+            'text': content,
+            'cache_control': {'type': 'ephemeral'},
+          }
+        ];
+        marked++;
+      } else if (content is List && content.isNotEmpty) {
+        final last = content.last;
+        if (last is Map<String, dynamic> && _isMarkableBlock(last)) {
+          last['cache_control'] = {'type': 'ephemeral'};
+          marked++;
+        }
+      }
+    }
+  }
+
+  /// True when [block] can carry a `cache_control` marker without
+  /// triggering Anthropic's empty-text validation. Non-text blocks
+  /// (image / tool_use / tool_result) are always markable; text
+  /// blocks are markable only when their `text` field is non-empty.
+  bool _isMarkableBlock(Map<String, dynamic> block) {
+    final type = block['type'];
+    if (type != 'text') return true;
+    final text = block['text'];
+    return text is String && text.isNotEmpty;
   }
 
   /// In claude_provider.dart, simplified _parseResponse method
@@ -1012,6 +1148,20 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       // Include stop_reason in metadata
       if (stopReason != null) {
         metadata['stop_reason'] = stopReason;
+      }
+
+      // Surface prompt-cache usage on the canonical mcp_llm keys so
+      // callers can compute savings without provider-specific branches.
+      final usage = response['usage'];
+      if (usage is Map<String, dynamic>) {
+        final created = usage['cache_creation_input_tokens'];
+        final read = usage['cache_read_input_tokens'];
+        if (created is int) {
+          metadata[LlmCacheMetadataKeys.cacheCreationTokens] = created;
+        }
+        if (read is int) {
+          metadata[LlmCacheMetadataKeys.cacheReadTokens] = read;
+        }
       }
 
       // Add tool call IDs to metadata

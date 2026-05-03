@@ -54,6 +54,8 @@ class BasicMockLlmProvider implements LlmInterface {
   Future<void> initialize(LlmConfiguration config) async {}
   @override
   Future<void> close() async {}
+  @override
+  bool get supportsPromptCaching => false;
 }
 
 void main() {

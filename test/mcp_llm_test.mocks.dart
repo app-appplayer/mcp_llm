@@ -23,8 +23,8 @@ import 'package:mockito/src/dummies.dart' as _i3;
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
 
-class _FakeLlmInterface_0 extends _i1.SmartFake implements _i2.LlmInterface {
-  _FakeLlmInterface_0(Object parent, Invocation parentInvocation)
+class _FakeLlmProvider_0 extends _i1.SmartFake implements _i2.LlmProvider {
+  _FakeLlmProvider_0(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
@@ -65,25 +65,52 @@ class MockLlmProviderFactory extends _i1.Mock
           as Set<_i2.LlmCapability>);
 
   @override
-  _i2.LlmInterface createProvider(_i2.LlmConfiguration? config) =>
+  _i2.LlmProvider createProvider(_i2.LlmConfiguration? config) =>
       (super.noSuchMethod(
             Invocation.method(#createProvider, [config]),
-            returnValue: _FakeLlmInterface_0(
+            returnValue: _FakeLlmProvider_0(
               this,
               Invocation.method(#createProvider, [config]),
             ),
-            returnValueForMissingStub: _FakeLlmInterface_0(
+            returnValueForMissingStub: _FakeLlmProvider_0(
               this,
               Invocation.method(#createProvider, [config]),
             ),
           )
-          as _i2.LlmInterface);
+          as _i2.LlmProvider);
 }
 
 /// A class which mocks [LlmInterface].
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockLlmInterface extends _i1.Mock implements _i2.LlmInterface {
+  @override
+  bool get supportsPromptCaching =>
+      (super.noSuchMethod(
+            Invocation.getter(#supportsPromptCaching),
+            returnValue: false,
+            returnValueForMissingStub: false,
+          )
+          as bool);
+
+  @override
+  _i4.Future<void> initialize(_i2.LlmConfiguration? config) =>
+      (super.noSuchMethod(
+            Invocation.method(#initialize, [config]),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
+          )
+          as _i4.Future<void>);
+
+  @override
+  _i4.Future<void> close() =>
+      (super.noSuchMethod(
+            Invocation.method(#close, []),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
+          )
+          as _i4.Future<void>);
+
   @override
   _i4.Future<_i2.LlmResponse> complete(_i2.LlmRequest? request) =>
       (super.noSuchMethod(
@@ -116,24 +143,6 @@ class MockLlmInterface extends _i1.Mock implements _i2.LlmInterface {
             ),
           )
           as _i4.Future<List<double>>);
-
-  @override
-  _i4.Future<void> initialize(_i2.LlmConfiguration? config) =>
-      (super.noSuchMethod(
-            Invocation.method(#initialize, [config]),
-            returnValue: _i4.Future<void>.value(),
-            returnValueForMissingStub: _i4.Future<void>.value(),
-          )
-          as _i4.Future<void>);
-
-  @override
-  _i4.Future<void> close() =>
-      (super.noSuchMethod(
-            Invocation.method(#close, []),
-            returnValue: _i4.Future<void>.value(),
-            returnValueForMissingStub: _i4.Future<void>.value(),
-          )
-          as _i4.Future<void>);
 
   @override
   bool hasToolCallMetadata(Map<String, dynamic>? metadata) =>
@@ -207,6 +216,7 @@ class MockLlmRequest extends _i1.Mock implements _i2.LlmRequest {
     List<_i2.LlmMessage>? history,
     Map<String, dynamic>? parameters,
     _i2.LlmContext? context,
+    _i2.CacheHints? cacheHints,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#copyWith, [], {
@@ -214,6 +224,7 @@ class MockLlmRequest extends _i1.Mock implements _i2.LlmRequest {
               #history: history,
               #parameters: parameters,
               #context: context,
+              #cacheHints: cacheHints,
             }),
             returnValue: _FakeLlmRequest_2(
               this,
@@ -222,6 +233,7 @@ class MockLlmRequest extends _i1.Mock implements _i2.LlmRequest {
                 #history: history,
                 #parameters: parameters,
                 #context: context,
+                #cacheHints: cacheHints,
               }),
             ),
             returnValueForMissingStub: _FakeLlmRequest_2(
@@ -231,6 +243,7 @@ class MockLlmRequest extends _i1.Mock implements _i2.LlmRequest {
                 #history: history,
                 #parameters: parameters,
                 #context: context,
+                #cacheHints: cacheHints,
               }),
             ),
           )

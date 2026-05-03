@@ -112,6 +112,9 @@ class MockLlmProvider implements LlmProvider {
   Future<void> close() async {}
 
   @override
+  bool get supportsPromptCaching => false;
+
+  @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
     return metadata.containsKey('tool_calls');
   }

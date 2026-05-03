@@ -34,6 +34,9 @@ class MockLlmProvider implements LlmInterface {
   }
 
   @override
+  bool get supportsPromptCaching => false;
+
+  @override
   Future<LlmResponse> complete(LlmRequest request) async {
     // Simulate network delay
     await Future.delayed(Duration(milliseconds: 100));

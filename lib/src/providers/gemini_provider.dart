@@ -35,6 +35,16 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
   /// Default embedding model.
   static const String embeddingModel = 'text-embedding-004';
 
+  /// Gemini supports prompt caching via the `cachedContent` resource
+  /// (separate POST + reference). The package-wide default policy is
+  /// OFF for Gemini because the resource carries a per-minute storage
+  /// charge and a 32K-token minimum (Pro models) — small or one-shot
+  /// prompts cost more than they save. Callers opt in by creating a
+  /// cachedContent themselves and passing its name through
+  /// `parameters['cached_content']`. See `mcp_llm` package docs.
+  @override
+  bool get supportsPromptCaching => true;
+
   GeminiProvider({
     required this.apiKey,
     required this.model,
@@ -170,6 +180,24 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
 
               try {
                 final chunkJson = jsonDecode(data) as Map<String, dynamic>;
+
+                // Gemini emits `usageMetadata` on each SSE chunk
+                // (cumulative). When the request used a cachedContent
+                // reference the metadata carries `cachedContentTokenCount`
+                // — surface it on the canonical mcp_llm key.
+                final usage = chunkJson['usageMetadata'];
+                if (usage is Map<String, dynamic>) {
+                  final cached = usage['cachedContentTokenCount'];
+                  if (cached is int) {
+                    yield LlmResponseChunk(
+                      textChunk: '',
+                      isDone: false,
+                      metadata: {
+                        LlmCacheMetadataKeys.cacheReadTokens: cached,
+                      },
+                    );
+                  }
+                }
 
                 final candidates = chunkJson['candidates'] as List<dynamic>?;
                 if (candidates != null && candidates.isNotEmpty) {
@@ -531,6 +559,27 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       ];
     }
 
+    // Gemini's prompt caching uses a separate `cachedContent` resource
+    // (POST /v1beta/cachedContents) with explicit lifecycle and a
+    // per-minute storage charge. Because that economics breaks for
+    // small / one-shot prompts, the package-wide default policy is
+    // OFF for Gemini — callers manage the cachedContent themselves
+    // and forward the resource name through `parameters`. When
+    // provided, attach the reference and Gemini reuses the prebuilt
+    // prefix.
+    //
+    // Constraint: a request that carries `cachedContent` MUST NOT
+    // also carry `systemInstruction` or `tools` — Gemini rejects the
+    // combination with 400 INVALID_ARGUMENT because the cached
+    // resource already pins those. Strip them when forwarding.
+    final cachedContent = request.parameters['cached_content'] ??
+        request.parameters['cachedContent'];
+    if (cachedContent is String && cachedContent.isNotEmpty) {
+      body['cachedContent'] = cachedContent;
+      body.remove('systemInstruction');
+      body.remove('tools');
+    }
+
     return body;
   }
 
@@ -618,6 +667,16 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
 
     if (response.containsKey('usageMetadata')) {
       metadata['usage'] = response['usageMetadata'];
+      final usage = response['usageMetadata'];
+      if (usage is Map<String, dynamic>) {
+        // Gemini surfaces cached prefix tokens under
+        // `cachedContentTokenCount` when a `cachedContent` reference
+        // was used. Promote to the canonical mcp_llm key.
+        final cached = usage['cachedContentTokenCount'];
+        if (cached is int) {
+          metadata[LlmCacheMetadataKeys.cacheReadTokens] = cached;
+        }
+      }
     }
 
     if (toolCalls != null && toolCalls.isNotEmpty) {

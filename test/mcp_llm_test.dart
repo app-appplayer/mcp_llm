@@ -242,6 +242,9 @@ class MockLlmProvider implements LlmInterface {
   Future<void> close() async {}
 
   @override
+  bool get supportsPromptCaching => false;
+
+  @override
   Future<LlmResponse> complete(LlmRequest request) async {
     return LlmResponse(
       text: 'Mock response for: ${request.prompt}',
