@@ -1,3 +1,8 @@
+## [2.1.1] - 2026-05-23 - mcp_bundle 0.4.0 cascade
+
+### Changed (cascade)
+- `mcp_bundle` caret bumped from `^0.3.0` to `^0.4.0`. The downstream bundle package switched its `UiSection.pages` representation from a list to a map and renamed the legacy List API path; `mcp_llm` does not call that field directly, so this release is a caret-only cascade. Consumers should bump to `^2.1.1`.
+
 ## [2.1.0] - 2026-05-03 - Prompt caching across all providers
 
 ### Added
