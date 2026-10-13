@@ -1,4 +1,3 @@
-import 'package:mcp_llm/src/multi_llm/managed_service.dart';
 import 'package:test/test.dart';
 import 'package:mcp_llm/mcp_llm.dart';
 import 'package:mockito/annotations.dart';
@@ -115,6 +114,23 @@ void main() {
 
       // Heavy client should be used significantly more than light client
       expect(counts['heavy']! > counts['light']! * 2, isTrue);
+    });
+
+    test('equal weights take strict turns; weights hold in every window', () {
+      balancer.registerService('a');
+      balancer.registerService('b');
+      balancer.registerService('c');
+      for (var round = 0; round < 4; round++) {
+        final picks = {for (var i = 0; i < 3; i++) balancer.getNextService()};
+        expect(picks, {'a', 'b', 'c'}, reason: 'round $round');
+      }
+      balancer.clear();
+      balancer.registerService('heavy', weight: 4.0);
+      balancer.registerService('light', weight: 1.0);
+      for (var window = 0; window < 3; window++) {
+        final picks = [for (var i = 0; i < 5; i++) balancer.getNextService()];
+        expect(picks.where((p) => p == 'light'), hasLength(1), reason: 'window $window: $picks');
+      }
     });
 
     test('Unregistering client removes it from rotation', () {

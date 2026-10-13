@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../utils/logger.dart';
-import '../adapter/mcp_auth_adapter.dart';
 import '../core/models.dart';
 
 /// Health check configuration (using models from core/models.dart)
@@ -9,7 +8,6 @@ class HealthCheckConfig {
   final int maxRetries;
   final Duration retryDelay;
   final bool includeSystemMetrics;
-  final bool checkAuthentication;
   final List<String> excludeComponents;
 
   const HealthCheckConfig({
@@ -17,18 +15,19 @@ class HealthCheckConfig {
     this.maxRetries = 2,
     this.retryDelay = const Duration(milliseconds: 500),
     this.includeSystemMetrics = true,
-    this.checkAuthentication = true,
     this.excludeComponents = const [],
   });
 }
 
-/// MCP Health Monitor for 2025-03-26 health/check methods
+/// Health of the MCP peers mcp_llm holds. MCP defines no health method; a
+/// client is checked with `ping` and a server by its own health record
+/// (see [_checkPeer]).
 class McpHealthMonitor {
   final HealthCheckConfig config;
+  final DateTime _createdAt = DateTime.now();
   final Logger _logger = Logger('mcp_llm.health_monitor');
   
   final Map<String, dynamic> _mcpClients = {};
-  final Map<String, McpAuthAdapter?> _authAdapters = {};
   final Map<String, HealthCheckResult> _lastResults = {};
   
   // Health check history for trending
@@ -40,9 +39,8 @@ class McpHealthMonitor {
   });
 
   /// Register MCP client for health monitoring
-  void registerClient(String clientId, dynamic mcpClient, {McpAuthAdapter? authAdapter}) {
+  void registerClient(String clientId, dynamic mcpClient) {
     _mcpClients[clientId] = mcpClient;
-    _authAdapters[clientId] = authAdapter;
     _healthHistory[clientId] = [];
     _logger.info('Registered MCP client for health monitoring: $clientId');
   }
@@ -50,7 +48,6 @@ class McpHealthMonitor {
   /// Unregister MCP client
   void unregisterClient(String clientId) {
     _mcpClients.remove(clientId);
-    _authAdapters.remove(clientId);
     _lastResults.remove(clientId);
     _healthHistory.remove(clientId);
     _logger.info('Unregistered MCP client from health monitoring: $clientId');
@@ -127,25 +124,15 @@ class McpHealthMonitor {
     
     for (int attempt = 0; attempt <= config.maxRetries; attempt++) {
       try {
-        // Check basic connectivity
-        await _checkClientConnectivity(clientId, mcpClient);
-        
-        // Check authentication if enabled
-        if (config.checkAuthentication) {
-          await _checkClientAuthentication(clientId);
-        }
-        
-        // Check client capabilities
-        final capabilities = await _checkClientCapabilities(clientId, mcpClient);
-        
+        final reported = await _checkPeer(clientId, mcpClient);
+
         final responseTime = DateTime.now().difference(startTime);
         final result = HealthCheckResult(
           clientId: clientId,
           status: HealthStatus.healthy,
           metrics: {
-            'capabilities': capabilities,
+            ...reported,
             'attempt': attempt + 1,
-            'authenticated': _authAdapters[clientId]?.hasValidAuth(clientId) ?? false,
             'responseTimeMs': responseTime.inMilliseconds,
           },
           timestamp: DateTime.now(),
@@ -192,90 +179,59 @@ class McpHealthMonitor {
     );
   }
 
-  /// Check basic connectivity to MCP client
-  Future<void> _checkClientConnectivity(String clientId, dynamic mcpClient) async {
-    // Try to list tools as a basic connectivity test
-    await mcpClient.listTools().timeout(config.timeout);
-  }
-
-  /// Check authentication status if applicable
-  Future<void> _checkClientAuthentication(String clientId) async {
-    final authAdapter = _authAdapters[clientId];
-    if (authAdapter == null) return; // No auth required
-
-    if (!authAdapter.hasValidAuth(clientId)) {
-      throw Exception('Authentication invalid or expired');
+  /// Checks one peer the way the protocol allows, and returns what it
+  /// reported. A client (mcp_client) is pinged — `ping` exists in every
+  /// revision — and reports the capabilities the server declared; a server
+  /// (mcp_server) reports its own health record, and is unhealthy when it is
+  /// not running.
+  Future<Map<String, dynamic>> _checkPeer(String clientId, dynamic peer) async {
+    final dynamic ping;
+    try {
+      ping = peer.ping;
+    } on NoSuchMethodError {
+      return _checkServer(clientId, peer);
     }
-
-    // Check OAuth 2.1 compliance for 2025-03-26
-    final mcpClient = _mcpClients[clientId];
-    if (mcpClient != null) {
-      final isCompliant = await authAdapter.checkOAuth21Compliance(mcpClient);
-      if (!isCompliant) {
-        throw Exception('OAuth 2.1 compliance check failed');
-      }
-    }
-  }
-
-  /// Check client capabilities and supported methods
-  Future<Map<String, dynamic>> _checkClientCapabilities(String clientId, dynamic mcpClient) async {
-    final capabilities = <String, dynamic>{
-      'tools': false,
-      'prompts': false,
-      'resources': false,
-      'health_check': false,
-      'batch_processing': false,
+    await (ping() as Future<dynamic>).timeout(config.timeout);
+    return {
+      'kind': 'client',
+      'protocolVersion': _read(() => peer.negotiatedProtocolVersion),
+      'serverCapabilities': _jsonOf(_read(() => peer.serverCapabilities)),
     };
+  }
 
+  Map<String, dynamic> _checkServer(String clientId, dynamic peer) {
+    final Object? health;
     try {
-      // Check tools capability
-      final tools = await mcpClient.listTools().timeout(config.timeout);
-      capabilities['tools'] = true;
-      capabilities['tool_count'] = tools.length;
-    } catch (e) {
-      _logger.debug('Tools not supported by $clientId: $e');
+      health = peer.getHealth();
+    } on NoSuchMethodError {
+      throw StateError('$clientId has neither ping (a client) nor getHealth (a server)');
     }
+    final json = _jsonOf(health) ?? const <String, dynamic>{};
+    if (json['isRunning'] == false) {
+      throw StateError('$clientId is not running (no transport connected)');
+    }
+    return {
+      'kind': 'server',
+      'health': json,
+    };
+  }
 
+  static Object? _read(Object? Function() getter) {
     try {
-      // Check prompts capability
-      final prompts = await mcpClient.listPrompts().timeout(config.timeout);
-      capabilities['prompts'] = true;
-      capabilities['prompt_count'] = prompts.length;
-    } catch (e) {
-      _logger.debug('Prompts not supported by $clientId: $e');
+      return getter();
+    } on NoSuchMethodError {
+      return null;
     }
+  }
 
+  static Map<String, dynamic>? _jsonOf(Object? value) {
+    if (value == null) return null;
+    if (value is Map) return Map<String, dynamic>.from(value);
     try {
-      // Check resources capability
-      final resources = await mcpClient.listResources().timeout(config.timeout);
-      capabilities['resources'] = true;
-      capabilities['resource_count'] = resources.length;
-    } catch (e) {
-      _logger.debug('Resources not supported by $clientId: $e');
+      return Map<String, dynamic>.from((value as dynamic).toJson() as Map);
+    } on NoSuchMethodError {
+      return null;
     }
-
-    // Check for 2025-03-26 specific capabilities
-    try {
-      // Check health endpoint (2025-03-26)
-      if (mcpClient.toString().contains('health') || 
-          mcpClient.runtimeType.toString().contains('Health')) {
-        capabilities['health_check'] = true;
-      }
-    } catch (e) {
-      _logger.debug('Health check not supported by $clientId: $e');
-    }
-
-    try {
-      // Check batch processing support (2025-03-26)
-      if (mcpClient.toString().contains('batch') || 
-          mcpClient.runtimeType.toString().contains('Batch')) {
-        capabilities['batch_processing'] = true;
-      }
-    } catch (e) {
-      _logger.debug('Batch processing not supported by $clientId: $e');
-    }
-
-    return capabilities;
   }
 
   /// Perform system-level health check
@@ -286,8 +242,7 @@ class McpHealthMonitor {
       final systemStatus = <String, dynamic>{
         'registered_clients': _mcpClients.length,
         'healthy_clients': _lastResults.values.where((r) => r.status == HealthStatus.healthy).length,
-        'memory_usage': _getMemoryUsage(),
-        'uptime': _getUptime(),
+        'uptimeSeconds': DateTime.now().difference(_createdAt).inSeconds,
       };
 
       final responseTime = DateTime.now().difference(startTime);
@@ -341,18 +296,6 @@ class McpHealthMonitor {
     }
   }
 
-
-  /// Get memory usage (simplified for demo)
-  double _getMemoryUsage() {
-    // In a real implementation, you'd use dart:io ProcessInfo
-    return 128.5; // MB
-  }
-
-  /// Get system uptime (simplified for demo)
-  int _getUptime() {
-    // In a real implementation, you'd track actual uptime
-    return DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  }
 
   /// Get health status for specific client
   HealthCheckResult? getClientHealth(String clientId) {
@@ -409,7 +352,6 @@ class McpHealthMonitor {
   /// Dispose of health monitor resources
   void dispose() {
     _mcpClients.clear();
-    _authAdapters.clear();
     _lastResults.clear();
     _healthHistory.clear();
     _logger.info('Health monitor disposed');

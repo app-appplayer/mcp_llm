@@ -1,14 +1,16 @@
 import 'dart:async';
 import '../utils/logger.dart';
-import '../adapter/mcp_auth_adapter.dart';
 import '../core/models.dart';
 
-/// MCP Capability Manager for 2025-03-26 capabilities/update methods
+/// The capabilities of the MCP peers mcp_llm holds, as they declared them —
+/// a client reports the server's `ServerCapabilities`, a server its own.
+/// MCP has no method to change a peer's capabilities after initialization;
+/// [updateCapabilities], [enableCapability] and [disableCapability] change
+/// only mcp_llm's own record.
 class McpCapabilityManager {
   final Logger _logger = Logger('mcp_llm.capability_manager');
   
   final Map<String, dynamic> _mcpClients = {};
-  final Map<String, McpAuthAdapter?> _authAdapters = {};
   final Map<String, Map<String, McpCapability>> _clientCapabilities = {};
   
   // Event stream for capability changes
@@ -22,9 +24,8 @@ class McpCapabilityManager {
   McpCapabilityManager();
 
   /// Register MCP client for capability management
-  void registerClient(String clientId, dynamic mcpClient, {McpAuthAdapter? authAdapter}) {
+  void registerClient(String clientId, dynamic mcpClient) {
     _mcpClients[clientId] = mcpClient;
-    _authAdapters[clientId] = authAdapter;
     _clientCapabilities[clientId] = {};
     _updateHistory[clientId] = [];
     _logger.info('Registered MCP client for capability management: $clientId');
@@ -36,7 +37,6 @@ class McpCapabilityManager {
   /// Unregister MCP client
   void unregisterClient(String clientId) {
     _mcpClients.remove(clientId);
-    _authAdapters.remove(clientId);
     _clientCapabilities.remove(clientId);
     _updateHistory.remove(clientId);
     _logger.info('Unregistered MCP client from capability management: $clientId');
@@ -49,67 +49,23 @@ class McpCapabilityManager {
 
     try {
       final discoveredCapabilities = <McpCapability>[];
-      
-      // Check tools capability
-      try {
-        final tools = await mcpClient.listTools();
+      final declared = _declaredCapabilities(mcpClient);
+      final version = _protocolVersion(mcpClient);
+      for (final entry in declared.entries) {
+        final type = McpCapabilityType.values.where((t) => t.name == entry.key).firstOrNull;
+        if (type == null) {
+          _logger.debug('$clientId declares "${entry.key}", which mcp_llm does not track');
+          continue;
+        }
         discoveredCapabilities.add(McpCapability(
-          type: McpCapabilityType.tools,
-          name: 'tools',
-          version: '2025-03-26',
+          type: type,
+          name: entry.key,
+          version: version,
           enabled: true,
-          configuration: {'tool_count': tools.length},
-          lastUpdated: DateTime.now(),
-        ));
-      } catch (e) {
-        _logger.debug('Tools capability not available for $clientId: $e');
-      }
-
-      // Check prompts capability
-      try {
-        final prompts = await mcpClient.listPrompts();
-        discoveredCapabilities.add(McpCapability(
-          type: McpCapabilityType.prompts,
-          name: 'prompts',
-          version: '2025-03-26',
-          enabled: true,
-          configuration: {'prompt_count': prompts.length},
-          lastUpdated: DateTime.now(),
-        ));
-      } catch (e) {
-        _logger.debug('Prompts capability not available for $clientId: $e');
-      }
-
-      // Check resources capability
-      try {
-        final resources = await mcpClient.listResources();
-        discoveredCapabilities.add(McpCapability(
-          type: McpCapabilityType.resources,
-          name: 'resources',
-          version: '2025-03-26',
-          enabled: true,
-          configuration: {'resource_count': resources.length},
-          lastUpdated: DateTime.now(),
-        ));
-      } catch (e) {
-        _logger.debug('Resources capability not available for $clientId: $e');
-      }
-
-      // Check authentication capability
-      final authAdapter = _authAdapters[clientId];
-      if (authAdapter != null) {
-        discoveredCapabilities.add(McpCapability(
-          type: McpCapabilityType.auth,
-          name: 'oauth_2_1',
-          version: '2025-03-26',
-          enabled: authAdapter.hasValidAuth(clientId),
-          configuration: {'auth_type': 'oauth_2.1'},
+          configuration: entry.value is Map ? Map<String, dynamic>.from(entry.value as Map) : null,
           lastUpdated: DateTime.now(),
         ));
       }
-
-      // Check for 2025-03-26 specific capabilities
-      _checkModernCapabilities(clientId, mcpClient, discoveredCapabilities);
 
       // Store discovered capabilities
       for (final capability in discoveredCapabilities) {
@@ -119,7 +75,7 @@ class McpCapabilityManager {
           clientId: clientId,
           capabilityName: capability.name,
           type: CapabilityEventType.enabled,
-          data: {'capability': capability.toJson(), 'reason': 'Initial discovery'},
+          data: {'capability': capability.toJson(), 'reason': 'Declared by the peer'},
           timestamp: DateTime.now(),
         ));
       }
@@ -130,86 +86,46 @@ class McpCapabilityManager {
     }
   }
 
-  /// Check for 2025-03-26 modern capabilities
-  void _checkModernCapabilities(String clientId, dynamic mcpClient, List<McpCapability> capabilities) {
-    // Check health capability
-    if (_hasHealthSupport(mcpClient)) {
-      capabilities.add(McpCapability(
-        type: McpCapabilityType.auth,
-        name: 'health_check',
-        version: '2025-03-26',
-        enabled: true,
-        configuration: {'endpoint': '/health'},
-        lastUpdated: DateTime.now(),
-      ));
-    }
-
-    // Check batch processing capability
-    if (_hasBatchSupport(mcpClient)) {
-      capabilities.add(McpCapability(
-        type: McpCapabilityType.batch,
-        name: 'batch_processing',
-        version: '2025-03-26',
-        enabled: true,
-        configuration: {'max_batch_size': 10},
-        lastUpdated: DateTime.now(),
-      ));
-    }
-
-    // Check streaming capability
-    if (_hasStreamingSupport(mcpClient)) {
-      capabilities.add(McpCapability(
-        type: McpCapabilityType.streaming,
-        name: 'response_streaming',
-        version: '2025-03-26',
-        enabled: true,
-        lastUpdated: DateTime.now(),
-      ));
-    }
-
-    // Check versioning capability
-    capabilities.add(McpCapability(
-      type: McpCapabilityType.streaming,
-      name: 'protocol_versioning',
-      version: '2025-03-26',
-      enabled: true,
-      configuration: {'supported_versions': ['2024-11-05', '2025-03-26']},
-      lastUpdated: DateTime.now(),
-    ));
-  }
-
-  /// Check if client supports health endpoints
-  bool _hasHealthSupport(dynamic mcpClient) {
+  /// The capabilities [peer] declared, as protocol JSON: a client
+  /// (mcp_client) holds the server's declaration after initialization, a
+  /// server (mcp_server) its own.
+  static Map<String, dynamic> _declaredCapabilities(dynamic peer) {
+    Object? caps;
     try {
-      return mcpClient.toString().contains('health') ||
-             mcpClient.runtimeType.toString().contains('Health');
-    } catch (e) {
-      return false;
+      caps = peer.serverCapabilities;
+    } on NoSuchMethodError {
+      try {
+        caps = peer.capabilities;
+      } on NoSuchMethodError {
+        caps = null;
+      }
     }
-  }
-
-  /// Check if client supports batch processing
-  bool _hasBatchSupport(dynamic mcpClient) {
+    if (caps == null) return const {};
+    if (caps is Map) return Map<String, dynamic>.from(caps);
     try {
-      return mcpClient.toString().contains('batch') ||
-             mcpClient.runtimeType.toString().contains('Batch') ||
-             mcpClient.toString().contains('executeBatch');
-    } catch (e) {
-      return false;
+      return Map<String, dynamic>.from((caps as dynamic).toJson() as Map);
+    } on NoSuchMethodError {
+      return const {};
     }
   }
 
-  /// Check if client supports streaming
-  bool _hasStreamingSupport(dynamic mcpClient) {
+  /// The revision a client negotiated; a server's declaration is not tied to
+  /// one, and reads as the newest revision.
+  static String _protocolVersion(dynamic peer) {
     try {
-      return mcpClient.toString().contains('stream') ||
-             mcpClient.runtimeType.toString().contains('Stream');
-    } catch (e) {
-      return false;
+      final v = peer.negotiatedProtocolVersion;
+      if (v is String) return v;
+    } on NoSuchMethodError {
+      // A server: falls through.
     }
+    return _supportedVersions.first;
   }
 
-  /// Update capabilities for a specific client (2025-03-26 method)
+  /// The revisions mcp_llm works with, newest first.
+  static const _supportedVersions = ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
+
+  /// Record a change to capabilities in mcp_llm's own record. Nothing is
+  /// sent to the peer: MCP has no method for it.
   Future<CapabilityUpdateResponse> updateCapabilities(CapabilityUpdateRequest request) async {
     final clientId = request.clientId;
     final mcpClient = _mcpClients[clientId];
@@ -233,16 +149,6 @@ class McpCapabilityManager {
     final errors = <String>[];
 
     try {
-      // Check authentication if required
-      final authAdapter = _authAdapters[clientId];
-      if (authAdapter != null && !authAdapter.hasValidAuth(clientId)) {
-        return CapabilityUpdateResponse(
-          success: false,
-          updatedCapabilities: [],
-          error: 'Authentication required for capability updates',
-          timestamp: DateTime.now(),
-        );
-      }
 
       for (final capability in request.capabilities) {
         try {
@@ -305,77 +211,14 @@ class McpCapabilityManager {
       throw Exception('Unsupported capability version: ${capability.version}');
     }
 
-    // Validate configuration if present
-    if (capability.configuration != null && capability.configuration!.isNotEmpty) {
-      await _validateCapabilityConfiguration(capability);
-    }
   }
 
   /// Check if version is supported
-  bool _isSupportedVersion(String version) {
-    const supportedVersions = ['2024-11-05', '2025-03-26'];
-    return supportedVersions.contains(version);
-  }
+  bool _isSupportedVersion(String version) => _supportedVersions.contains(version);
 
-  /// Validate capability configuration
-  Future<void> _validateCapabilityConfiguration(McpCapability capability) async {
-    switch (capability.type) {
-      case McpCapabilityType.batch:
-        final maxBatchSize = capability.configuration?['max_batch_size'] as int?;
-        if (maxBatchSize != null && (maxBatchSize < 1 || maxBatchSize > 100)) {
-          throw Exception('Invalid max_batch_size: must be between 1 and 100');
-        }
-        break;
-        
-      case McpCapabilityType.auth:
-        final authType = capability.configuration?['auth_type'] as String?;
-        if (authType != null && !['oauth_2.1', 'api_key'].contains(authType)) {
-          throw Exception('Invalid auth_type: $authType');
-        }
-        break;
-        
-      default:
-        // No specific validation for other types
-        break;
-    }
-  }
-
-  /// Apply capability update to client
-  Future<McpCapability> _applyCapabilityUpdate(String clientId, McpCapability capability) async {
-    final mcpClient = _mcpClients[clientId];
-    
-    // Try to apply the update to the actual MCP client
-    try {
-      // For 2025-03-26 clients that support capability updates
-      if (_hasCapabilityUpdateSupport(mcpClient)) {
-        await _sendCapabilityUpdateToClient(mcpClient, capability);
-      }
-    } catch (e) {
-      _logger.warning('Could not send capability update to client: $e');
-      // Continue with local update even if client update fails
-    }
-    
-    // Return updated capability with current timestamp
-    return capability.copyWith(lastUpdated: DateTime.now());
-  }
-
-  /// Check if client supports capability updates
-  bool _hasCapabilityUpdateSupport(dynamic mcpClient) {
-    try {
-      return mcpClient.toString().contains('updateCapabilities') ||
-             mcpClient.runtimeType.toString().contains('CapabilityUpdate');
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /// Send capability update to client
-  Future<void> _sendCapabilityUpdateToClient(dynamic mcpClient, McpCapability capability) async {
-    // In a real implementation, this would send the update via the MCP protocol
-    // For now, we'll simulate the operation
-    await Future.delayed(Duration(milliseconds: 100));
-    _logger.debug('Sent capability update to client: ${capability.name}');
-  }
+  /// The capability as recorded now.
+  Future<McpCapability> _applyCapabilityUpdate(String clientId, McpCapability capability) async =>
+      capability.copyWith(lastUpdated: DateTime.now());
 
   /// Get all capabilities for a specific client
   Map<String, McpCapability> getClientCapabilities(String clientId) {
@@ -485,7 +328,6 @@ class McpCapabilityManager {
   void dispose() {
     _eventController.close();
     _mcpClients.clear();
-    _authAdapters.clear();
     _clientCapabilities.clear();
     _updateHistory.clear();
     _logger.info('Capability manager disposed');

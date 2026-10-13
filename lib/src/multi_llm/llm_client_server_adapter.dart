@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../../mcp_llm.dart';
-import 'managed_service.dart';
 
 /// Adapter that makes LlmClient conform to ManagedService interface
 class LlmClientServiceAdapter implements ManagedService {

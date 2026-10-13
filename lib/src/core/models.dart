@@ -1,6 +1,5 @@
 import 'package:uuid/uuid.dart';
 
-import '../adapter/llm_server_adapter.dart';
 import '../chat/message.dart';
 import 'llm_context.dart';
 
@@ -226,10 +225,15 @@ class LlmToolCall {
   final Map<String, dynamic> arguments;
   final String? id;
 
+  /// What the provider attached to the call and needs back with it on the
+  /// next turn (Gemini's `thoughtSignature`). Opaque to everything else.
+  final Map<String, dynamic>? providerData;
+
   LlmToolCall({
     required this.name,
     required this.arguments,
     this.id,
+    this.providerData,
   });
 
   // Method to create ID if it doesn't exist
@@ -246,6 +250,9 @@ class LlmToolCall {
     if (id != null) {
       result['id'] = id as String;
     }
+    if (providerData != null) {
+      result['providerData'] = providerData;
+    }
 
     return result;
   }
@@ -256,17 +263,15 @@ class LlmToolCall {
       name: name,
       arguments: arguments,
       id: newId,
+      providerData: providerData,
     );
   }
 }
 
 /// Tool call result
-class LlmCallToolResult implements CallToolResult {
-  @override
+class LlmCallToolResult {
   final List<LLmContent> content;
-  @override
   final bool isStreaming;
-  @override
   final bool? isError;
 
   LlmCallToolResult(
@@ -275,7 +280,6 @@ class LlmCallToolResult implements CallToolResult {
         this.isError,
       });
 
-  @override
   Map<String, dynamic> toJson() {
     return {
       'content': content.map((c) => c.toJson()).toList(),
@@ -603,7 +607,7 @@ class LlmResponseChunk {
   }
 }
 
-/// Server lifecycle state (2025-03-26)
+/// Server lifecycle state
 enum ServerLifecycleState {
   stopped,
   starting,
@@ -614,17 +618,31 @@ enum ServerLifecycleState {
   error
 }
 
-/// MCP capability type (2025-03-26)
+/// The kind of a capability a peer declared — the keys of the protocol's
+/// `ServerCapabilities` / `ClientCapabilities`.
 enum McpCapabilityType {
   tools,
+  @Deprecated('Not an MCP capability; authorization belongs to the HTTP transport. Never discovered.')
   auth,
+  @Deprecated('Not an MCP capability (JSON-RPC batching existed only in 2025-03-26, without a capability). Never discovered.')
   batch,
+  @Deprecated('Not an MCP capability. Never discovered.')
   streaming,
   prompts,
-  resources
+  resources,
+  logging,
+  completions,
+  sampling,
+  roots,
+  elicitation,
+  tasks,
+  experimental,
+  extensions,
 }
 
-/// MCP capability definition (2025-03-26)
+/// One capability a peer declared, as mcp_llm tracks it. [configuration] is
+/// the declared capability object (e.g. `{listChanged: true}`); [version] is
+/// the protocol revision it was read under; [enabled] is mcp_llm's own flag.
 class McpCapability {
   final McpCapabilityType type;
   final String name;
@@ -672,7 +690,7 @@ class McpCapability {
   }
 }
 
-/// MCP error category (2025-03-26)
+/// MCP error category
 enum McpErrorCategory {
   validation,
   network,
@@ -683,7 +701,7 @@ enum McpErrorCategory {
   unknown
 }
 
-/// Lifecycle transition reason (2025-03-26)
+/// Lifecycle transition reason
 enum LifecycleTransitionReason {
   userRequest,
   healthFailure,
@@ -692,7 +710,7 @@ enum LifecycleTransitionReason {
   systemShutdown
 }
 
-/// Health status enum (2025-03-26)
+/// Health status enum
 enum HealthStatus {
   healthy,
   degraded,
@@ -700,7 +718,7 @@ enum HealthStatus {
   unknown
 }
 
-/// Capability event type (2025-03-26)
+/// Capability event type
 enum CapabilityEventType {
   enabled,
   disabled,
@@ -708,7 +726,7 @@ enum CapabilityEventType {
   refreshed
 }
 
-/// Capability update request (2025-03-26)
+/// Capability update request
 class CapabilityUpdateRequest {
   final String clientId;
   final List<McpCapability> capabilities;
@@ -732,7 +750,7 @@ class CapabilityUpdateRequest {
   }
 }
 
-/// Capability update response (2025-03-26)
+/// Capability update response
 class CapabilityUpdateResponse {
   final bool success;
   final List<McpCapability> updatedCapabilities;
@@ -756,7 +774,7 @@ class CapabilityUpdateResponse {
   }
 }
 
-/// Health check result (2025-03-26)
+/// Health check result
 class HealthCheckResult {
   final String clientId;
   final HealthStatus status;
@@ -783,7 +801,7 @@ class HealthCheckResult {
   }
 }
 
-/// Health report (2025-03-26)
+/// Health report
 class HealthReport {
   final HealthStatus overallStatus;
   final Map<String, HealthCheckResult> componentResults;
@@ -807,7 +825,7 @@ class HealthReport {
   }
 }
 
-/// Server info (2025-03-26)
+/// Server info
 class ServerInfo {
   final String serverId;
   final String name;
@@ -834,7 +852,7 @@ class ServerInfo {
   }
 }
 
-/// Lifecycle response (2025-03-26)
+/// Lifecycle response
 class LifecycleResponse {
   final bool success;
   final ServerLifecycleState? newState;
@@ -858,7 +876,7 @@ class LifecycleResponse {
   }
 }
 
-/// MCP enhanced error (2025-03-26)
+/// MCP enhanced error
 class McpEnhancedError extends Error {
   final String clientId;
   final McpErrorCategory category;
@@ -894,7 +912,7 @@ class McpEnhancedError extends Error {
   }
 }
 
-/// Capability event (2025-03-26)
+/// Capability event
 class CapabilityEvent {
   final String clientId;
   final String capabilityName;
@@ -921,7 +939,7 @@ class CapabilityEvent {
   }
 }
 
-/// Lifecycle event (2025-03-26)
+/// Lifecycle event
 class LifecycleEvent {
   final String serverId;
   final ServerLifecycleState previousState;

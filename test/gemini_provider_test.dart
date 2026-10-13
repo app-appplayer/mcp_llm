@@ -54,10 +54,10 @@ void main() {
       test('uses custom model when specified', () {
         final config = LlmConfiguration(
           apiKey: 'test-api-key',
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-flash-latest',
         );
         final provider = factory.createProvider(config) as GeminiProvider;
-        expect(provider.model, equals('gemini-1.5-flash-latest'));
+        expect(provider.model, equals('gemini-flash-latest'));
       });
     });
 
@@ -67,7 +67,7 @@ void main() {
       setUp(() {
         provider = GeminiProvider(
           apiKey: 'test-api-key',
-          model: 'gemini-1.5-pro-latest',
+          model: 'gemini-pro-latest',
           config: LlmConfiguration(apiKey: 'test-api-key'),
         );
       });
@@ -77,13 +77,13 @@ void main() {
       });
 
       test('has correct embedding model', () {
-        expect(GeminiProvider.embeddingModel, equals('text-embedding-004'));
+        expect(GeminiProvider.embeddingModel, equals('gemini-embedding-001'));
       });
 
       test('has model aliases', () {
         expect(GeminiProvider.modelAliases, isNotEmpty);
-        expect(GeminiProvider.modelAliases['gemini-pro'], equals('gemini-1.0-pro'));
-        expect(GeminiProvider.modelAliases['gemini-1.5-pro'], equals('gemini-1.5-pro-latest'));
+        expect(GeminiProvider.modelAliases['gemini-pro'], equals('gemini-pro-latest'));
+        expect(GeminiProvider.modelAliases['gemini-flash'], equals('gemini-flash-latest'));
       });
 
       test('hasToolCallMetadata detects tool call start', () {

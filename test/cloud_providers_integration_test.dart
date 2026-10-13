@@ -220,7 +220,7 @@ void main() {
           providerName: 'gemini',
           config: LlmConfiguration(
             apiKey: geminiApiKey,
-            model: 'gemini-1.5-flash-latest',
+            model: 'gemini-flash-latest',
           ),
         );
 
@@ -233,7 +233,7 @@ void main() {
       test('streaming completion', () async {
         final provider = GeminiProvider(
           apiKey: geminiApiKey,
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-flash-latest',
           config: LlmConfiguration(apiKey: geminiApiKey),
         );
 
@@ -252,7 +252,7 @@ void main() {
       test('embeddings', () async {
         final provider = GeminiProvider(
           apiKey: geminiApiKey,
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-flash-latest',
           config: LlmConfiguration(apiKey: geminiApiKey),
         );
 
@@ -270,7 +270,7 @@ void main() {
           providerName: 'gemini',
           config: LlmConfiguration(
             apiKey: geminiApiKey,
-            model: 'gemini-1.5-pro-latest',
+            model: 'gemini-pro-latest',
           ),
         );
 
@@ -610,7 +610,7 @@ void main() {
           try {
             final provider = GeminiProvider(
               apiKey: geminiApiKey,
-              model: 'gemini-1.5-flash-latest',
+              model: 'gemini-flash-latest',
               config: LlmConfiguration(apiKey: geminiApiKey),
             );
             final response = await provider.complete(LlmRequest(prompt: prompt));
@@ -661,7 +661,7 @@ void main() {
           try {
             final provider = GeminiProvider(
               apiKey: geminiApiKey,
-              model: 'gemini-1.5-flash-latest',
+              model: 'gemini-flash-latest',
               config: LlmConfiguration(apiKey: geminiApiKey),
             );
             final embeddings = await provider.getEmbeddings('test');

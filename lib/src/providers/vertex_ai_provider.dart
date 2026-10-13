@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
+import 'content_parts.dart';
 
 /// Implementation of LLM interface for Google Vertex AI.
 /// Enterprise-grade access to Gemini and other models with OAuth/Service Account auth.
@@ -225,12 +227,13 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
                             final args = functionCall['args'] as Map<String, dynamic>? ?? {};
 
                             toolCalls ??= [];
-                            final toolId = 'vertex_tool_${DateTime.now().millisecondsSinceEpoch}_${toolCalls.length}';
+                            final toolId = functionCall['id'] as String? ?? syntheticToolCallId('vertex_tool');
 
                             toolCalls.add(LlmToolCall(
                               id: toolId,
                               name: toolName,
                               arguments: args,
+                              providerData: part['thoughtSignature'] is String ? {'thoughtSignature': part['thoughtSignature']} : null,
                             ));
 
                             yield LlmResponseChunk(
@@ -331,7 +334,7 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'vertex_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('vertex_tool');
 
       Map<String, dynamic> arguments = {};
 
@@ -353,7 +356,7 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
       final args = functionCall['args'] as Map<String, dynamic>? ?? {};
 
       return LlmToolCall(
-        id: 'vertex_tool_${DateTime.now().millisecondsSinceEpoch}',
+        id: functionCall['id'] as String? ?? syntheticToolCallId('vertex_tool'),
         name: toolName,
         arguments: args,
       );
@@ -463,10 +466,11 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
         final toolName = toolContent['tool_name'] ?? message.metadata['tool_name'] ?? 'unknown';
 
         contents.add({
-          'role': 'function',
+          'role': 'user',
           'parts': [
             {
               'functionResponse': {
+                if (message.metadata['tool_call_id'] != null) 'id': message.metadata['tool_call_id'],
                 'name': toolName,
                 'response': {
                   'result': toolResult,
@@ -480,11 +484,17 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
         if (toolCalls != null) {
           final parts = <Map<String, dynamic>>[];
           for (final tc in toolCalls) {
+            final providerData = tc['providerData'];
             parts.add({
               'functionCall': {
+                if (tc['id'] != null) 'id': tc['id'],
                 'name': tc['name'],
                 'args': tc['arguments'],
               },
+              // Gemini 3 refuses the next turn without the signature the
+              // call came with.
+              if (providerData is Map && providerData['thoughtSignature'] != null)
+                'thoughtSignature': providerData['thoughtSignature'],
             });
           }
           contents.add({
@@ -524,6 +534,9 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
     if (request.parameters.containsKey('max_tokens')) {
       generationConfig['maxOutputTokens'] = request.parameters['max_tokens'];
     }
+    if (request.parameters['stop_sequences'] != null) {
+      generationConfig['stopSequences'] = request.parameters['stop_sequences'];
+    }
     if (request.parameters.containsKey('temperature')) {
       generationConfig['temperature'] = request.parameters['temperature'];
     }
@@ -545,7 +558,9 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
             return {
               'name': tool['name'],
               'description': tool['description'],
-              'parameters': tool['parameters'],
+              // The MCP inputSchema is JSON Schema; `parameters` takes only an
+              // OpenAPI subset and refuses `\$schema`, `additionalProperties`.
+              'parametersJsonSchema': tool['parameters'],
             };
           }).toList(),
         },
@@ -578,22 +593,19 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
       ];
     }
 
-    if (content is Map) {
-      if (content['type'] == 'image') {
-        final mimeType = content['mimeType'] ?? 'image/png';
-        final base64Data = content['base64Data'];
+    final image = ImageRef.of(content);
+    if (image != null && image.base64Data != null) {
+      return [
+        {
+          'inlineData': {
+            'mimeType': image.mimeType,
+            'data': image.base64Data,
+          },
+        },
+      ];
+    }
 
-        if (base64Data != null) {
-          return [
-            {
-              'inlineData': {
-                'mimeType': mimeType,
-                'data': base64Data,
-              },
-            },
-          ];
-        }
-      }
+    if (content is Map) {
 
       if (content['type'] == 'text') {
         return [
@@ -635,9 +647,10 @@ class VertexAiProvider implements LlmInterface, RetryableLlmProvider {
 
                 toolCalls ??= [];
                 toolCalls.add(LlmToolCall(
-                  id: 'vertex_tool_${DateTime.now().millisecondsSinceEpoch}_${toolCalls.length}',
+                  id: functionCall['id'] as String? ?? syntheticToolCallId('vertex_tool'),
                   name: toolName,
                   arguments: args,
+                  providerData: part['thoughtSignature'] is String ? {'thoughtSignature': part['thoughtSignature']} : null,
                 ));
               }
             }

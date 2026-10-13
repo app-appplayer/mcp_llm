@@ -214,6 +214,8 @@ void main() {
 
         // Same text should have high similarity
         expect(sameScore, greaterThanOrEqualTo(0.9));
+        // Different text should score lower
+        expect(diffScore, lessThan(sameScore));
       });
     });
 

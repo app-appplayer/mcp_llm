@@ -47,14 +47,6 @@ class SimpleMockLlmProvider implements LlmInterface {
 
 /// Simple mock MCP client
 class SimpleMockMcpClient {
-  bool _authenticationEnabled = false;
-
-  bool get isAuthenticationEnabled => _authenticationEnabled;
-
-  void enableAuthentication(TokenValidator validator) {
-    _authenticationEnabled = true;
-  }
-
   Future<List<dynamic>> listTools() async {
     return [
       {'name': 'test_tool', 'description': 'A test tool'},

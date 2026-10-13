@@ -1,5 +1,4 @@
 import '../../mcp_llm.dart';
-import '../adapter/llm_server_adapter.dart';
 
 /// Extension methods for LlmServer
 /// Provides convenience methods for registering core LLM functionality as plugins

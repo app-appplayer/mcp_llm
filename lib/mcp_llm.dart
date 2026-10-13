@@ -6,7 +6,10 @@ export 'src/adapter/mcp_client_manager.dart';
 export 'src/adapter/mcp_server_manager.dart';
 export 'src/adapter/llm_client_adapter.dart';
 export 'src/adapter/llm_server_adapter.dart';
-export 'src/adapter/mcp_auth_adapter.dart';
+export 'src/adapter/mcp_client_bridge.dart';
+export 'src/adapter/mcp_tool_result_renderer.dart';
+export 'src/adapter/mcp_sampling.dart';
+export 'src/adapter/mcp_server_results.dart';
 
 // Contract Layer Adapter (mcp_bundle integration)
 export 'src/adapter/llm_port_adapter.dart';
@@ -47,6 +50,8 @@ export 'src/multi_llm/llm_server_manager.dart';
 export 'src/multi_llm/default_service_router.dart';
 export 'src/multi_llm/generic_service_pool.dart';
 export 'src/multi_llm/default_service_balancer.dart';
+export 'src/multi_llm/managed_service.dart';
+export 'src/multi_llm/llm_client_server_adapter.dart';
 
 // Chat modules
 export 'src/chat/chat_session.dart';

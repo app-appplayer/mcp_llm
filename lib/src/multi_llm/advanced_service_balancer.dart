@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import '../../mcp_llm.dart';
-import 'managed_service.dart';
 
 /// Advanced implementation of ServiceBalancer with multiple strategies
 /// and service health monitoring

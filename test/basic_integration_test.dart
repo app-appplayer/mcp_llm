@@ -1,16 +1,15 @@
 import 'package:test/test.dart';
 import 'package:mcp_llm/mcp_llm.dart';
 
-/// Very simple mock for basic integration test
+/// Very simple mock for basic integration test: the mcp_client `Client`
+/// methods this test reaches.
 class BasicMockClient {
-  bool _authenticationEnabled = false;
-  
-  bool get isAuthenticationEnabled => _authenticationEnabled;
-  
-  void enableAuthentication(TokenValidator validator) {
-    _authenticationEnabled = true;
-  }
-  
+  Future<void> ping() async {}
+
+  Map<String, dynamic> get serverCapabilities => {'tools': {}};
+
+  String get negotiatedProtocolVersion => '2025-11-25';
+
   Future<List<dynamic>> listTools() async {
     return [{'name': 'test_tool', 'description': 'Test tool'}];
   }
@@ -60,7 +59,7 @@ class BasicMockLlmProvider implements LlmInterface {
 
 void main() {
   group('Basic Integration Tests', () {
-    test('should create LlmClient with 2025-03-26 features', () async {
+    test('should create LlmClient with its managers', () async {
       final client = LlmClient(
         llmProvider: BasicMockLlmProvider(),
         mcpClients: {
@@ -85,59 +84,6 @@ void main() {
       expect(response.text, contains('Mock response'));
 
       await client.close();
-    });
-
-    test('should work with basic OAuth authentication', () async {
-      final tokenValidator = ApiKeyValidator({
-        'valid-token': {
-          'scopes': ['tools:execute'],
-          'exp': DateTime.now().add(Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
-          'client_id': 'test-client',
-        },
-      });
-
-      final authAdapter = McpAuthAdapter(
-        tokenValidator: tokenValidator,
-        defaultConfig: const AuthConfig(scopes: ['tools:execute']),
-      );
-
-      final mockClient = BasicMockClient();
-      final result = await authAdapter.authenticate('test-client', mockClient);
-
-      expect(result.isAuthenticated, isTrue);
-      expect(result.scopes, contains('tools:execute'));
-
-      authAdapter.dispose();
-    });
-
-    test('should validate tokens correctly', () async {
-      final tokenValidator = ApiKeyValidator({
-        'valid-token': {
-          'scopes': ['tools:execute', 'resources:read'],
-          'exp': DateTime.now().add(Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
-          'client_id': 'test-client',
-        },
-        'expired-token': {
-          'scopes': ['tools:execute'],
-          'exp': DateTime.now().subtract(Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
-          'client_id': 'expired-client',
-        },
-      });
-
-      // Valid token
-      final validResult = await tokenValidator.validateToken('valid-token');
-      expect(validResult.isAuthenticated, isTrue);
-      expect(validResult.scopes, contains('tools:execute'));
-
-      // Expired token
-      final expiredResult = await tokenValidator.validateToken('expired-token');
-      expect(expiredResult.isAuthenticated, isFalse);
-      expect(expiredResult.error, contains('expired'));
-
-      // Invalid token
-      final invalidResult = await tokenValidator.validateToken('invalid-token');
-      expect(invalidResult.isAuthenticated, isFalse);
-      expect(invalidResult.error, contains('Invalid'));
     });
 
     test('should perform health checks', () async {

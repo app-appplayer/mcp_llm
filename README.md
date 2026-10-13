@@ -30,9 +30,12 @@ Cloud capability providers:
 
 - Multi-client and multi-server management
 - Service routing, balancing, and pooling
-- MCP spec compliance across revisions 2024-11-05 / 2025-03-26 / 2025-06-18 / 2025-11-25, with per-version capability gating
-- OAuth 2.1 authentication
-- Health monitoring, capability management, lifecycle control, and enhanced error handling
+- Every MCP revision the connected mcp_client / mcp_server speaks (2024-11-05 through 2026-07-28); MCP values are the protocol's generated types (`package:mcp_llm/mcp_types.dart`)
+- Authorization through the MCP client (`McpOAuth` in mcp_client)
+- Typed MCP layer: every listing page, tool results rendered by content kind, sampling answered by a provider
+- Tool calls run with the arguments the model gave, each keeping one id from the model's turn to its result
+- Images and stop sequences sent in each provider's API format
+- Per-peer records: declared capabilities, health (`ping` for a client, the server's health record for a server), lifecycle state
 - Deferred Tool Loading (60–80% token reduction)
 - Multi-round tool calling
 - Resource Tool Bridge (`mcp_read_resource`, `mcp_list_resources`)
@@ -59,26 +62,68 @@ Implement `mcp_bundle` ports so `mcp_skill`, `mcp_profile`, `mcp_knowledge`, and
 ```dart
 import 'package:mcp_llm/mcp_llm.dart';
 
-final provider = ClaudeProvider();
-await provider.initialize(LlmConfiguration(apiKey: 'your-api-key'));
+Future<void> main() async {
+  final provider = ClaudeProvider(
+    apiKey: 'your-api-key',
+    model: 'claude-sonnet-5-5',
+    config: LlmConfiguration(apiKey: 'your-api-key', model: 'claude-sonnet-5-5'),
+  );
 
-final response = await provider.complete(LlmRequest(
-  messages: [LlmMessage.user('Hello!')],
-));
-print(response.text);
+  final response = await provider.complete(LlmRequest(prompt: 'Hello!'));
+  print(response.text);
+}
 ```
+
+Through the registry, by provider name:
+
+```dart
+final mcpLlm = McpLlm()..registerProvider('claude', ClaudeProviderFactory());
+final client = await mcpLlm.createClient(
+  providerName: 'claude',
+  config: LlmConfiguration(apiKey: 'your-api-key', model: 'claude-sonnet-5-5'),
+);
+final reply = await client.chat('Hello!');
+print(reply.text);
+```
+
+## Using an MCP Server's Tools
+
+Hand `LlmClient` a connected mcp_client; `chat(enableTools: true)` offers the
+server's tools to the model, runs the calls it makes and returns the final
+answer. Tool results reach the model rendered by content kind (`isError`
+marked, `structuredContent` as JSON).
+
+```dart
+import 'package:mcp_client/mcp_client.dart' as mcp;
+import 'package:mcp_llm/mcp_llm.dart';
+
+Future<void> withTools(LlmProvider provider) async {
+  final mcpClient = mcp.McpClient.createClient(mcp.McpClient.simpleConfig(name: 'host', version: '1.0.0'));
+  await mcpClient.connect(await mcp.StdioClientTransport.create(command: 'my-mcp-server'));
+
+  final llm = LlmClient(llmProvider: provider, mcpClient: mcpClient);
+  final answer = await llm.chat('What is in my calendar today?', enableTools: true);
+  print(answer.text);
+
+  // Typed access to the server, every page of every list:
+  final tools = await McpClientBridge(mcpClient).listTools();
+  print(tools.map((t) => t.name));
+}
+```
+
+The server's `sampling/createMessage` requests can be answered by a
+provider: `LlmClientAdapter(mcpClient).bindSamplingToLlm(provider, model: 'claude-sonnet-5-5')`
+on a client created with `ClientCapabilities(sampling: true)`.
 
 ## Multi-Client Management
 
 ```dart
-final manager = LlmClientManager();
-await manager.registerClient('claude', ClaudeProvider(), config);
-await manager.registerClient('openai', OpenAiProvider(), config);
+final manager = MultiLlmClientManager(loadBalancer: DefaultServiceBalancer());
+manager.addClient('claude', claudeClient, weight: 2);
+manager.addClient('openai', openAiClient);
 
-final response = await manager.complete(
-  clientId: 'claude',
-  request: LlmRequest(messages: [LlmMessage.user('Hi')]),
-);
+final client = manager.selectClient('summarize this');
+final response = await client?.chat('Summarize: ...');
 ```
 
 ## Contract Layer Usage
@@ -89,11 +134,8 @@ Bridge any `mcp_llm` provider to a `bundle.LlmPort` consumed by knowledge packag
 import 'package:mcp_llm/mcp_llm.dart';
 import 'package:mcp_bundle/ports.dart' as bundle;
 
-final provider = ClaudeProvider();
-await provider.initialize(LlmConfiguration(apiKey: 'your-key'));
-
-final bundle.LlmPort llmPort = LlmPortAdapter(provider);
-// Pass llmPort into mcp_skill / mcp_profile / mcp_knowledge runtimes.
+bundle.LlmPort portFor(LlmProvider provider) => LlmPortAdapter(provider);
+// Pass the port into mcp_skill / mcp_profile / mcp_knowledge runtimes.
 ```
 
 ## Prompt Caching
@@ -105,11 +147,11 @@ Per-provider default policy when `cacheHints` is `null`:
 | Provider | Default | Mechanism | Notes |
 |----------|:-------:|-----------|-------|
 | Anthropic Claude | **ON** | `cache_control: ephemeral` markers on system, last tool, last 2 messages | length guard skips the marker when content is below the model minimum (Sonnet/Opus 1024 tok, Haiku 2048 tok) |
-| Bedrock (Anthropic) | **ON** | same as direct Anthropic | Llama / Titan model families silently ignore hints |
+| Bedrock (Anthropic) | **ON** | same as direct Anthropic | applies to the Anthropic model family |
 | OpenAI | **ON (no-op)** | server-side automatic on shared prefixes ≥ 1024 tok | optional `parameters['prompt_cache_key']` partitions the cache space (e.g. per tenant) |
 | Gemini | **OFF** | `cachedContent` resource (separate POST + reference) | persistent storage charge ($/min) + 32K-token minimum on Pro models — small/one-shot prompts cost more than they save. Caller manages lifecycle and forwards `parameters['cached_content']` |
 | Vertex AI | **OFF** | same as Gemini, with project/region scoping | same opt-in pattern |
-| Mistral / Cohere / Groq / Together | OFF (noop) | not exposed by provider | hints silently ignored |
+| Mistral / Cohere / Groq / Together | OFF (noop) | caching is the provider's own | hints are left to the provider |
 
 Cache usage is surfaced on `LlmResponse.metadata` under canonical keys
 so callers can compute savings without provider-specific branches:

@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../utils/logger.dart';
-import '../adapter/mcp_auth_adapter.dart';
 import '../health/health_monitor.dart';
 import '../capabilities/capability_manager.dart';
 import '../core/models.dart';
@@ -35,12 +34,15 @@ class LifecycleRequest {
   }
 }
 
-/// Server Lifecycle Manager for 2025-03-26 MCP specification
+/// The lifecycle state mcp_llm records for each MCP server it holds
+/// (starting, running, paused, stopped). MCP defines no server lifecycle
+/// methods, and the host owns the server and its transport: start, stop,
+/// pause and resume change this record (and run the health check on start
+/// when a monitor is given) — they do not open or close the server.
 class ServerLifecycleManager {
   final Logger _logger = Logger('mcp_llm.lifecycle_manager');
   
   final Map<String, dynamic> _mcpServers = {};
-  final Map<String, McpAuthAdapter?> _authAdapters = {};
   final Map<String, ServerLifecycleState> _serverStates = {};
   final Map<String, ServerInfo> _serverInfo = {};
   final Map<String, DateTime> _stateTransitionTimes = {};
@@ -67,18 +69,25 @@ class ServerLifecycleManager {
     this.capabilityManager,
   });
 
+  static String? _serverVersion(dynamic mcpServer) {
+    try {
+      final v = mcpServer.version;
+      return v is String ? v : null;
+    } on NoSuchMethodError {
+      return null;
+    }
+  }
+
   /// Register MCP server for lifecycle management
   void registerServer(
     String serverId, 
     dynamic mcpServer, {
-    McpAuthAdapter? authAdapter,
     String? name,
     String? version,
     Map<String, dynamic> configuration = const {},
     bool autoRestart = false,
   }) {
     _mcpServers[serverId] = mcpServer;
-    _authAdapters[serverId] = authAdapter;
     _serverStates[serverId] = ServerLifecycleState.stopped;
     _stateTransitionTimes[serverId] = DateTime.now();
     _autoRestartEnabled[serverId] = autoRestart;
@@ -92,8 +101,9 @@ class ServerLifecycleManager {
       uptime: Duration.zero,
       metadata: {
         'auto_restart': autoRestart,
-        'protocol_version': '2025-03-26',
-        'version': version ?? '2025-03-26',
+        // The server's own version; a server serves every revision it
+        // supports, so no single protocol version is recorded.
+        'version': version ?? _serverVersion(mcpServer),
         'configuration': configuration,
         'startTime': DateTime.now().toIso8601String(),
       },
@@ -103,12 +113,12 @@ class ServerLifecycleManager {
     
     // Register with health monitor if available
     if (healthMonitor != null) {
-      healthMonitor!.registerClient(serverId, mcpServer, authAdapter: authAdapter);
+      healthMonitor!.registerClient(serverId, mcpServer);
     }
     
     // Register with capability manager if available
     if (capabilityManager != null) {
-      capabilityManager!.registerClient(serverId, mcpServer, authAdapter: authAdapter);
+      capabilityManager!.registerClient(serverId, mcpServer);
     }
     
     // Emit initial lifecycle event
@@ -129,7 +139,6 @@ class ServerLifecycleManager {
     }
     
     _mcpServers.remove(serverId);
-    _authAdapters.remove(serverId);
     _serverStates.remove(serverId);
     _serverInfo.remove(serverId);
     _stateTransitionTimes.remove(serverId);
@@ -423,15 +432,6 @@ class ServerLifecycleManager {
 
   /// Perform server startup sequence
   Future<void> _performServerStartup(String serverId, dynamic mcpServer, Map<String, dynamic> parameters) async {
-    // Check authentication if required
-    final authAdapter = _authAdapters[serverId];
-    if (authAdapter != null) {
-      final authResult = await authAdapter.authenticate(serverId, mcpServer);
-      if (!authResult.isAuthenticated) {
-        throw Exception('Authentication failed during startup');
-      }
-    }
-    
     // Initialize server capabilities
     if (capabilityManager != null) {
       await capabilityManager!.refreshAllCapabilities();
@@ -445,8 +445,6 @@ class ServerLifecycleManager {
       }
     }
     
-    // Custom startup logic can be added here
-    await Future.delayed(Duration(milliseconds: 100)); // Simulate startup time
   }
 
   /// Perform server shutdown sequence
@@ -467,26 +465,15 @@ class ServerLifecycleManager {
     }
   }
 
-  /// Execute shutdown sequence
-  Future<void> _executeShutdownSequence(String serverId, dynamic mcpServer, Map<String, dynamic> parameters) async {
-    // Close any active connections
-    // Clean up resources
-    // Save state if needed
-    
-    await Future.delayed(Duration(milliseconds: 200)); // Simulate shutdown time
-  }
+  /// The shutdown sequence: mcp_llm holds no connection of the server's to
+  /// close — the host owns the server and its transport.
+  Future<void> _executeShutdownSequence(String serverId, dynamic mcpServer, Map<String, dynamic> parameters) async {}
 
-  /// Perform server pause operations
-  Future<void> _performServerPause(String serverId, Map<String, dynamic> parameters) async {
-    // Pause processing but keep connections
-    await Future.delayed(Duration(milliseconds: 50));
-  }
+  /// Pausing changes the recorded state only.
+  Future<void> _performServerPause(String serverId, Map<String, dynamic> parameters) async {}
 
-  /// Perform server resume operations
-  Future<void> _performServerResume(String serverId, Map<String, dynamic> parameters) async {
-    // Resume processing
-    await Future.delayed(Duration(milliseconds: 50));
-  }
+  /// Resuming changes the recorded state only.
+  Future<void> _performServerResume(String serverId, Map<String, dynamic> parameters) async {}
 
   /// Transition server state
   Future<void> _transitionState(
@@ -639,7 +626,6 @@ class ServerLifecycleManager {
   void dispose() {
     _eventController.close();
     _mcpServers.clear();
-    _authAdapters.clear();
     _serverStates.clear();
     _serverInfo.clear();
     _stateTransitionTimes.clear();

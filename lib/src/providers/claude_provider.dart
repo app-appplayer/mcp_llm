@@ -6,6 +6,8 @@ import '../core/llm_interface.dart';
 import '../core/models.dart';
 import '../utils/logger.dart';
 import 'provider.dart';
+import '../utils/tool_call_id.dart';
+import 'content_parts.dart';
 
 /// Implementation of LLM interface for Claude API
 class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
@@ -154,6 +156,9 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         String currentToolBlockId = '';
         String currentToolName = '';
         Map<String, dynamic> currentToolInputs = {};
+        // A tool_use block's input arrives as `input_json_delta` fragments
+        // of one JSON text; it is parsed when the block stops.
+        final currentToolJson = StringBuffer();
 
         // Cache for tool definitions from the request
         final Map<String, Map<String, dynamic>> toolDefinitionCache = {};
@@ -241,10 +246,11 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                       logger.debug('TOOL CALL START - COMPLETE DATA: ${jsonEncode(currentToolBlock)}');
 
                       currentToolName = currentToolBlock['name'] as String? ?? 'unknown';
-                      currentToolBlockId = currentToolBlock['id'] as String? ?? 'claude_tool_${DateTime.now().millisecondsSinceEpoch}';
+                      currentToolBlockId = currentToolBlock['id'] as String? ?? syntheticToolCallId('claude_tool');
 
                       // Initialize empty inputs
                       currentToolInputs = <String, dynamic>{};
+                      currentToolJson.clear();
 
                       // Set initial inputs if available
                       if (currentToolBlock.containsKey('input') &&
@@ -295,57 +301,10 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                   // Log the delta for debugging
                   logger.debug('CONTENT BLOCK DELTA: ${jsonEncode(delta)}');
 
-                  // Handle tool input updates
-                  if (processingToolBlock && delta != null) {
-                    if (delta.containsKey('input') && delta['input'] is Map<String, dynamic>) {
-                      // Update tool inputs
-                      final inputDelta = delta['input'] as Map<String, dynamic>;
-
-                      // Log before and after update
-                      logger.debug('TOOL INPUT DELTA: ${jsonEncode(inputDelta)}');
-                      logger.debug('TOOL INPUTS BEFORE UPDATE: ${jsonEncode(currentToolInputs)}');
-
-                      // Update current tool inputs
-                      currentToolInputs.addAll(inputDelta);
-
-                      logger.debug('TOOL INPUTS AFTER UPDATE: ${jsonEncode(currentToolInputs)}');
-
-                      // Update entry in tool calls map
-                      if (toolCallsMap.containsKey(currentToolBlockId)) {
-                        toolCallsMap[currentToolBlockId]!['arguments'] =
-                        Map<String, dynamic>.from(currentToolInputs);
-                      }
-
-                      // Update the latest tool call with new arguments
-                      if (toolCalls != null && toolCalls.isNotEmpty) {
-                        // Find the tool call by ID
-                        final lastToolCallIndex = toolCalls.indexWhere(
-                                (tc) => tc.id == currentToolBlockId);
-
-                        if (lastToolCallIndex >= 0) {
-                          // Update the tool call with new args
-                          toolCalls[lastToolCallIndex] = LlmToolCall(
-                            id: currentToolBlockId,
-                            name: currentToolName,
-                            arguments: Map<String, dynamic>.from(currentToolInputs),
-                          );
-                        }
-                      }
-
-                      // Emit a special chunk for tool argument updates with enhanced metadata
-                      yield LlmResponseChunk(
-                        textChunk: '',
-                        isDone: false,
-                        metadata: {
-                          'is_tool_call': true,
-                          'tool_name': currentToolName,
-                          'tool_id': currentToolBlockId,
-                          'tool_call_update': true, // Add OpenAI-compatible field
-                          'tool_args': Map<String, dynamic>.from(currentToolInputs), // Include updated args
-                        },
-                        toolCalls: toolCalls,
-                      );
-                    }
+                  // Tool input: fragments of one JSON text, collected until
+                  // the block stops.
+                  if (processingToolBlock && delta != null && delta['type'] == 'input_json_delta') {
+                    currentToolJson.write(delta['partial_json'] as String? ?? '');
                   }
 
                   // Handle text delta
@@ -361,191 +320,38 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                 } else if (chunkType == 'content_block_stop') {
                   // Content block ended
                   if (processingToolBlock) {
-                    // Log the final state of the tool call
+                    if (currentToolJson.isNotEmpty) {
+                      try {
+                        final decoded = jsonDecode(currentToolJson.toString());
+                        if (decoded is Map) currentToolInputs = Map<String, dynamic>.from(decoded);
+                      } catch (e) {
+                        logger.warning('Tool "$currentToolName" input is not valid JSON: $e');
+                      }
+                    }
                     logger.debug('TOOL CALL ENDED - FINAL INPUTS: ${jsonEncode(currentToolInputs)}');
 
-                    // When a tool block ends, fill in any missing required arguments
-                    if (toolDefinitionCache.containsKey(currentToolName) && currentToolBlockId.isNotEmpty) {
-                      final toolDef = toolDefinitionCache[currentToolName]!;
-                      final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
-
-                      // Log the tool definition and schema
-                      logger.debug('TOOL DEFINITION: ${jsonEncode(toolDef)}');
-                      if (inputSchema != null) {
-                        logger.debug('TOOL INPUT SCHEMA: ${jsonEncode(inputSchema)}');
-                      }
-
-                      final List<String> requiredArgs = [];
-                      Map<String, dynamic> propertyDefs = {};
-
-                      // Get list of required args and property definitions
-                      if (inputSchema != null) {
-                        if (inputSchema.containsKey('required')) {
-                          final required = inputSchema['required'] as List<dynamic>;
-                          for (final arg in required) {
-                            requiredArgs.add(arg.toString());
-                          }
-                        }
-
-                        // Get property definitions
-                        if (inputSchema.containsKey('properties') &&
-                            inputSchema['properties'] is Map<String, dynamic>) {
-                          propertyDefs = inputSchema['properties'] as Map<String, dynamic>;
-                        }
-                      }
-
-                      // Get current arguments
-                      final currentArgs = toolCallsMap[currentToolBlockId]?['arguments']
-                      as Map<String, dynamic>? ?? {};
-
-                      // Identify missing required arguments
-                      final missingArgs = <String>[];
-                      for (final arg in requiredArgs) {
-                        if (!currentArgs.containsKey(arg) || currentArgs[arg] == null) {
-                          missingArgs.add(arg);
-                        }
-                      }
-
-                      if (missingArgs.isNotEmpty) {
-                        logger.warning('Tool call "$currentToolName" is missing required arguments: ${missingArgs.join(", ")}');
-
-                        // Apply default values automatically
-                        final updatedArgs = Map<String, dynamic>.from(currentArgs);
-
-                        // For calculator tool specifically, try to parse from the user query
-                        if (currentToolName == 'calculator' && missingArgs.contains('operation') &&
-                            (missingArgs.contains('a') || missingArgs.contains('b'))) {
-                          // Try to extract operation and values from the latest user message
-                          final userMessages = request.history.where((msg) => msg.role == 'user').toList();
-                          if (userMessages.isNotEmpty) {
-                            final lastUserMessage = userMessages.last.content.toString();
-                            logger.debug('Trying to extract calculator args from: $lastUserMessage');
-
-                            // Simple pattern matching for common operations
-                            if (lastUserMessage.contains('*') || lastUserMessage.toLowerCase().contains('multiply')) {
-                              updatedArgs['operation'] = 'multiply';
-                            } else if (lastUserMessage.contains('+') || lastUserMessage.toLowerCase().contains('add')) {
-                              updatedArgs['operation'] = 'add';
-                            } else if (lastUserMessage.contains('-') || lastUserMessage.toLowerCase().contains('subtract')) {
-                              updatedArgs['operation'] = 'subtract';
-                            } else if (lastUserMessage.contains('/') || lastUserMessage.toLowerCase().contains('divide')) {
-                              updatedArgs['operation'] = 'divide';
-                            }
-
-                            // Try to extract numbers
-                            final numRegex = RegExp(r'(\d+)');
-                            final matches = numRegex.allMatches(lastUserMessage).toList();
-                            if (matches.length >= 2) {
-                              if (missingArgs.contains('a')) {
-                                updatedArgs['a'] = double.tryParse(matches[0].group(0) ?? '0') ?? 0;
-                              }
-                              if (missingArgs.contains('b')) {
-                                updatedArgs['b'] = double.tryParse(matches[1].group(0) ?? '0') ?? 0;
-                              }
-                            }
-
-                            logger.debug('Extracted calculator args: ${jsonEncode(updatedArgs)}');
-                          }
-                        }
-
-                        // Apply default values for any remaining missing arguments
-                        for (final arg in missingArgs) {
-                          // Skip if we already filled this arg
-                          if (updatedArgs.containsKey(arg) && updatedArgs[arg] != null) {
-                            continue;
-                          }
-
-                          // Get default value and type from property definition
-                          dynamic defaultValue;
-                          String? type = 'string';  // Default type is string
-
-                          if (propertyDefs.containsKey(arg)) {
-                            final propDef = propertyDefs[arg] as Map<String, dynamic>;
-
-                            // Use explicit default value if specified
-                            if (propDef.containsKey('default')) {
-                              defaultValue = propDef['default'];
-                            }
-
-                            // Get type information
-                            if (propDef.containsKey('type')) {
-                              type = propDef['type'] as String?;
-                            }
-                          }
-
-                          // Generate default value if none exists based on type
-                          if (defaultValue == null) {
-                            switch (type) {
-                              case 'number':
-                              case 'integer':
-                                defaultValue = 0;
-                                break;
-                              case 'boolean':
-                                defaultValue = false;
-                                break;
-                              case 'array':
-                                defaultValue = [];
-                                break;
-                              case 'object':
-                                defaultValue = {};
-                                break;
-                              case 'string':
-                              default:
-                              // Special handling for string type
-                              // Check for enum values
-                                if (propertyDefs.containsKey(arg) &&
-                                    propertyDefs[arg] is Map<String, dynamic> &&
-                                    propertyDefs[arg].containsKey('enum') &&
-                                    propertyDefs[arg]['enum'] is List &&
-                                    (propertyDefs[arg]['enum'] as List).isNotEmpty) {
-                                  // Use first enum value
-                                  defaultValue = (propertyDefs[arg]['enum'] as List).first;
-                                } else {
-                                  defaultValue = '';
-                                }
-                                break;
-                            }
-                          }
-
-                          // Apply generated default value
-                          updatedArgs[arg] = defaultValue;
-                        }
-
-                        // Log the updated arguments
-                        logger.debug('TOOL ARGS AFTER AUTO-FILLING: ${jsonEncode(updatedArgs)}');
-
-                        // Update tool call info with fixed arguments
-                        toolCallsMap[currentToolBlockId]!['arguments'] = updatedArgs;
-
-                        // Update all tool calls
-                        final updatedToolCalls = <LlmToolCall>[];
-                        for (final id in toolCallsMap.keys) {
-                          final toolInfo = toolCallsMap[id]!;
-                          updatedToolCalls.add(LlmToolCall(
-                            id: id,
-                            name: toolInfo['name'] as String,
-                            arguments: Map<String, dynamic>.from(
-                                toolInfo['arguments'] as Map<String, dynamic>),
-                          ));
-                        }
-
-                        toolCalls = updatedToolCalls;
-
-                        // Emit final tool arguments update with filled-in values
-                        yield LlmResponseChunk(
-                          textChunk: '',
-                          isDone: false,
-                          metadata: {
-                            'is_tool_call': true,
-                            'tool_name': currentToolName,
-                            'tool_id': currentToolBlockId,
-                            'tool_call_update': true,
-                            'tool_args': updatedArgs,
-                            'auto_filled_args': missingArgs,
-                          },
-                          toolCalls: toolCalls,
-                        );
-                      }
+                    if (toolCallsMap.containsKey(currentToolBlockId)) {
+                      toolCallsMap[currentToolBlockId]!['arguments'] = Map<String, dynamic>.from(currentToolInputs);
+                    }
+                    final index = toolCalls?.indexWhere((tc) => tc.id == currentToolBlockId) ?? -1;
+                    if (index >= 0) {
+                      toolCalls![index] = LlmToolCall(
+                        id: currentToolBlockId,
+                        name: currentToolName,
+                        arguments: Map<String, dynamic>.from(currentToolInputs),
+                      );
+                      yield LlmResponseChunk(
+                        textChunk: '',
+                        isDone: false,
+                        metadata: {
+                          'is_tool_call': true,
+                          'tool_name': currentToolName,
+                          'tool_id': currentToolBlockId,
+                          'tool_call_update': true,
+                          'tool_args': Map<String, dynamic>.from(currentToolInputs),
+                        },
+                        toolCalls: toolCalls,
+                      );
                     }
 
                     // Reset tool processing state
@@ -553,6 +359,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                     currentToolBlockId = '';
                     currentToolName = '';
                     currentToolInputs = {};
+                    currentToolJson.clear();
                   }
                 } else if (chunkType == 'message_delta') {
                   // Handle stop reason changes
@@ -569,111 +376,15 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
                           'name': tc.name,
                           'arguments': tc.arguments
                         }).toList())}');
-
-                        // Final verification of all tool calls
-                        for (int i = 0; i < toolCalls.length; i++) {
-                          final toolCall = toolCalls[i];
-                          final toolName = toolCall.name;
-
-                          // Get tool definition
-                          if (toolDefinitionCache.containsKey(toolName)) {
-                            final toolDef = toolDefinitionCache[toolName]!;
-                            final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
-
-                            if (inputSchema != null && inputSchema.containsKey('required')) {
-                              final required = inputSchema['required'] as List<dynamic>;
-                              final args = toolCall.arguments;
-                              final propertyDefs = inputSchema.containsKey('properties') &&
-                                  inputSchema['properties'] is Map<String, dynamic> ?
-                              inputSchema['properties'] as Map<String, dynamic> : {};
-
-                              // Check for missing arguments
-                              bool needsUpdate = false;
-                              final updatedArgs = Map<String, dynamic>.from(args);
-
-                              for (final req in required) {
-                                final argName = req.toString();
-                                if (!args.containsKey(argName) || args[argName] == null) {
-                                  needsUpdate = true;
-
-                                  // Get default value and type from property definition
-                                  dynamic defaultValue;
-                                  String? type = 'string';  // Default type is string
-
-                                  if (propertyDefs.containsKey(argName)) {
-                                    final propDef = propertyDefs[argName] as Map<String, dynamic>;
-
-                                    // Use explicit default value if specified
-                                    if (propDef.containsKey('default')) {
-                                      defaultValue = propDef['default'];
-                                    }
-
-                                    // Get type information
-                                    if (propDef.containsKey('type')) {
-                                      type = propDef['type'] as String?;
-                                    }
-                                  }
-
-                                  // Generate default value if none exists based on type
-                                  if (defaultValue == null) {
-                                    switch (type) {
-                                      case 'number':
-                                      case 'integer':
-                                        defaultValue = 0;
-                                        break;
-                                      case 'boolean':
-                                        defaultValue = false;
-                                        break;
-                                      case 'array':
-                                        defaultValue = [];
-                                        break;
-                                      case 'object':
-                                        defaultValue = {};
-                                        break;
-                                      case 'string':
-                                      default:
-                                      // Special handling for string type
-                                      // Check for enum values
-                                        if (propertyDefs.containsKey(argName) &&
-                                            propertyDefs[argName] is Map<String, dynamic> &&
-                                            propertyDefs[argName].containsKey('enum') &&
-                                            propertyDefs[argName]['enum'] is List &&
-                                            (propertyDefs[argName]['enum'] as List).isNotEmpty) {
-                                          // Use first enum value
-                                          defaultValue = (propertyDefs[argName]['enum'] as List).first;
-                                        } else {
-                                          defaultValue = '';
-                                        }
-                                        break;
-                                    }
-                                  }
-
-                                  // Apply generated default value
-                                  updatedArgs[argName] = defaultValue;
-                                }
-                              }
-
-                              // Apply updates if needed
-                              if (needsUpdate) {
-                                toolCalls[i] = LlmToolCall(
-                                  id: toolCall.id,
-                                  name: toolCall.name,
-                                  arguments: updatedArgs,
-                                );
-                              }
-                            }
-                          }
-                        }
                       }
 
-                      // Emit the final tool call event with all filled-in arguments
+                      // Emit the final tool call event: the arguments as the model gave them
                       yield LlmResponseChunk(
                         textChunk: '',
                         isDone: true,
                         metadata: {
                           'stop_reason': stopReason,
                           'expects_tool_result': true,
-                          'auto_fixed_tools': true,
                           'finish_reason': 'tool_calls', // Add OpenAI-compatible field
                         },
                         toolCalls: toolCalls,
@@ -787,7 +498,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
     if (metadata.containsKey('is_tool_call') && metadata.containsKey('tool_name')) {
       final toolName = metadata['tool_name'] as String;
       final toolId = metadata['tool_id'] as String? ??
-          'claude_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('claude_tool');
 
       // Check if arguments exist, found in tool_args field
       Map<String, dynamic> arguments = {};
@@ -914,9 +625,19 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         }
       } else {
         // Regular message handling (user or assistant)
+        final image = ImageRef.of(message.content);
         messages.add({
           'role': message.role,
-          'content': message.content,
+          'content': image == null
+              ? message.content
+              : [
+                  {
+                    'type': 'image',
+                    'source': image.base64Data != null
+                        ? {'type': 'base64', 'media_type': image.mimeType, 'data': image.base64Data}
+                        : {'type': 'url', 'url': image.url},
+                  },
+                ],
         });
       }
     }
@@ -932,6 +653,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stop_sequences': request.parameters['stop_sequences'],
     };
 
     // `temperature` is conditional — Claude Opus 4.x rejects requests
@@ -1114,7 +836,7 @@ class ClaudeProvider implements LlmInterface, RetryableLlmProvider {
         for (final item in contentList) {
           if (item is Map<String, dynamic> && item['type'] == 'tool_use') {
             final name = item['name'] as String? ?? 'unknown';
-            final id = item['id'] as String? ?? 'claude_tool_${DateTime.now().millisecondsSinceEpoch}';
+            final id = item['id'] as String? ?? syntheticToolCallId('claude_tool');
 
             Map<String, dynamic> arguments = {};
             if (item.containsKey('input') && item['input'] is Map<String, dynamic>) {

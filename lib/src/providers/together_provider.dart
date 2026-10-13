@@ -325,6 +325,7 @@ class TogetherProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'prompt': fullPrompt,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stop': request.parameters['stop_sequences'],
       'stop': ['</assistant>'],
     };
 

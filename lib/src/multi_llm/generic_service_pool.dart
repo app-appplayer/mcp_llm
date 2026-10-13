@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../../mcp_llm.dart';
-import 'managed_service.dart';
 
 /// Implementation of service pool for resource pooling of clients or servers
 class GenericServicePool<T> implements ServicePool<T> {

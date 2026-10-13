@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
 
 /// Implementation of LLM interface for Groq API (OpenAI-compatible).
 /// Groq provides fast inference for open-source models like Llama and Mixtral.
@@ -171,9 +172,6 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
             if (line.startsWith('data: ') && line.length > 6) {
               final data = line.substring(6);
               if (data == '[DONE]') {
-                if (toolCalls != null && toolCalls.isNotEmpty) {
-                  _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
-                }
 
                 yield LlmResponseChunk(
                   textChunk: '',
@@ -315,9 +313,6 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
                         }
                       }
 
-                      if (toolCalls != null) {
-                        _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
-                      }
 
                       yield LlmResponseChunk(
                         textChunk: '',
@@ -369,93 +364,6 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
     }
   }
 
-  void _validateAndFillToolCallArguments(List<LlmToolCall> toolCalls,
-      Map<String, Map<String, dynamic>> toolDefinitionCache) {
-    for (int i = 0; i < toolCalls.length; i++) {
-      final toolCall = toolCalls[i];
-      final toolName = toolCall.name;
-
-      if (toolDefinitionCache.containsKey(toolName)) {
-        final toolDef = toolDefinitionCache[toolName]!;
-        final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
-
-        if (inputSchema != null && inputSchema.containsKey('required')) {
-          final required = inputSchema['required'] as List<dynamic>;
-          final args = toolCall.arguments;
-          final propertyDefs = inputSchema.containsKey('properties') &&
-              inputSchema['properties'] is Map<String, dynamic>
-              ? inputSchema['properties'] as Map<String, dynamic>
-              : {};
-
-          bool needsUpdate = false;
-          final updatedArgs = Map<String, dynamic>.from(args);
-
-          for (final req in required) {
-            final argName = req.toString();
-            if (!args.containsKey(argName) || args[argName] == null) {
-              needsUpdate = true;
-
-              dynamic defaultValue;
-              String? type = 'string';
-
-              if (propertyDefs.containsKey(argName)) {
-                final propDef = propertyDefs[argName] as Map<String, dynamic>;
-
-                if (propDef.containsKey('default')) {
-                  defaultValue = propDef['default'];
-                }
-
-                if (propDef.containsKey('type')) {
-                  type = propDef['type'] as String?;
-                }
-              }
-
-              if (defaultValue == null) {
-                switch (type) {
-                  case 'number':
-                  case 'integer':
-                    defaultValue = 0;
-                    break;
-                  case 'boolean':
-                    defaultValue = false;
-                    break;
-                  case 'array':
-                    defaultValue = [];
-                    break;
-                  case 'object':
-                    defaultValue = {};
-                    break;
-                  case 'string':
-                  default:
-                    if (propertyDefs.containsKey(argName) &&
-                        propertyDefs[argName] is Map<String, dynamic> &&
-                        propertyDefs[argName].containsKey('enum') &&
-                        propertyDefs[argName]['enum'] is List &&
-                        (propertyDefs[argName]['enum'] as List).isNotEmpty) {
-                      defaultValue = (propertyDefs[argName]['enum'] as List).first;
-                    } else {
-                      defaultValue = '';
-                    }
-                    break;
-                }
-              }
-
-              updatedArgs[argName] = defaultValue;
-            }
-          }
-
-          if (needsUpdate) {
-            toolCalls[i] = LlmToolCall(
-              id: toolCall.id,
-              name: toolCall.name,
-              arguments: updatedArgs,
-            );
-          }
-        }
-      }
-    }
-  }
-
   @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
     if (metadata.containsKey('tool_call_start') && metadata['tool_call_start'] == true) {
@@ -482,7 +390,7 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'groq_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('groq_tool');
 
       Map<String, dynamic> arguments = {};
 
@@ -507,7 +415,7 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
       if (firstToolCall is Map<String, dynamic>) {
         final toolName = firstToolCall['name'] as String? ?? 'unknown_tool';
         final toolId = firstToolCall['id'] as String? ??
-            'groq_tool_${DateTime.now().millisecondsSinceEpoch}';
+            syntheticToolCallId('groq_tool');
 
         Map<String, dynamic> arguments = {};
 
@@ -603,7 +511,7 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
           } else if (toolContent.containsKey('tool_call_id')) {
             toolCallId = toolContent['tool_call_id'].toString();
           } else {
-            toolCallId = 'call_${DateTime.now().millisecondsSinceEpoch}';
+            toolCallId = syntheticToolCallId('call');
           }
         }
 
@@ -664,6 +572,7 @@ class GroqProvider implements LlmInterface, RetryableLlmProvider {
       'model': resolvedModel,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stop': request.parameters['stop_sequences'],
     };
 
     // Conditional `temperature` — keep forward-compatible with models

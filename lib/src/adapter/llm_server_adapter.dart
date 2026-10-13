@@ -1,26 +1,8 @@
 import '../../mcp_llm.dart';
 
-abstract class CallToolResult {
-  List<LLmContent> get content;
-  bool get isStreaming;
-  bool? get isError;
-  Map<String, dynamic> toJson();
-}
-
-abstract class ReadResourceResult {
-  String get content;
-  String get mimeType;
-  List<LLmContent> get contents;
-  Map<String, dynamic> toJson();
-}
-
-abstract class GetPromptResult {
-  String get description;
-  List<LlmMessage> get messages;
-  Map<String, dynamic> toJson();
-}
-
-/// Type definition for tool handler functions with cancellation and progress reporting
+/// A tool handler: returns a generated `CallToolResult`, an
+/// [LlmCallToolResult], a string, or a protocol-shaped map — converted to
+/// the protocol's `tools/call` result before it is sent.
 typedef ToolHandler = Future<dynamic> Function(Map<String, dynamic> arguments);
 
 /// Type definition for resource handler functions
@@ -58,12 +40,11 @@ class LlmServerAdapter {
     }
 
     try {
-      // Register with wrapped handler
       await _mcpServer.addTool(
         name: name,
         description: description,
         inputSchema: inputSchema,
-        handler: handler,
+        handler: (Map<String, dynamic> args) async => callToolResultOf(await handler(args)),
       );
       _logger.info('Successfully registered tool: $name');
       return true;
@@ -113,7 +94,7 @@ class LlmServerAdapter {
         name: name,
         description: description,
         arguments: argsMaps,
-        handler: handler,
+        handler: (Map<String, dynamic> args) async => getPromptResultOf(await handler(args)),
       );
       _logger.info('Successfully registered prompt: $name');
       return true;
@@ -143,7 +124,8 @@ class LlmServerAdapter {
         name: name,
         description: description,
         mimeType: mimeType,
-        handler: handler,
+        handler: (String readUri, Map<String, dynamic> params) async =>
+            readResourceResultOf(readUri, await handler(readUri, params), mimeType: mimeType),
       );
       _logger.info('Successfully registered resource: $uri ($name)');
       return true;
@@ -153,7 +135,8 @@ class LlmServerAdapter {
     }
   }
 
-  /// Execute a tool directly through the server
+  /// Call a tool in-process through the server's registered handler
+  /// (mcp_server `Server.callTool`); returns the server's `CallToolResult`.
   Future<dynamic> executeTool(String toolName, Map<String, dynamic> args) async {
     if (!hasServer) {
       _logger.error('Cannot execute tool: MCP server is not available');
@@ -162,10 +145,7 @@ class LlmServerAdapter {
 
     try {
       _logger.debug('Executing tool directly: $toolName');
-      final result = await _mcpServer.executeTool(
-        name: toolName,
-        args: args,
-      );
+      final result = await _mcpServer.callTool(toolName, args);
       return result;
     } catch (e) {
       _logger.error('Failed to execute tool "$toolName": $e');
@@ -173,7 +153,8 @@ class LlmServerAdapter {
     }
   }
 
-  /// Get prompt directly from the server
+  /// Get a prompt in-process through the server's registered handler
+  /// (mcp_server `Server.getPrompt`); returns the server's `GetPromptResult`.
   Future<dynamic> getPrompt(String promptName, Map<String, dynamic> args) async {
     if (!hasServer) {
       _logger.error('Cannot get prompt: MCP server is not available');
@@ -182,10 +163,7 @@ class LlmServerAdapter {
 
     try {
       _logger.debug('Getting prompt directly: $promptName');
-      final result = await _mcpServer.getPrompt(
-        name: promptName,
-        args: args,
-      );
+      final result = await _mcpServer.getPrompt(promptName, args);
       return result;
     } catch (e) {
       _logger.error('Failed to get prompt "$promptName": $e');
@@ -193,7 +171,9 @@ class LlmServerAdapter {
     }
   }
 
-  /// Read resource directly from the server
+  /// Read a resource in-process through the server's registered handler
+  /// (mcp_server `Server.readResource`); returns the server's
+  /// `ReadResourceResult`.
   Future<dynamic> readResource(String resourceUri, [Map<String, dynamic>? params]) async {
     if (!hasServer) {
       _logger.error('Cannot read resource: MCP server is not available');
@@ -202,10 +182,7 @@ class LlmServerAdapter {
 
     try {
       _logger.debug('Reading resource directly: $resourceUri');
-      final result = await _mcpServer.readResource(
-        uri: resourceUri,
-        parameters: params,
-      );
+      final result = await _mcpServer.readResource(resourceUri, params);
       return result;
     } catch (e) {
       _logger.error('Failed to read resource "$resourceUri": $e');
@@ -276,69 +253,26 @@ class LlmServerAdapter {
     }
   }
 
-  /// Helper method to normalize tools list format
-  List<Map<String, dynamic>> _normalizeToolsList(List<dynamic> tools) {
-    return tools.map<Map<String, dynamic>>((tool) {
-      if (tool is Map<String, dynamic>) {
-        return tool;
-      } else {
-        try {
-          // Try toJson for non-Map objects
-          return tool.toJson();
-        } catch (e) {
-          // Fallback to constructing a basic map
-          return {
-            'name': tool.name.toString(),
-            'description': tool.description?.toString() ?? '',
-            'inputSchema': tool.schema ?? {},
-          };
-        }
-      }
-    }).toList();
-  }
+  /// The tools as protocol JSON.
+  List<Map<String, dynamic>> _normalizeToolsList(List<dynamic> tools) => [
+        for (final item in tools)
+          item is Map ? Map<String, dynamic>.from(item) : Map<String, dynamic>.from((item as dynamic).toJson() as Map),
+      ];
 
-  /// Helper method to normalize prompts list format
-  List<Map<String, dynamic>> _normalizePromptsList(List<dynamic> prompts) {
-    return prompts.map<Map<String, dynamic>>((prompt) {
-      if (prompt is Map<String, dynamic>) {
-        return prompt;
-      } else {
-        try {
-          // Try toJson for non-Map objects
-          return prompt.toJson();
-        } catch (e) {
-          // Fallback to constructing a basic map
-          return {
-            'name': prompt.name.toString(),
-            'description': prompt.description?.toString() ?? '',
-            'arguments': prompt.arguments ?? [],
-          };
-        }
-      }
-    }).toList();
-  }
 
-  /// Helper method to normalize resources list format
-  List<Map<String, dynamic>> _normalizeResourcesList(List<dynamic> resources) {
-    return resources.map<Map<String, dynamic>>((resource) {
-      if (resource is Map<String, dynamic>) {
-        return resource;
-      } else {
-        try {
-          // Try toJson for non-Map objects
-          return resource.toJson();
-        } catch (e) {
-          // Fallback to constructing a basic map
-          return {
-            'name': resource.name.toString(),
-            'description': resource.description?.toString() ?? '',
-            'uri': resource.uri?.toString() ?? '',
-            'mimeType': resource.mimeType?.toString() ?? 'text/plain',
-          };
-        }
-      }
-    }).toList();
-  }
+  /// The prompts as protocol JSON.
+  List<Map<String, dynamic>> _normalizePromptsList(List<dynamic> prompts) => [
+        for (final item in prompts)
+          item is Map ? Map<String, dynamic>.from(item) : Map<String, dynamic>.from((item as dynamic).toJson() as Map),
+      ];
+
+
+  /// The resources as protocol JSON.
+  List<Map<String, dynamic>> _normalizeResourcesList(List<dynamic> resources) => [
+        for (final item in resources)
+          item is Map ? Map<String, dynamic>.from(item) : Map<String, dynamic>.from((item as dynamic).toJson() as Map),
+      ];
+
 
   // === MCP 2.0 surface — server-initiated outbound + new APIs ===
 
@@ -390,7 +324,7 @@ class LlmServerAdapter {
   }
 
   /// Server-initiated request: ask the connected client for its current
-  /// roots (spec `roots/list`). Returns the raw list of root maps.
+  /// roots (spec `roots/list`). Returns the roots as protocol JSON maps.
   Future<List<dynamic>> requestRoots(
     String sessionId, {
     Duration timeout = const Duration(seconds: 30),
@@ -398,9 +332,11 @@ class LlmServerAdapter {
     if (!hasServer) {
       throw StateError('MCP server is not available');
     }
-    final list = await _mcpServer.requestClientRoots(sessionId, timeout: timeout);
-    if (list is List) return list;
-    return const <dynamic>[];
+    final list = await _mcpServer.requestClientRoots(sessionId, timeout: timeout) as List;
+    return [
+      for (final root in list)
+        root is Map ? Map<String, dynamic>.from(root) : Map<String, dynamic>.from((root as dynamic).toJson() as Map),
+    ];
   }
 
   /// Register a `completion/complete` handler for argument autocompletion
@@ -452,19 +388,14 @@ class LlmServerAdapter {
         title: title,
         icons: icons,
         meta: meta,
-        handler: handler,
+        handler: (Map<String, dynamic> args) async => callToolResultOf(await handler(args)),
       );
       return true;
     } catch (e) {
-      _logger.warning(
-          'Underlying server does not accept structured-tool kwargs: $e');
-      // Fallback to the legacy-shape registerTool.
-      return registerTool(
-        name: name,
-        description: description,
-        inputSchema: inputSchema,
-        handler: handler,
-      );
+      // Registering without the output schema would serve a different tool
+      // than the one asked for.
+      _logger.error('Failed to register structured tool "$name": $e');
+      return false;
     }
   }
 
@@ -503,19 +434,18 @@ class LlmServerAdapter {
       return status;
     }
 
-    // Try to extract common fields from status object
+    // The server's own health record, as reported.
     try {
+      return Map<String, dynamic>.from(status.toJson() as Map);
+    } on NoSuchMethodError {
       return {
-        'running': status.isRunning ?? true,
-        'connectedSessions': status.connectedSessions ?? 0,
-        'registeredTools': status.registeredTools ?? 0,
-        'registeredResources': status.registeredResources ?? 0,
-        'registeredPrompts': status.registeredPrompts ?? 0,
-        'uptime': status.uptime?.inSeconds ?? 0,
+        'running': status.isRunning,
+        'connectedSessions': status.connectedSessions,
+        'registeredTools': status.registeredTools,
+        'registeredResources': status.registeredResources,
+        'registeredPrompts': status.registeredPrompts,
+        'uptime': status.uptime?.inSeconds,
       };
-    } catch (e) {
-      // Simple fallback
-      return {'running': true};
     }
   }
 }

@@ -1,12 +1,15 @@
 
 import '../../mcp_llm.dart';
-import 'managed_service.dart';
 
 /// Default implementation of ServiceBalancer
 class DefaultServiceBalancer implements ServiceBalancer {
   final Map<String, double> _serviceWeights = {};
-  int _currentIndex = 0;
-  final List<String> _roundRobinList = [];
+
+  /// Smooth weighted round-robin state: each pick adds every service's
+  /// weight to its running score and takes the highest, which then pays the
+  /// total back. Picks follow the weights in every window, and equal
+  /// weights take strict turns.
+  final Map<String, double> _current = {};
   final Logger _logger = Logger('mcp_llm.default_service_balancer');
 
   @override
@@ -25,11 +28,18 @@ class DefaultServiceBalancer implements ServiceBalancer {
 
   @override
   String? getNextService() {
-    if (_roundRobinList.isEmpty) return null;
-
-    final serviceId = _roundRobinList[_currentIndex];
-    _currentIndex = (_currentIndex + 1) % _roundRobinList.length;
-    return serviceId;
+    final eligible = _serviceWeights.entries.where((e) => e.value > 0).toList();
+    if (eligible.isEmpty) return null;
+    var total = 0.0;
+    MapEntry<String, double>? best;
+    for (final e in eligible) {
+      total += e.value;
+      final score = (_current[e.key] ?? 0) + e.value;
+      _current[e.key] = score;
+      if (best == null || score > best.value) best = MapEntry(e.key, score);
+    }
+    _current[best!.key] = best.value - total;
+    return best.key;
   }
 
   @override
@@ -44,8 +54,7 @@ class DefaultServiceBalancer implements ServiceBalancer {
   @override
   void clear() {
     _serviceWeights.clear();
-    _roundRobinList.clear();
-    _currentIndex = 0;
+    _current.clear();
     _logger.debug('Cleared all services');
   }
 
@@ -64,19 +73,7 @@ class DefaultServiceBalancer implements ServiceBalancer {
 
   /// Update weighted round-robin list
   void _updateRoundRobinList() {
-    _roundRobinList.clear();
-
-    for (final entry in _serviceWeights.entries) {
-      final String serviceId = entry.key;
-      final int weightCount = (entry.value * 10).round(); // Scale weight by 10x
-
-      for (int i = 0; i < weightCount; i++) {
-        _roundRobinList.add(serviceId);
-      }
-    }
-
-    // Shuffle the list
-    _roundRobinList.shuffle();
-    _currentIndex = 0;
+    // Scores start over whenever the set of services or a weight changes.
+    _current.clear();
   }
 }

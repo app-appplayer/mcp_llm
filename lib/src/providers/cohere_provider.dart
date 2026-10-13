@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
 
 /// Implementation of LLM interface for Cohere API.
 /// Supports completion, streaming, embeddings (strong), and tool calling.
@@ -273,7 +274,7 @@ class CohereProvider implements LlmInterface, RetryableLlmProvider {
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'cohere_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('cohere_tool');
 
       Map<String, dynamic> arguments = {};
 
@@ -449,6 +450,9 @@ class CohereProvider implements LlmInterface, RetryableLlmProvider {
     }
     if (request.parameters.containsKey('max_tokens')) {
       body['max_tokens'] = request.parameters['max_tokens'];
+    }
+    if (request.parameters['stop_sequences'] != null) {
+      body['stop_sequences'] = request.parameters['stop_sequences'];
     }
     if (request.parameters.containsKey('top_p')) {
       body['p'] = request.parameters['top_p'];

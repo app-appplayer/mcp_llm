@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import '../../mcp_llm.dart';
+import '../schema/schema.g.dart' as mcp;
+import '../utils/tool_call_id.dart';
 
 /// Client for interacting with LLM providers
 class LlmClient {
@@ -10,16 +12,16 @@ class LlmClient {
   /// MCP client manager for multiple clients
   late final McpClientManager? _mcpClientManager;
 
-  /// Health monitor for MCP client monitoring (2025-03-26)
+  /// Health monitor for MCP client monitoring
   late final McpHealthMonitor? _healthMonitor;
 
-  /// Capability manager for dynamic capability management (2025-03-26)
+  /// Capability manager for dynamic capability management
   late final McpCapabilityManager? _capabilityManager;
 
-  /// Lifecycle manager for server lifecycle management (2025-03-26)
+  /// Lifecycle manager for server lifecycle management
   late final ServerLifecycleManager? _lifecycleManager;
 
-  /// Enhanced error handler for 2025-03-26 error handling
+  /// Enhanced error handler for error handling
   late final EnhancedErrorHandler? _errorHandler;
 
   /// Deferred tool manager - created automatically when useDeferredLoading=true
@@ -59,13 +61,13 @@ class LlmClient {
     PluginManager? pluginManager,
     PerformanceMonitor? performanceMonitor,
     this.retrievalManager,
-    HealthCheckConfig? healthConfig, // Health monitoring configuration (2025-03-26)
-    ErrorHandlingConfig? errorConfig, // Error handling configuration (2025-03-26)
-    bool enableHealthMonitoring = true, // Enable health monitoring (2025-03-26)
-    bool enableCapabilityManagement = true, // Enable capability management (2025-03-26)
-    bool enableLifecycleManagement = true, // Enable lifecycle management (2025-03-26)
-    bool enableEnhancedErrorHandling = true, // Enable enhanced error handling (2025-03-26)
-    bool enableDebugLogging = false, // Enable debug logging (2025-03-26)
+    HealthCheckConfig? healthConfig, // Health monitoring configuration
+    ErrorHandlingConfig? errorConfig, // Error handling configuration
+    bool enableHealthMonitoring = true, // Enable health monitoring
+    bool enableCapabilityManagement = true, // Enable capability management
+    bool enableLifecycleManagement = true, // Enable lifecycle management
+    bool enableEnhancedErrorHandling = true, // Enable enhanced error handling
+    bool enableDebugLogging = false, // Enable debug logging
     bool useDeferredLoading = false, // Enable deferred tool loading (opt-in)
     int maxToolRounds = 1, // Maximum tool calling rounds (1 = single round)
   })
@@ -75,7 +77,7 @@ class LlmClient {
         _useDeferredLoading = useDeferredLoading,
         _maxToolRounds = maxToolRounds.clamp(1, 10) {
     
-    // Initialize logging configuration (2025-03-26)
+    // Initialize logging configuration
     if (enableDebugLogging) {
       Logger.root.level = Level.FINE;
       Logger.root.onRecord.listen((record) {
@@ -120,7 +122,7 @@ class LlmClient {
     return McpClientManager();
   }
 
-  /// Initialize health monitor for 2025-03-26 health monitoring
+  /// Initialize health monitor for health monitoring
   McpHealthMonitor? _initHealthMonitor(HealthCheckConfig? healthConfig) {
     if (_mcpClientManager == null) return null;
     
@@ -134,11 +136,11 @@ class LlmClient {
       }
     }
     
-    _logger.info('Health monitor initialized for 2025-03-26 MCP monitoring');
+    _logger.info('Health monitor initialized for MCP monitoring');
     return healthMonitor;
   }
 
-  /// Initialize capability manager for 2025-03-26 capability management
+  /// Initialize capability manager for capability management
   McpCapabilityManager? _initCapabilityManager() {
     if (_mcpClientManager == null) return null;
     
@@ -152,11 +154,11 @@ class LlmClient {
       }
     }
     
-    _logger.info('Capability manager initialized for 2025-03-26 dynamic capabilities');
+    _logger.info('Capability manager initialized for dynamic capabilities');
     return capabilityManager;
   }
 
-  /// Initialize lifecycle manager for 2025-03-26 server lifecycle management
+  /// Initialize lifecycle manager for server lifecycle management
   ServerLifecycleManager? _initLifecycleManager() {
     if (_mcpClientManager == null) return null;
     
@@ -165,14 +167,14 @@ class LlmClient {
       capabilityManager: _capabilityManager,
     );
     
-    _logger.info('Lifecycle manager initialized for 2025-03-26 server management');
+    _logger.info('Lifecycle manager initialized for server management');
     return lifecycleManager;
   }
 
-  /// Initialize enhanced error handler for 2025-03-26 error handling
+  /// Initialize enhanced error handler for error handling
   EnhancedErrorHandler? _initErrorHandler(ErrorHandlingConfig? errorConfig) {
     final errorHandler = EnhancedErrorHandler(config: errorConfig ?? const ErrorHandlingConfig());
-    _logger.info('Enhanced error handler initialized for 2025-03-26');
+    _logger.info('Enhanced error handler initialized');
     return errorHandler;
   }
 
@@ -185,7 +187,7 @@ class LlmClient {
     _mcpClientManager ??= McpClientManager();
     _mcpClientManager!.addClient(clientId, mcpClient);
     
-    // Register with all 2025-03-26 managers if available
+    // Register with all managers if available
     if (_healthMonitor != null) {
       _healthMonitor.registerClient(clientId, mcpClient);
     }
@@ -200,7 +202,7 @@ class LlmClient {
       _mcpClientManager.removeClient(clientId);
     }
     
-    // Unregister from all 2025-03-26 managers if available
+    // Unregister from all managers if available
     if (_healthMonitor != null) {
       _healthMonitor.unregisterClient(clientId);
     }
@@ -780,23 +782,8 @@ class LlmClient {
         if (fullResponse.toolCalls != null && fullResponse.toolCalls!.isNotEmpty) {
           _logger.debug('Processing ${fullResponse.toolCalls!.length} tool calls from stream response');
 
-          final validToolCalls = fullResponse.toolCalls!.where((tc) => tc.arguments.isNotEmpty).toList();
-
-          if (validToolCalls.isEmpty) {
-            _logger.warning('All tool calls had empty arguments - skipping tool execution');
-
-            yield LlmResponseChunk(
-              textChunk: "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?",
-              isDone: true,
-              metadata: {'error': 'empty_tool_calls'},
-            );
-
-            chatSession.addAssistantMessage(
-                "I tried to use tools to help answer your question, but couldn't complete the process. Could you please provide more specific information?"
-            );
-
-            return;
-          }
+          // A call with no arguments is valid (a tool without parameters).
+          final validToolCalls = fullResponse.toolCalls!;
 
           // Signal tool processing via metadata only (no text pollution)
           yield LlmResponseChunk(
@@ -918,12 +905,9 @@ class LlmClient {
       final validToolCalls = <LlmToolCall>[];
       final Set<String> processedSignatures = {};
 
+      // A call with no arguments is valid: a tool without parameters is
+      // called with `{}`.
       for (final toolCall in response.toolCalls!) {
-        if (toolCall.arguments.isEmpty) {
-          _logger.warning('Skipping empty tool call for "${toolCall.name}" - no arguments provided');
-          continue;
-        }
-
         final signature = '${toolCall.name}:${jsonEncode(toolCall.arguments)}';
         if (processedSignatures.contains(signature)) {
           _logger.warning('Skipping duplicate tool call for "${toolCall.name}" with identical arguments');
@@ -931,7 +915,8 @@ class LlmClient {
         }
 
         processedSignatures.add(signature);
-        validToolCalls.add(toolCall);
+        // One id per call, shared by the assistant turn and its result.
+        validToolCalls.add(toolCall.id != null ? toolCall : toolCall.withId(syntheticToolCallId('call')));
         _logger.debug('Add tool call for ${toolCall.name}:${jsonEncode(toolCall.arguments)}');
       }
 
@@ -949,9 +934,10 @@ class LlmClient {
         role: 'assistant',
         content: {
           'tool_calls': validToolCalls.map((tc) => {
-            'id': tc.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}',
+            'id': tc.id,
             'name': tc.name,
             'arguments': tc.arguments,
+            if (tc.providerData != null) 'providerData': tc.providerData,
           }).toList(),
         },
         metadata: {'tool_call': true},
@@ -963,7 +949,7 @@ class LlmClient {
       final Map<String, String> toolErrors = {};
 
       for (final toolCall in validToolCalls) {
-        final toolId = toolCall.id ?? 'call_${DateTime.now().millisecondsSinceEpoch}';
+        final toolId = toolCall.id!;
 
         try {
           final toolResult = await executeTool(
@@ -973,15 +959,18 @@ class LlmClient {
             enablePlugins: enablePlugins,
           );
 
-          toolResults[toolId] = toolResult;
+          // What the model reads: an MCP result rendered by content kind
+          // (not its Map.toString), a failed tool marked as such.
+          final rendered = _renderToolResult(toolResult);
+          toolResults[toolId] = rendered;
 
           chatSession.addToolResult(
             toolCall.name,
             toolCall.arguments,
-            [toolResult],
+            [rendered],
             toolCallId: toolId,
           );
-          _logger.debug('toolResult $toolResult');
+          _logger.debug('toolResult $rendered');
         } catch (e) {
           _logger.error('Error executing tool ${toolCall.name}: $e');
 
@@ -1408,6 +1397,23 @@ Please call the tool again with the correct parameters.
     return false;
   }
 
+  static const McpToolResultRenderer _renderer = McpToolResultRenderer();
+
+  /// A tool's result as text for the model. An MCP `tools/call` result is
+  /// rendered by content kind with its structured content; `isError` is
+  /// stated, so the model sees the failure and can correct itself.
+  static String _renderToolResult(Object? result) {
+    if (result is Map && result['content'] is List) {
+      final r = _renderer.render(mcp.CallToolResult.fromJson(Map<String, Object?>.from(result)));
+      return r.isError ? 'Tool error: ${r.text}' : r.text;
+    }
+    if (result is Map && result['contents'] is List) {
+      return _renderer.renderRead(mcp.ReadResourceResult.fromJson(Map<String, Object?>.from(result)));
+    }
+    if (result is Map || result is List) return jsonEncode(result);
+    return '$result';
+  }
+
   /// Execute tool using MCP clients or plugins
   Future<dynamic> executeTool(String toolName, Map<String, dynamic> args, {
     bool enableMcpTools = true,
@@ -1683,7 +1689,7 @@ Please call the tool again with the correct parameters.
   // underlying transport will dispatch each request individually as the
   // current spec mandates.
 
-  // === 2025-03-26 Health Monitoring Methods ===
+  // === Health Monitoring Methods ===
 
   /// Perform health check on all or specific MCP clients
   Future<HealthReport> performHealthCheck({List<String>? clientIds}) async {
@@ -1713,7 +1719,7 @@ Please call the tool again with the correct parameters.
   /// Get list of unhealthy clients
   List<String> get unhealthyClients => _healthMonitor?.unhealthyClients ?? [];
 
-  // === 2025-03-26 Capability Management Methods ===
+  // === Capability Management Methods ===
 
   /// Update capabilities for a specific client
   Future<CapabilityUpdateResponse> updateClientCapabilities(CapabilityUpdateRequest request) async {
@@ -1779,7 +1785,7 @@ Please call the tool again with the correct parameters.
     return _capabilityManager.generateRequestId();
   }
 
-  // === 2025-03-26 Server Lifecycle Management Methods ===
+  // === Server Lifecycle Management Methods ===
 
   /// Start MCP server
   Future<LifecycleResponse> startServer(
@@ -1883,7 +1889,7 @@ Please call the tool again with the correct parameters.
     return _lifecycleManager?.isAutoRestartEnabled(serverId) ?? false;
   }
 
-  // === 2025-03-26 Enhanced Error Handling Methods ===
+  // === Enhanced Error Handling Methods ===
 
   /// Execute operation with enhanced error handling
   Future<T> executeWithErrorHandling<T>(
@@ -1936,7 +1942,7 @@ Please call the tool again with the correct parameters.
   /// Get error event stream
   Stream<McpEnhancedError>? get errorEvents => _errorHandler?.errors;
 
-  // === 2025-03-26 Event Streams ===
+  // === Event Streams ===
 
   /// Get capability event stream
   Stream<CapabilityEvent>? get capabilityEvents => _capabilityManager?.events;
@@ -1944,7 +1950,7 @@ Please call the tool again with the correct parameters.
   /// Get lifecycle event stream
   Stream<LifecycleEvent>? get lifecycleEvents => _lifecycleManager?.events;
 
-  // === 2025-03-26 Integration Status ===
+  // === Integration Status ===
 
   /// Feature flags for the managers wired into this client.
   Map<String, dynamic> get featureStatus {
@@ -1981,7 +1987,7 @@ Please call the tool again with the correct parameters.
 
     _performanceMonitor.stopMonitoring();
     
-    _logger.info('LlmClient closed with 2025-03-26 features disposed');
+    _logger.info('LlmClient closed with its managers disposed');
   }
 }
 

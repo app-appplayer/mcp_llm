@@ -1,6 +1,5 @@
 
 import '../../mcp_llm.dart';
-import 'managed_service.dart';
 
 /// Default implementation of ServiceRouter
 class DefaultServiceRouter implements ServiceRouter {

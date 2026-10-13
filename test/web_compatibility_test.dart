@@ -1,10 +1,8 @@
 import 'package:test/test.dart';
-import 'package:mcp_llm/src/core/llm_interface.dart';
 import 'package:mcp_llm/src/core/models.dart';
 import 'package:mcp_llm/src/providers/claude_provider.dart';
 import 'package:mcp_llm/src/providers/openai_provider.dart';
 import 'package:mcp_llm/src/providers/together_provider.dart';
-import 'package:mcp_llm/src/providers/provider.dart';
 import 'package:mcp_llm/src/chat/message.dart';
 import 'package:mcp_llm/src/chat/history.dart';
 import 'package:mcp_llm/src/storage/storage.dart';
@@ -65,6 +63,7 @@ void main() {
         // Test store and retrieve
         await storage.store('test_key', 'test_value');
         final value = await storage.retrieve('test_key');
+        expect(value, anyOf(isNull, equals('test_value')));
         
         // On web, localStorage might not be available in test environment
         // so we just verify the methods exist and don't throw

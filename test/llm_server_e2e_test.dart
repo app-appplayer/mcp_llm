@@ -1,9 +1,11 @@
 // LlmServer / McpServerManager / LlmServerExtensions end-to-end smoke
 // (D-7 / D-8 / D-9 of the release-grade test cycle).
 //
-// Builds a deterministic in-process LLM provider stub plus a real
-// `mcp_server.Server` instance, wires both through `LlmServer`, and
-// exercises:
+// Builds a deterministic in-process LLM provider stub plus a stand-in for
+// mcp_server's `Server` (the methods mcp_llm calls, with their real
+// signatures; the real server is exercised in
+// tools/mcp-conformance/test/mcp_llm_integration_test.dart), wires both
+// through `LlmServer`, and exercises:
 //   - askLlm (delegates to provider.complete)
 //   - registerLocalTool / executeLocalTool
 //   - addMcpServer / removeMcpServer / getMcpServerIds
@@ -124,11 +126,9 @@ class _MockMcpServer {
         .toList();
   }
 
-  Future<dynamic> executeTool({
-    required String name,
-    required Map<String, dynamic> args,
-  }) async {
-    events.add('executeTool:$name');
+  /// mcp_server `Server.callTool(String, Map)`.
+  Future<dynamic> callTool(String name, Map<String, dynamic> args) async {
+    events.add('callTool:$name');
     final h = _tools[name];
     if (h == null) {
       throw StateError('tool $name not registered');
@@ -270,8 +270,9 @@ void main() {
 
       final out = await manager.executeToolOnAllServers('fanout', {});
       expect(out.keys, containsAll(['s1', 's2']));
-      expect(out['s1'], equals('r1'));
-      expect(out['s2'], equals('r2'));
+      // A handler's string becomes the protocol's tools/call result.
+      expect(out['s1'].toJson(), {'content': [{'type': 'text', 'text': 'r1'}]});
+      expect(out['s2'].toJson(), {'content': [{'type': 'text', 'text': 'r2'}]});
     });
   });
 

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
+import 'content_parts.dart';
 
 /// Implementation of LLM interface for Google Gemini API.
 /// Supports completion, streaming, embeddings, tool calling, and vision.
@@ -21,19 +23,19 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
   /// Default Gemini API base URL.
   static const String defaultBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
 
-  /// Available model aliases.
+  /// Short names for the API's own moving aliases, which Google keeps
+  /// pointed at a current model (the 1.x / 2.0 models are retired).
   static const Map<String, String> modelAliases = {
-    'gemini-pro': 'gemini-1.0-pro',
-    'gemini-1.5-pro': 'gemini-1.5-pro-latest',
-    'gemini-1.5-flash': 'gemini-1.5-flash-latest',
-    'gemini-2.0-flash': 'gemini-2.0-flash-exp',
+    'gemini-pro': 'gemini-pro-latest',
+    'gemini-flash': 'gemini-flash-latest',
+    'gemini-flash-lite': 'gemini-flash-lite-latest',
   };
 
-  /// Default model.
-  static const String defaultModel = 'gemini-1.5-pro-latest';
+  /// Default model: the API's moving alias for the current Pro model.
+  static const String defaultModel = 'gemini-pro-latest';
 
-  /// Default embedding model.
-  static const String embeddingModel = 'text-embedding-004';
+  /// Default embedding model (`text-embedding-004` is retired).
+  static const String embeddingModel = 'gemini-embedding-001';
 
   /// Gemini supports prompt caching via the `cachedContent` resource
   /// (separate POST + reference). The package-wide default policy is
@@ -99,11 +101,13 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       final requestBody = _buildRequestBody(request);
 
       final uri = Uri.parse(
-        '${baseUrl ?? defaultBaseUrl}/models/$resolvedModel:generateContent?key=$apiKey',
+        '${baseUrl ?? defaultBaseUrl}/models/$resolvedModel:generateContent',
       );
 
       final headers = {
         'Content-Type': 'application/json',
+        // In a header, not the URL: an HTTP error message carries the URL.
+        'x-goog-api-key': apiKey,
       };
 
       final httpResponse = await _client.post(
@@ -132,11 +136,13 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       final requestBody = _buildRequestBody(request);
 
       final uri = Uri.parse(
-        '${baseUrl ?? defaultBaseUrl}/models/$resolvedModel:streamGenerateContent?alt=sse&key=$apiKey',
+        '${baseUrl ?? defaultBaseUrl}/models/$resolvedModel:streamGenerateContent?alt=sse',
       );
 
       final headers = {
         'Content-Type': 'application/json',
+        // In a header, not the URL: an HTTP error message carries the URL.
+        'x-goog-api-key': apiKey,
       };
 
       final httpRequest = http.Request('POST', uri)
@@ -228,12 +234,13 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
                             final args = functionCall['args'] as Map<String, dynamic>? ?? {};
 
                             toolCalls ??= [];
-                            final toolId = 'gemini_tool_${DateTime.now().millisecondsSinceEpoch}_${toolCalls.length}';
+                            final toolId = functionCall['id'] as String? ?? syntheticToolCallId('gemini_tool');
 
                             toolCalls.add(LlmToolCall(
                               id: toolId,
                               name: toolName,
                               arguments: args,
+                              providerData: part['thoughtSignature'] is String ? {'thoughtSignature': part['thoughtSignature']} : null,
                             ));
 
                             yield LlmResponseChunk(
@@ -334,7 +341,7 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'gemini_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('gemini_tool');
 
       Map<String, dynamic> arguments = {};
 
@@ -356,7 +363,7 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       final args = functionCall['args'] as Map<String, dynamic>? ?? {};
 
       return LlmToolCall(
-        id: 'gemini_tool_${DateTime.now().millisecondsSinceEpoch}',
+        id: functionCall['id'] as String? ?? syntheticToolCallId('gemini_tool'),
         name: toolName,
         arguments: args,
       );
@@ -392,11 +399,13 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       logger.debug('Gemini embeddings request');
 
       final uri = Uri.parse(
-        '${baseUrl ?? defaultBaseUrl}/models/$embeddingModel:embedContent?key=$apiKey',
+        '${baseUrl ?? defaultBaseUrl}/models/$embeddingModel:embedContent',
       );
 
       final headers = {
         'Content-Type': 'application/json',
+        // In a header, not the URL: an HTTP error message carries the URL.
+        'x-goog-api-key': apiKey,
       };
 
       final requestBody = {
@@ -470,10 +479,11 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
         final toolName = toolContent['tool_name'] ?? message.metadata['tool_name'] ?? 'unknown';
 
         contents.add({
-          'role': 'function',
+          'role': 'user',
           'parts': [
             {
               'functionResponse': {
+                if (message.metadata['tool_call_id'] != null) 'id': message.metadata['tool_call_id'],
                 'name': toolName,
                 'response': {
                   'result': toolResult,
@@ -487,11 +497,17 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
         if (toolCalls != null) {
           final parts = <Map<String, dynamic>>[];
           for (final tc in toolCalls) {
+            final providerData = tc['providerData'];
             parts.add({
               'functionCall': {
+                if (tc['id'] != null) 'id': tc['id'],
                 'name': tc['name'],
                 'args': tc['arguments'],
               },
+              // Gemini 3 refuses the next turn without the signature the
+              // call came with.
+              if (providerData is Map && providerData['thoughtSignature'] != null)
+                'thoughtSignature': providerData['thoughtSignature'],
             });
           }
           contents.add({
@@ -531,6 +547,9 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
     if (request.parameters.containsKey('max_tokens')) {
       generationConfig['maxOutputTokens'] = request.parameters['max_tokens'];
     }
+    if (request.parameters['stop_sequences'] != null) {
+      generationConfig['stopSequences'] = request.parameters['stop_sequences'];
+    }
     if (request.parameters.containsKey('temperature')) {
       generationConfig['temperature'] = request.parameters['temperature'];
     }
@@ -552,7 +571,9 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
             return {
               'name': tool['name'],
               'description': tool['description'],
-              'parameters': tool['parameters'],
+              // The MCP inputSchema is JSON Schema; `parameters` takes only an
+              // OpenAPI subset and refuses `\$schema`, `additionalProperties`.
+              'parametersJsonSchema': tool['parameters'],
             };
           }).toList(),
         },
@@ -590,22 +611,19 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
       ];
     }
 
-    if (content is Map) {
-      if (content['type'] == 'image') {
-        final mimeType = content['mimeType'] ?? 'image/png';
-        final base64Data = content['base64Data'];
+    final image = ImageRef.of(content);
+    if (image != null && image.base64Data != null) {
+      return [
+        {
+          'inlineData': {
+            'mimeType': image.mimeType,
+            'data': image.base64Data,
+          },
+        },
+      ];
+    }
 
-        if (base64Data != null) {
-          return [
-            {
-              'inlineData': {
-                'mimeType': mimeType,
-                'data': base64Data,
-              },
-            },
-          ];
-        }
-      }
+    if (content is Map) {
 
       if (content['type'] == 'text') {
         return [
@@ -647,9 +665,10 @@ class GeminiProvider implements LlmInterface, RetryableLlmProvider {
 
                 toolCalls ??= [];
                 toolCalls.add(LlmToolCall(
-                  id: 'gemini_tool_${DateTime.now().millisecondsSinceEpoch}_${toolCalls.length}',
+                  id: functionCall['id'] as String? ?? syntheticToolCallId('gemini_tool'),
                   name: toolName,
                   arguments: args,
+                  providerData: part['thoughtSignature'] is String ? {'thoughtSignature': part['thoughtSignature']} : null,
                 ));
               }
             }

@@ -318,7 +318,7 @@ class ErrorCircuitBreaker {
   }
 }
 
-/// Enhanced Error Handler for 2025-03-26 MCP specification
+/// Enhanced Error Handler for MCP specification
 class EnhancedErrorHandler {
   final ErrorHandlingConfig config;
   final Logger _logger = Logger('mcp_llm.enhanced_error_handler');
@@ -425,7 +425,6 @@ class EnhancedErrorHandler {
       clientId: clientId,
       context: {
         ...context,
-        'handler_version': '2025-03-26',
         'timestamp': DateTime.now().toIso8601String(),
       },
     );
@@ -534,11 +533,8 @@ class EnhancedErrorHandler {
   Future<void> _escalateError(McpEnhancedErrorExt error) async {
     _logger.error('CRITICAL - Escalating error: ${error.message}');
     
-    // Send to monitoring system
-    // Alert administrators
-    // Create incident ticket
-    
-    await Future.delayed(Duration(milliseconds: 100)); // Simulate escalation
+    // Escalation is this error-level log and the error event on [errors];
+    // routing it further (alerts, tickets) is the host's.
   }
 
   /// Trigger auto-recovery for client
@@ -561,7 +557,7 @@ class EnhancedErrorHandler {
   Future<void> _executeRecoveryActions(McpEnhancedErrorExt error) async {
     for (final action in error.recoveryActions) {
       try {
-        _logger.info('Executing recovery action: $action');
+        _logger.info('Suggested recovery action (left to the host): $action');
         await _performRecoveryAction(action, error);
       } catch (e) {
         _logger.error('Recovery action failed: $action - $e');
@@ -569,24 +565,9 @@ class EnhancedErrorHandler {
     }
   }
 
-  /// Perform specific recovery action
-  Future<void> _performRecoveryAction(String action, McpEnhancedErrorExt error) async {
-    switch (action.toLowerCase()) {
-      case 'refresh authentication token':
-        // Implement token refresh
-        break;
-      case 'restart server':
-        // Implement server restart
-        break;
-      case 'check network connectivity':
-        // Implement network check
-        break;
-      default:
-        _logger.debug('Unknown recovery action: $action');
-    }
-    
-    await Future.delayed(Duration(milliseconds: 100)); // Simulate action
-  }
+  /// Recovery actions are suggestions: mcp_llm does not hold the token,
+  /// the server process or the network, so it performs none of them.
+  Future<void> _performRecoveryAction(String action, McpEnhancedErrorExt error) async {}
 
   /// Perform periodic auto-recovery
   void _performAutoRecovery() {

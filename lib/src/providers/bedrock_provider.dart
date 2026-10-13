@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
+import 'aws_event_stream.dart';
 
 /// Implementation of LLM interface for AWS Bedrock.
 /// Provides access to multiple model families (Claude, Llama, Mistral, Titan).
@@ -51,7 +53,11 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
     required this.region,
     required this.model,
     required this.config,
+    this.baseUrl,
   });
+
+  /// The runtime endpoint; defaults to `https://bedrock-runtime.<region>.amazonaws.com`.
+  final String? baseUrl;
 
   /// Anthropic-on-Bedrock supports the same `cache_control` markers as
   /// the direct Anthropic API. Llama / Titan model families do not, so
@@ -60,7 +66,7 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
   @override
   bool get supportsPromptCaching => true;
 
-  String get _baseUrl => 'https://bedrock-runtime.$region.amazonaws.com';
+  String get _baseUrl => baseUrl ?? 'https://bedrock-runtime.$region.amazonaws.com';
 
   String _resolveModel(String modelName) {
     return modelAliases[modelName] ?? modelName;
@@ -165,11 +171,20 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
         String? finishReason;
 
         final modelFamily = _getModelFamily(resolvedModel);
+        final decoder = AwsEventStreamDecoder();
+        // An Anthropic tool_use block's input arrives as fragments of one
+        // JSON text; it is parsed when the block stops.
+        final toolJson = StringBuffer();
 
         await for (final chunk in streamedResponse.stream) {
-          final events = _parseEventStream(chunk);
-
-          for (final event in events) {
+          for (final message in decoder.add(chunk)) {
+            final messageType = message.headers[':message-type'];
+            if (messageType == 'exception' || messageType == 'error') {
+              final kind = message.headers[':exception-type'] ?? message.headers[':error-code'] ?? 'error';
+              throw Exception('Bedrock stream $kind: ${utf8.decode(message.payload)}');
+            }
+            if (message.headers[':event-type'] != 'chunk') continue;
+            final event = jsonDecode(utf8.decode(message.payload)) as Map<String, dynamic>;
             if (event.containsKey('bytes')) {
               final payloadBytes = base64Decode(event['bytes'] as String);
               final payload = jsonDecode(utf8.decode(payloadBytes)) as Map<String, dynamic>;
@@ -197,6 +212,23 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
                   }
                   if (result['toolCalls'] != null) {
                     toolCalls = result['toolCalls'] as List<LlmToolCall>;
+                    toolJson.clear();
+                  }
+                  if (result['partialToolArgs'] != null) {
+                    toolJson.write(result['partialToolArgs']);
+                  }
+                  if (payload['type'] == 'content_block_stop' &&
+                      toolCalls != null &&
+                      toolCalls.isNotEmpty &&
+                      toolJson.isNotEmpty) {
+                    final last = toolCalls.last;
+                    final decoded = jsonDecode(toolJson.toString());
+                    toolCalls[toolCalls.length - 1] = LlmToolCall(
+                      id: last.id,
+                      name: last.name,
+                      arguments: decoded is Map ? Map<String, dynamic>.from(decoded) : const {},
+                    );
+                    toolJson.clear();
                   }
                   if (result['isDone'] == true) {
                     finishReason = result['finishReason'] as String?;
@@ -267,35 +299,6 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
         metadata: {'error': e.toString()},
       );
     }
-  }
-
-  List<Map<String, dynamic>> _parseEventStream(List<int> chunk) {
-    final events = <Map<String, dynamic>>[];
-    final data = utf8.decode(chunk);
-
-    final lines = data.split('\n');
-    Map<String, dynamic>? currentEvent;
-
-    for (final line in lines) {
-      if (line.startsWith(':event-type')) {
-        currentEvent = {};
-      } else if (line.startsWith(':content-type')) {
-        continue;
-      } else if (line.isNotEmpty && currentEvent != null) {
-        final event = currentEvent;
-        try {
-          final parsed = jsonDecode(line) as Map<String, dynamic>;
-          event.addAll(parsed);
-          events.add(event);
-        } catch (_) {
-          event['bytes'] = line;
-          events.add(event);
-        }
-        currentEvent = null;
-      }
-    }
-
-    return events;
   }
 
   Map<String, dynamic> _parseAnthropicStreamChunk(
@@ -409,7 +412,7 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
         (metadata.containsKey('tool_name') || metadata.containsKey('tool_call_id'))) {
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'bedrock_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('bedrock_tool');
 
       Map<String, dynamic> arguments = {};
 
@@ -812,6 +815,7 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
     final body = <String, dynamic>{
       'anthropic_version': 'bedrock-2023-05-31',
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stop_sequences': request.parameters['stop_sequences'],
       'messages': messages,
     };
 
@@ -965,6 +969,7 @@ class BedrockProvider implements LlmInterface, RetryableLlmProvider {
 
     final config = <String, dynamic>{
       'maxTokenCount': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stopSequences': request.parameters['stop_sequences'],
       'topP': request.parameters['top_p'] ?? 0.9,
     };
     if (request.parameters['temperature'] != null) {

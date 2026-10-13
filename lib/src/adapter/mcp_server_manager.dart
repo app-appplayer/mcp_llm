@@ -1,6 +1,5 @@
 import '../utils/logger.dart';
 import 'llm_server_adapter.dart';
-import 'mcp_auth_adapter.dart';
 import '../lifecycle/lifecycle_manager.dart';
 import '../capabilities/capability_manager.dart';
 import '../health/health_monitor.dart';
@@ -14,22 +13,19 @@ class McpServerManager {
   /// Map of MCP server IDs to their adapters
   final Map<String, LlmServerAdapter> _adapters = {};
 
-  /// Map of MCP server IDs to their auth adapters
-  final Map<String, McpAuthAdapter> _authAdapters = {};
-
   /// Default server ID to use when none specified
   String? _defaultServerId;
 
   /// Logger instance
   final Logger _logger = Logger('mcp_llm.mcp_server_manager');
 
-  /// Lifecycle manager for 2025-03-26 MCP server lifecycle management
+  /// Lifecycle manager for MCP server lifecycle management
   late final ServerLifecycleManager _lifecycleManager;
 
-  /// Capability manager for 2025-03-26 MCP capability management
+  /// Capability manager for MCP capability management
   late final McpCapabilityManager _capabilityManager;
 
-  /// Health monitor for 2025-03-26 MCP health checking
+  /// Health monitor for MCP health checking
   late final McpHealthMonitor _healthMonitor;
 
   /// Create a new MCP server manager
@@ -75,19 +71,13 @@ class McpServerManager {
     // Set as default if this is the first server
     _defaultServerId ??= serverId;
 
-    _logger.info('Added MCP server: $serverId with 2025-03-26 features');
+    _logger.info('Added MCP server: $serverId with its managers');
   }
 
   /// Remove a server
   void removeServer(String serverId) {
     _mcpServers.remove(serverId);
     _adapters.remove(serverId);
-    
-    // Remove OAuth authentication if exists
-    final authAdapter = _authAdapters.remove(serverId);
-    if (authAdapter != null) {
-      authAdapter.removeAuth(serverId);
-    }
 
     // Unregister from lifecycle manager
     _lifecycleManager.unregisterServer(serverId);
@@ -103,7 +93,7 @@ class McpServerManager {
       _defaultServerId = _mcpServers.isNotEmpty ? _mcpServers.keys.first : null;
     }
 
-    _logger.info('Removed MCP server: $serverId from all 2025-03-26 managers');
+    _logger.info('Removed MCP server: $serverId from all managers');
   }
 
   /// Set the default server
@@ -793,49 +783,11 @@ class McpServerManager {
     return result;
   }
 
-  // ===== 2025-03-26 MCP Server Features =====
+  // ===== MCP Server Features =====
 
-  /// Add a server with OAuth 2.1 authentication
-  Future<void> addServerWithAuth(String serverId, dynamic mcpServer, {
-    AuthConfig? authConfig,
-    TokenValidator? tokenValidator,
-  }) async {
-    if (_mcpServers.containsKey(serverId)) {
-      _logger.warning('Replacing existing MCP server with ID: $serverId');
-    }
-
-    // Create OAuth auth adapter
-    final authAdapter = McpAuthAdapter(
-      tokenValidator: tokenValidator,
-      defaultConfig: authConfig ?? const AuthConfig(),
-    );
-    
-    _mcpServers[serverId] = mcpServer;
-    _authAdapters[serverId] = authAdapter;
-    _adapters[serverId] = LlmServerAdapter(mcpServer);
-
-    // Register with managers
-    _lifecycleManager.registerServer(serverId, mcpServer);
-    _capabilityManager.registerClient(serverId, mcpServer, authAdapter: authAdapter);
-    _healthMonitor.registerClient(serverId, mcpServer);
-
-    // Set as default if this is the first server
-    _defaultServerId ??= serverId;
-
-    _logger.info('Added MCP server with OAuth 2.1 authentication: $serverId');
-
-    // Attempt automatic authentication
-    try {
-      final authResult = await authAdapter.authenticate(serverId, mcpServer, config: authConfig);
-      if (authResult.isAuthenticated) {
-        _logger.info('OAuth 2.1 authentication successful for server: $serverId');
-      } else {
-        _logger.warning('OAuth 2.1 authentication failed for server $serverId: ${authResult.error}');
-      }
-    } catch (e) {
-      _logger.error('OAuth 2.1 authentication error for server $serverId: $e');
-    }
-  }
+  // A server that requires authorization enables it on the mcp_server
+  // instance itself (`enableAuthentication` with a real TokenValidator and
+  // `configureProtectedResource`); this manager holds no credentials.
 
   /// Start a server with lifecycle management
   Future<void> startServer(String serverId, {
@@ -963,42 +915,8 @@ class McpServerManager {
   /// Subscribe to capability events
   Stream<CapabilityEvent> get capabilityEvents => _capabilityManager.events;
 
-  /// Get authenticated servers
-  List<String> get authenticatedServers {
-    return _authAdapters.keys.toList();
-  }
-
-  /// Get unauthenticated servers
-  List<String> get unauthenticatedServers {
-    return _mcpServers.keys
-        .where((serverId) => !_authAdapters.containsKey(serverId))
-        .toList();
-  }
-
-  /// Get authentication summary
-  Map<String, dynamic> getAuthSummary() {
-    final authenticated = authenticatedServers;
-    final unauthenticated = unauthenticatedServers;
-    final total = _mcpServers.length;
-    
-    return {
-      'total_servers': total,
-      'authenticated_servers': authenticated.length,
-      'unauthenticated_servers': unauthenticated.length,
-      'authentication_coverage': total > 0 ? (authenticated.length / total * 100).round() : 0,
-      'protocol_version': '2025-03-26',
-      'oauth_version': '2.1',
-    };
-  }
-
   /// Dispose of all resources
   void dispose() {
-    // Dispose auth adapters
-    for (final authAdapter in _authAdapters.values) {
-      authAdapter.dispose();
-    }
-    _authAdapters.clear();
-    
     // Dispose lifecycle manager
     _lifecycleManager.dispose();
     
@@ -1008,6 +926,6 @@ class McpServerManager {
     // Dispose health monitor
     _healthMonitor.dispose();
     
-    _logger.info('Disposed all MCP server manager resources and 2025-03-26 managers');
+    _logger.info('Disposed all MCP server manager resources');
   }
 }

@@ -1,3 +1,20 @@
+## 3.0.0
+
+**Breaking — see `MIGRATION-3.0.md`.**
+
+- MCP layer on the protocol types shared with mcp_client and mcp_server:
+  typed `McpClientBridge`, every listing page, tool results rendered by
+  content kind.
+- Sampling answered by a provider (`bindSamplingToLlm`), images and stop
+  sequences included.
+- Tool calls run with the model's arguments, one id per call through to its
+  result; streamed tool input assembled for every provider.
+- Gemini: tool schemas as `parametersJsonSchema`, Gemini 3
+  `thoughtSignature` carried between turns, `gemini-pro-latest` default.
+- Bedrock streaming over the AWS event stream; `BedrockProvider(baseUrl:)`.
+- Authorization moved to mcp_client / mcp_server; mcp_llm's own auth
+  classes removed.
+
 ## [2.1.1] - 2026-05-23 - mcp_bundle 0.4.0 cascade
 
 ### Changed (cascade)

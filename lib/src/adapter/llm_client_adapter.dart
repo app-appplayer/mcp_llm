@@ -1,367 +1,48 @@
 import '../utils/logger.dart';
-import 'mcp_auth_adapter.dart';
+import '../core/llm_interface.dart';
+import 'mcp_client_bridge.dart';
+import 'mcp_sampling.dart';
 
-/// Adapter that converts MCP client instances to LLM compatible format with OAuth 2.1 support
+/// An MCP client as mcp_llm uses it. Listing and calls go through
+/// [McpClientBridge] (typed, every page, failures as [McpLayerException]);
+/// the map methods return the protocol JSON of those results.
+///
+/// Authorization is the client's own (mcp_client's `McpOAuth` on its
+/// transport); this adapter holds no credentials.
 class LlmClientAdapter {
   final dynamic _mcpClient;
-  final McpAuthAdapter? _authAdapter;
-  final String? _clientId;
+  final McpClientBridge bridge;
   final Logger _logger = Logger('mcp_llm.client_adapter');
 
-  LlmClientAdapter(
-    this._mcpClient, {
-    McpAuthAdapter? authAdapter,
-    String? clientId,
-  }) : _authAdapter = authAdapter,
-       _clientId = clientId {
-    if (!_isValidClient(_mcpClient)) {
-      _logger.warning(
-          'The provided client may not be compatible with the expected interface');
-    }
-    
-    // Log OAuth 2.1 support status
-    if (_authAdapter != null) {
-      _logger.info('OAuth 2.1 authentication adapter configured for client: $_clientId');
-    }
-  }
+  LlmClientAdapter(this._mcpClient) : bridge = McpClientBridge(_mcpClient);
 
-  /// Check if the client implements the required methods
-  bool _isValidClient(dynamic client) {
-    return client != null;
-  }
+  /// Every tool, as protocol JSON.
+  Future<List<Map<String, dynamic>>> getTools() async =>
+      [for (final t in await bridge.listTools()) t.toJson()];
 
-  /// Authenticate the MCP client using OAuth 2.1 (2025-03-26)
-  Future<bool> authenticateClient({AuthConfig? authConfig}) async {
-    if (_authAdapter == null || _clientId == null) {
-      _logger.warning('OAuth adapter or client ID not configured');
-      return false;
-    }
+  /// Every prompt, as protocol JSON.
+  Future<List<Map<String, dynamic>>> getPrompts() async =>
+      [for (final p in await bridge.listPrompts()) p.toJson()];
 
-    try {
-      final result = await _authAdapter.authenticate(_clientId, _mcpClient, config: authConfig);
-      if (result.isAuthenticated) {
-        _logger.info('OAuth 2.1 authentication successful for client: $_clientId');
-        return true;
-      } else {
-        _logger.warning('OAuth 2.1 authentication failed: ${result.error}');
-        return false;
-      }
-    } catch (e) {
-      _logger.error('OAuth 2.1 authentication error: $e');
-      return false;
-    }
-  }
+  /// Every resource, as protocol JSON.
+  Future<List<Map<String, dynamic>>> getResources() async =>
+      [for (final r in await bridge.listResources()) r.toJson()];
 
-  /// Check if client has valid OAuth 2.1 authentication
-  bool get isAuthenticated {
-    if (_authAdapter == null || _clientId == null) return true; // No auth required
-    return _authAdapter.hasValidAuth(_clientId);
-  }
+  /// Every resource template, as protocol JSON.
+  Future<List<Map<String, dynamic>>> getResourceTemplates() async =>
+      [for (final r in await bridge.listResourceTemplates()) r.toJson()];
 
-  /// Get OAuth 2.1 authentication context
-  AuthResult? get authContext {
-    if (_authAdapter == null || _clientId == null) return null;
-    return _authAdapter.getAuthContext(_clientId);
-  }
+  /// `prompts/get`, as protocol JSON.
+  Future<Map<String, dynamic>> executePrompt(String promptName, Map<String, dynamic> args) async =>
+      (await bridge.getPrompt(promptName, args)).toJson();
 
-  /// Ensure authentication before operations (2025-03-26 compliance)
-  Future<bool> _ensureAuthenticated() async {
-    if (_authAdapter == null || _clientId == null) return true; // No auth required
-    
-    if (!isAuthenticated) {
-      _logger.info('Authentication required, attempting OAuth 2.1 authentication');
-      return await authenticateClient();
-    }
-    
-    return true;
-  }
+  /// `resources/read`, as protocol JSON.
+  Future<Map<String, dynamic>> readResource(String resourceUri) async =>
+      (await bridge.readResource(resourceUri)).toJson();
 
-  /// Get the list of available tools from the client with OAuth 2.1 authentication
-  Future<List<Map<String, dynamic>>> getTools() async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for getTools operation');
-      return [];
-    }
-
-    try {
-      final List<dynamic> toolsList = await _mcpClient.listTools();
-      _logger.info('listTools method was called successfully');
-
-      if (toolsList.isNotEmpty) {
-        _logger.debug('First tool format: ${toolsList.first.runtimeType}');
-      }
-
-      return toolsList.map<Map<String, dynamic>>((tool) {
-        if (tool is Map<String, dynamic>) {
-          return tool;
-        } else {
-          try {
-            // Try toJson for non-Map objects
-            // ignore: avoid_dynamic_calls
-            return tool.toJson();
-          } catch (e) {
-            _logger.warning('Failed to convert tool to Map: $e');
-            return {
-              'name': tool.toString(),
-              'description': '',
-              'inputSchema': {}
-            };
-          }
-        }
-      }).toList();
-    } catch (e) {
-      _logger.error('Failed to retrieve tool list: $e');
-      return [];
-    }
-  }
-
-  /// Get the list of available prompts from the client with OAuth 2.1 authentication
-  Future<List<Map<String, dynamic>>> getPrompts() async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for getPrompts operation');
-      return [];
-    }
-
-    try {
-      final List<dynamic> promptsList = await _mcpClient.listPrompts();
-      _logger.info('listPrompts method was called successfully');
-
-      if (promptsList.isNotEmpty) {
-        _logger.debug('First prompt format: ${promptsList.first.runtimeType}');
-      }
-
-      return promptsList.map<Map<String, dynamic>>((prompt) {
-        if (prompt is Map<String, dynamic>) {
-          return prompt;
-        } else {
-          try {
-            // Try toJson for non-Map objects
-            // ignore: avoid_dynamic_calls
-            return prompt.toJson();
-          } catch (e) {
-            _logger.warning('Failed to convert prompt to Map: $e');
-            return {
-              'name': prompt.toString(),
-              'description': '',
-              'arguments': []
-            };
-          }
-        }
-      }).toList();
-    } catch (e) {
-      _logger.error('Failed to retrieve prompt list: $e');
-      return [];
-    }
-  }
-
-  /// Get the list of available resources from the client with OAuth 2.1 authentication
-  Future<List<Map<String, dynamic>>> getResources() async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for getResources operation');
-      return [];
-    }
-
-    try {
-      final List<dynamic> resourcesList = await _mcpClient.listResources();
-      _logger.info('listResources method was called successfully');
-
-      if (resourcesList.isNotEmpty) {
-        _logger.debug('First resource format: ${resourcesList.first.runtimeType}');
-      }
-
-      return resourcesList.map<Map<String, dynamic>>((resource) {
-        if (resource is Map<String, dynamic>) {
-          return resource;
-        } else {
-          try {
-            // Try toJson for non-Map objects
-            // ignore: avoid_dynamic_calls
-            return resource.toJson();
-          } catch (e) {
-            _logger.warning('Failed to convert resource to Map: $e');
-            return {
-              'name': resource.toString(),
-              'description': '',
-              'uri': '',
-              'mimeType': ''
-            };
-          }
-        }
-      }).toList();
-    } catch (e) {
-      _logger.error('Failed to retrieve resource list: $e');
-      return [];
-    }
-  }
-
-  /// Execute a prompt using the MCP client with OAuth 2.1 authentication
-  Future<Map<String, dynamic>> executePrompt(String promptName,
-      Map<String, dynamic> args) async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for executePrompt operation');
-      return {'error': 'OAuth 2.1 authentication required'};
-    }
-
-    try {
-      final result = await _mcpClient.callPrompt(promptName, args);
-
-      // Return as is if it's already Map<String, dynamic>
-      if (result is Map<String, dynamic>) {
-        return result;
-      }
-      // If it's a Map but with different type
-      else if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      }
-      // If it's an object with toJson method
-      else {
-        try {
-          // ignore: avoid_dynamic_calls
-          return result.toJson();
-        } catch (e) {
-          // Convert to string
-          return {'content': result.toString()};
-        }
-      }
-    } catch (e) {
-      _logger.error('Failed to execute prompt: $e');
-      return {'error': e.toString()};
-    }
-  }
-
-  /// Read a resource using the MCP client with OAuth 2.1 authentication
-  Future<Map<String, dynamic>> readResource(String resourceUri) async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for readResource operation');
-      return {'error': 'OAuth 2.1 authentication required'};
-    }
-
-    try {
-      final result = await _mcpClient.readResource(resourceUri);
-
-      // Return as is if it's already Map<String, dynamic>
-      if (result is Map<String, dynamic>) {
-        return result;
-      }
-      // If it's a Map but with different type
-      else if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      }
-      // If it's an object with toJson method
-      else {
-        try {
-          // ignore: avoid_dynamic_calls
-          return result.toJson();
-        } catch (e) {
-          // Convert to string
-          return {'content': result.toString()};
-        }
-      }
-    } catch (e) {
-      _logger.error('Failed to read resource: $e');
-      return {'error': e.toString()};
-    }
-  }
-
-  /// Execute a tool using the MCP client with OAuth 2.1 authentication
-  Future<Map<String, dynamic>> executeTool(String toolName,
-      Map<String, dynamic> args) async {
-    // Ensure OAuth 2.1 authentication for 2025-03-26 compliance
-    if (!await _ensureAuthenticated()) {
-      _logger.error('OAuth 2.1 authentication failed for executeTool operation');
-      return {'error': 'OAuth 2.1 authentication required'};
-    }
-
-    try {
-      final result = await _mcpClient.callTool(toolName, args);
-
-      // Handle different return types
-      if (result is Map<String, dynamic>) {
-        return result;
-      } else if (result is Map) {
-        return Map<String, dynamic>.from(result);
-      } else {
-        try {
-          return result.toJson();
-        } catch (e) {
-          // Convert to string
-          return {'content': result.toString()};
-        }
-      }
-    } catch (e) {
-      _logger.error('Failed to execute tool: $e');
-      return {'error': e.toString()};
-    }
-  }
-
-  /// Refresh OAuth 2.1 token manually
-  Future<bool> refreshToken() async {
-    if (_authAdapter == null || _clientId == null) {
-      _logger.warning('OAuth adapter or client ID not configured for token refresh');
-      return false;
-    }
-
-    try {
-      await _authAdapter.refreshToken(_clientId);
-      _logger.info('OAuth 2.1 token refreshed successfully for client: $_clientId');
-      return true;
-    } catch (e) {
-      _logger.error('OAuth 2.1 token refresh failed: $e');
-      return false;
-    }
-  }
-
-  /// Check OAuth 2.1 compliance of the MCP client
-  Future<bool> checkOAuth21Compliance() async {
-    if (_authAdapter == null) {
-      _logger.info('No OAuth adapter configured, skipping compliance check');
-      return true; // No auth required = compliant
-    }
-
-    try {
-      return await _authAdapter.checkOAuth21Compliance(_mcpClient);
-    } catch (e) {
-      _logger.error('OAuth 2.1 compliance check failed: $e');
-      return false;
-    }
-  }
-
-  /// Get OAuth 2.1 authentication status
-  Map<String, dynamic> getAuthStatus() {
-    if (_authAdapter == null || _clientId == null) {
-      return {
-        'authentication_required': false,
-        'status': 'no_auth_configured',
-        'protocol_version': '2025-03-26',
-      };
-    }
-
-    final context = authContext;
-    return {
-      'authentication_required': true,
-      'authenticated': isAuthenticated,
-      'client_id': _clientId,
-      'access_token_expires_at': context?.expiresAt?.toIso8601String(),
-      'scopes': context?.scopes ?? [],
-      'auth_method': context?.metadata['auth_method'],
-      'protocol_version': context?.metadata['protocol_version'] ?? '2025-03-26',
-      'needs_refresh': context?.needsRefresh ?? false,
-      'last_error': context?.error,
-    };
-  }
-
-  /// Remove OAuth 2.1 authentication
-  void removeAuthentication() {
-    if (_authAdapter != null && _clientId != null) {
-      _authAdapter.removeAuth(_clientId);
-      _logger.info('OAuth 2.1 authentication removed for client: $_clientId');
-    }
-  }
+  /// `tools/call`, as protocol JSON (`isError: true` when the tool failed).
+  Future<Map<String, dynamic>> executeTool(String toolName, Map<String, dynamic> args) async =>
+      (await bridge.callTool(toolName, args)).toJson();
 
   // === MCP 2.0 surface — server-initiated request handlers ===
   //
@@ -375,8 +56,9 @@ class LlmClientAdapter {
   /// JSON-serialisable result map (`role`, `content`, `model`, optional
   /// `stopReason`).
   ///
-  /// Calling this advertises the `sampling` client capability on the next
-  /// initialize handshake.
+  /// The client answers only when it declared `sampling` in its
+  /// capabilities (mcp_client: `ClientCapabilities(sampling: true)`);
+  /// registering a handler does not declare it.
   void onSamplingRequest(Future<dynamic> Function(dynamic request) handler) {
     // mcp_client's typed `onSamplingRequest` expects
     // `Future<CreateMessageResult> Function(CreateMessageRequest)` —
@@ -426,9 +108,17 @@ class LlmClientAdapter {
     });
   }
 
+  /// Answer server-initiated `sampling/createMessage` with [provider]:
+  /// every message, the system prompt, limits and tools reach it, and its
+  /// answer (text, tool calls, stop reason) comes back as the result.
+  void bindSamplingToLlm(LlmProvider provider, {required String model}) =>
+      onSamplingRequest((req) => McpSamplingHandler(provider, model: model)
+          .handle(req is Map ? Map<String, dynamic>.from(req) : Map<String, dynamic>.from(req.toJson() as Map)));
+
   /// Register a handler for server-initiated `elicitation/create`
   /// (spec 2025-06-18+). The host must show the requested form and
-  /// return `{ action, content? }` per spec.
+  /// return `{ action, content? }` per spec. The client answers only when it
+  /// declared `elicitation` in its capabilities.
   void onElicitationRequest(
       Future<Map<String, dynamic>> Function(Map<String, dynamic> params)
           handler) {
@@ -441,7 +131,8 @@ class LlmClientAdapter {
 
   /// Register a handler for server-initiated `roots/list`. Default
   /// behaviour returns the locally registered [addRoot] entries; supply
-  /// this to override.
+  /// this to override. The client answers only when it declared `roots` in
+  /// its capabilities.
   void onListRoots(Future<List<dynamic>> Function() handler) {
     // mcp_client's typed `onListRoots` expects `Future<List<Root>>` —
     // route through the Map sibling so we don't have to import Root.
@@ -488,12 +179,14 @@ class LlmClientAdapter {
     }
   }
 
-  /// Notify the server that a previously-issued request should be
-  /// cancelled (spec `notifications/cancelled`).
-  void notifyCancelled(String requestId, {String? reason}) {
+  /// Cancel a request this client has in flight (spec
+  /// `notifications/cancelled`; on 2026-07-28 HTTP, closing its stream).
+  /// [requestId] is the JSON-RPC id — a string or a number. A request that
+  /// is not in flight is the caller's mistake and is reported as such.
+  void notifyCancelled(Object requestId, {String? reason}) {
     try {
       _mcpClient.notifyCancelled(requestId, reason: reason);
-    } catch (e) {
+    } on NoSuchMethodError catch (e) {
       _logger.warning('Underlying client does not support notifyCancelled: $e');
     }
   }
@@ -517,12 +210,6 @@ class LlmClientAdapter {
   /// The negotiated MCP protocol revision after initialize completes.
   /// Returns `null` before then or when the underlying client doesn't
   /// expose the field.
-  String? get negotiatedProtocolVersion {
-    try {
-      return _mcpClient.negotiatedProtocolVersion as String?;
-    } catch (_) {
-      return null;
-    }
-  }
+  String? get negotiatedProtocolVersion => bridge.protocolVersion;
 }
 

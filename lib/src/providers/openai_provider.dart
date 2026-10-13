@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../mcp_llm.dart';
+import '../utils/tool_call_id.dart';
+import 'content_parts.dart';
 
 /// Implementation of LLM interface for OpenAI API
 class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
@@ -184,10 +186,6 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
               final data = line.substring(6);
               if (data == '[DONE]') {
                 // Streaming complete
-                if (toolCalls != null && toolCalls.isNotEmpty) {
-                  // Check if required arguments are empty and apply default values if needed
-                  _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
-                }
 
                 yield LlmResponseChunk(
                   textChunk: '',
@@ -367,10 +365,6 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
                         }
                       }
 
-                      // Validate and fill tool call arguments
-                      if (toolCalls != null) {
-                        _validateAndFillToolCallArguments(toolCalls, toolDefinitionCache);
-                      }
 
                       // Emit final tool call event
                       yield LlmResponseChunk(
@@ -425,99 +419,6 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
     }
   }
 
-  /// Validate and fill tool call arguments
-  void _validateAndFillToolCallArguments(List<LlmToolCall> toolCalls,
-      Map<String, Map<String, dynamic>> toolDefinitionCache) {
-    for (int i = 0; i < toolCalls.length; i++) {
-      final toolCall = toolCalls[i];
-      final toolName = toolCall.name;
-
-      // Get tool definition
-      if (toolDefinitionCache.containsKey(toolName)) {
-        final toolDef = toolDefinitionCache[toolName]!;
-        final inputSchema = toolDef['parameters'] as Map<String, dynamic>?;
-
-        if (inputSchema != null && inputSchema.containsKey('required')) {
-          final required = inputSchema['required'] as List<dynamic>;
-          final args = toolCall.arguments;
-          final propertyDefs = inputSchema.containsKey('properties') &&
-              inputSchema['properties'] is Map<String, dynamic> ?
-          inputSchema['properties'] as Map<String, dynamic> : {};
-
-          // Check for missing arguments
-          bool needsUpdate = false;
-          final updatedArgs = Map<String, dynamic>.from(args);
-
-          for (final req in required) {
-            final argName = req.toString();
-            if (!args.containsKey(argName) || args[argName] == null) {
-              needsUpdate = true;
-
-              // Extract default value from property definition
-              dynamic defaultValue;
-              String? type = 'string';
-
-              if (propertyDefs.containsKey(argName)) {
-                final propDef = propertyDefs[argName] as Map<String, dynamic>;
-
-                if (propDef.containsKey('default')) {
-                  defaultValue = propDef['default'];
-                }
-
-                if (propDef.containsKey('type')) {
-                  type = propDef['type'] as String?;
-                }
-              }
-
-              // Generate default value
-              if (defaultValue == null) {
-                switch (type) {
-                  case 'number':
-                  case 'integer':
-                    defaultValue = 0;
-                    break;
-                  case 'boolean':
-                    defaultValue = false;
-                    break;
-                  case 'array':
-                    defaultValue = [];
-                    break;
-                  case 'object':
-                    defaultValue = {};
-                    break;
-                  case 'string':
-                  default:
-                    if (propertyDefs.containsKey(argName) &&
-                        propertyDefs[argName] is Map<String, dynamic> &&
-                        propertyDefs[argName].containsKey('enum') &&
-                        propertyDefs[argName]['enum'] is List &&
-                        (propertyDefs[argName]['enum'] as List).isNotEmpty) {
-                      defaultValue = (propertyDefs[argName]['enum'] as List).first;
-                    } else {
-                      defaultValue = '';
-                    }
-                    break;
-                }
-              }
-
-              // Apply generated default value
-              updatedArgs[argName] = defaultValue;
-            }
-          }
-
-          // If update is needed
-          if (needsUpdate) {
-            toolCalls[i] = LlmToolCall(
-              id: toolCall.id,
-              name: toolCall.name,
-              arguments: updatedArgs,
-            );
-          }
-        }
-      }
-    }
-  }
-
   @override
   bool hasToolCallMetadata(Map<String, dynamic> metadata) {
     // Check for OpenAI style metadata
@@ -553,7 +454,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
       final toolName = metadata['tool_name'] as String? ?? 'unknown_tool';
       final toolId = metadata['tool_call_id'] as String? ??
-          'openai_tool_${DateTime.now().millisecondsSinceEpoch}';
+          syntheticToolCallId('openai_tool');
 
       // Extract arguments
       Map<String, dynamic> arguments = {};
@@ -584,7 +485,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       if (firstToolCall is Map<String, dynamic>) {
         final toolName = firstToolCall['name'] as String? ?? 'unknown_tool';
         final toolId = firstToolCall['id'] as String? ??
-            'openai_tool_${DateTime.now().millisecondsSinceEpoch}';
+            syntheticToolCallId('openai_tool');
 
         Map<String, dynamic> arguments = {};
 
@@ -739,7 +640,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
             toolCallId = toolContent['tool_call_id'].toString();
           } else {
             // Generate random ID if not in metadata
-            toolCallId = 'call_${DateTime.now().millisecondsSinceEpoch}';
+            toolCallId = syntheticToolCallId('call');
           }
         }
 
@@ -804,6 +705,7 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
       'model': model,
       'messages': messages,
       'max_tokens': request.parameters['max_tokens'] ?? 1024,
+      if (request.parameters['stop_sequences'] != null) 'stop': request.parameters['stop_sequences'],
     };
 
     // `temperature` is opt-in — some newer models (e.g. o-series
@@ -854,34 +756,24 @@ class OpenAiProvider implements LlmInterface, RetryableLlmProvider {
 
   // Helper method to convert content to OpenAI format
   dynamic _convertContentToOpenAiFormat(dynamic content) {
-    // If it's a string, return as is
-    if (content is String) {
-      return content;
-    }
+    if (content is String) return content;
 
-    // If it's a map, convert to OpenAI format
-    if (content is Map) {
-      // Handle image content
-      if (content['type'] == 'image') {
-        return {
+    // An image is a content part; message content holding parts is a list.
+    final image = ImageRef.of(content);
+    if (image != null) {
+      return [
+        {
           'type': 'image_url',
-          'image_url': {
-            'url': content['url'] ?? content['base64Data'] != null
-                ? 'data:${content['mimeType']};base64,${content['base64Data']}'
-                : '',
-          }
-        };
-      }
-
-      // Handle text content
-      if (content['type'] == 'text') {
-        return content['text'];
-      }
+          'image_url': {'url': image.dataUrl},
+        },
+      ];
     }
 
-    // Default to string conversion
+    if (content is Map && content['type'] == 'text') return content['text'];
+
     return content.toString();
   }
+
 
   /// Helper method to parse response
   LlmResponse _parseResponse(Map<String, dynamic> response) {

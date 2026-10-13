@@ -3,63 +3,25 @@ import 'dart:async';
 import 'package:mcp_llm/src/capabilities/capability_manager.dart';
 import 'package:mcp_llm/src/core/models.dart';
 
-/// Mock MCP client for capability testing
+/// Mirrors what mcp_client's `Client` exposes after initialization: the
+/// capabilities the server declared and the negotiated revision.
 class MockCapabilityMcpClient {
   final String clientId;
-  final Map<String, bool> _capabilities = {
-    'tools': true,
-    'prompts': true,
-    'resources': true,
-    'batch': false,
-    'health': false,
+  final Map<String, Map<String, dynamic>> _declared = {
+    'tools': {'listChanged': true},
+    'prompts': {},
+    'resources': {'subscribe': true},
   };
-  
+
   MockCapabilityMcpClient(this.clientId);
-  
-  void enableCapability(String capability) {
-    _capabilities[capability] = true;
-  }
-  
-  void disableCapability(String capability) {
-    _capabilities[capability] = false;
-  }
-  
-  Future<List<dynamic>> listTools() async {
-    if (_capabilities['tools'] != true) {
-      throw Exception('Tools capability not supported');
-    }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'tool1', 'description': 'Test tool 1'},
-      {'name': 'tool2', 'description': 'Test tool 2'},
-    ];
-  }
-  
-  Future<List<dynamic>> listPrompts() async {
-    if (_capabilities['prompts'] != true) {
-      throw Exception('Prompts capability not supported');
-    }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'prompt1', 'description': 'Test prompt'},
-    ];
-  }
-  
-  Future<List<dynamic>> listResources() async {
-    if (_capabilities['resources'] != true) {
-      throw Exception('Resources capability not supported');
-    }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'resource1', 'uri': 'test://resource'},
-    ];
-  }
-  
-  @override
-  String toString() {
-    // Simulate batch support check
-    return _capabilities['batch'] == true ? 'MockClient with batch support' : 'MockClient';
-  }
+
+  void enableCapability(String capability) => _declared[capability] = {};
+
+  void disableCapability(String capability) => _declared.remove(capability);
+
+  Map<String, dynamic> get serverCapabilities => {..._declared};
+
+  String get negotiatedProtocolVersion => '2025-11-25';
 }
 
 void main() {
@@ -109,18 +71,13 @@ void main() {
       
       final capabilities = capabilityManager.getClientCapabilities('client1');
       
-      // Should have discovered tools, prompts, and resources
-      expect(capabilities.containsKey('tools'), isTrue);
+      // Exactly what the server declared, as declared, under the
+      // negotiated revision.
+      expect(capabilities.keys, unorderedEquals(['tools', 'prompts', 'resources']));
       expect(capabilities['tools']?.enabled, isTrue);
-      expect(capabilities['tools']?.configuration?['tool_count'], equals(2));
-      
-      expect(capabilities.containsKey('prompts'), isTrue);
-      expect(capabilities['prompts']?.enabled, isTrue);
-      expect(capabilities['prompts']?.configuration?['prompt_count'], equals(1));
-      
-      expect(capabilities.containsKey('resources'), isTrue);
-      expect(capabilities['resources']?.enabled, isTrue);
-      expect(capabilities['resources']?.configuration?['resource_count'], equals(1));
+      expect(capabilities['tools']?.configuration, {'listChanged': true});
+      expect(capabilities['resources']?.configuration, {'subscribe': true});
+      expect(capabilities['tools']?.version, '2025-11-25');
     });
 
     test('should emit capability events', () async {
@@ -138,7 +95,7 @@ void main() {
       
       expect(toolsEvent.clientId, equals('client1'));
       expect(toolsEvent.type, equals(CapabilityEventType.enabled));
-      expect(toolsEvent.data['reason'], equals('Initial discovery'));
+      expect(toolsEvent.data['reason'], equals('Declared by the peer'));
     });
 
     test('should update capabilities', () async {
@@ -149,11 +106,11 @@ void main() {
         clientId: 'client1',
         capabilities: [
           McpCapability(
-            type: McpCapabilityType.batch,
-            name: 'batch_processing',
-            version: '2025-03-26',
-            enabled: true,
-            configuration: {'max_batch_size': 10},
+            type: McpCapabilityType.logging,
+            name: 'logging',
+            version: '2025-11-25',
+            enabled: false,
+            configuration: {},
             lastUpdated: DateTime.now(),
           ),
         ],
@@ -168,9 +125,8 @@ void main() {
       expect(response.error, isNull);
       
       final capabilities = capabilityManager.getClientCapabilities('client1');
-      expect(capabilities.containsKey('batch_processing'), isTrue);
-      expect(capabilities['batch_processing']?.enabled, isTrue);
-      expect(capabilities['batch_processing']?.configuration?['max_batch_size'], equals(10));
+      expect(capabilities.containsKey('logging'), isTrue);
+      expect(capabilities['logging']?.enabled, isFalse);
     });
 
     test('should handle update failures', () async {
@@ -305,23 +261,40 @@ void main() {
       expect(id2, startsWith('cap_'));
     });
 
-    test('should check modern capabilities', () async {
-      client1.enableCapability('batch');
-      client1.enableCapability('health');
-      
+    test('records no capability the peer did not declare', () async {
+      client1.disableCapability('prompts');
+      client1.enableCapability('completions');
       capabilityManager.registerClient('client1', client1);
-      
       await Future.delayed(Duration(milliseconds: 100));
-      
+
       final capabilities = capabilityManager.getClientCapabilities('client1');
-      
-      // Should have protocol versioning capability
-      expect(capabilities.containsKey('protocol_versioning'), isTrue);
-      expect(capabilities['protocol_versioning']?.enabled, isTrue);
-      
-      final supportedVersions = capabilities['protocol_versioning']
-          ?.configuration?['supported_versions'] as List?;
-      expect(supportedVersions, contains('2025-03-26'));
+      expect(capabilities.keys, unorderedEquals(['tools', 'resources', 'completions']),
+          reason: 'health, batch and protocol versioning used to be read off '
+              'toString() or simply added; none of them is an MCP capability');
+    });
+
+    test('a server reports its own declaration', () async {
+      capabilityManager.registerClient('s', _MockServer());
+      await Future.delayed(Duration(milliseconds: 100));
+      final capabilities = capabilityManager.getClientCapabilities('s');
+      expect(capabilities.keys, unorderedEquals(['tools', 'logging']));
+      expect(capabilities['tools']?.version, '2026-07-28');
+    });
+
+    test('accepts every revision mcp_llm supports', () async {
+      capabilityManager.registerClient('client1', client1);
+      await Future.delayed(Duration(milliseconds: 100));
+      for (final v in ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25', '2026-07-28']) {
+        final response = await capabilityManager.updateCapabilities(CapabilityUpdateRequest(
+          clientId: 'client1',
+          capabilities: [
+            McpCapability(type: McpCapabilityType.tools, name: 'tools', version: v, enabled: true, lastUpdated: DateTime.now()),
+          ],
+          requestId: capabilityManager.generateRequestId(),
+          timestamp: DateTime.now(),
+        ));
+        expect(response.success, isTrue, reason: v);
+      }
     });
 
     test('should validate capability updates', () async {
@@ -349,30 +322,13 @@ void main() {
       expect(response.error, contains('Unsupported capability version'));
     });
 
-    test('should validate capability configuration', () async {
-      capabilityManager.registerClient('client1', client1);
-      await Future.delayed(Duration(milliseconds: 100));
-      
-      // Invalid batch size
-      final invalidConfigRequest = CapabilityUpdateRequest(
-        clientId: 'client1',
-        capabilities: [
-          McpCapability(
-            type: McpCapabilityType.batch,
-            name: 'batch',
-            version: '2025-03-26',
-            enabled: true,
-            configuration: {'max_batch_size': 1000}, // Too large
-            lastUpdated: DateTime.now(),
-          ),
-        ],
-        requestId: capabilityManager.generateRequestId(),
-        timestamp: DateTime.now(),
-      );
-      
-      final response = await capabilityManager.updateCapabilities(invalidConfigRequest);
-      expect(response.success, isFalse);
-      expect(response.error, contains('Invalid max_batch_size'));
-    });
   });
+}
+
+/// Mirrors mcp_server's `Server`: its own declaration, no negotiated revision.
+class _MockServer {
+  Map<String, dynamic> get capabilities => {
+        'tools': {'listChanged': false},
+        'logging': {},
+      };
 }

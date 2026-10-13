@@ -2,47 +2,37 @@ import 'package:test/test.dart';
 import 'package:mcp_llm/src/health/health_monitor.dart';
 import 'package:mcp_llm/src/core/models.dart';
 
-/// Mock MCP client for health testing
+/// Mirrors mcp_client's `Client`: `ping`, the negotiated revision and the
+/// capabilities the server declared.
 class MockHealthyMcpClient {
   final String clientId;
   bool _isHealthy = true;
-  
+
   MockHealthyMcpClient(this.clientId);
-  
+
   void setHealth(bool healthy) {
     _isHealthy = healthy;
   }
-  
-  Future<List<dynamic>> listTools() async {
+
+  Future<void> ping() async {
+    await Future.delayed(Duration(milliseconds: 10));
     if (!_isHealthy) {
       throw Exception('Service unhealthy');
     }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'tool1', 'description': 'Test tool 1'},
-      {'name': 'tool2', 'description': 'Test tool 2'},
-    ];
   }
-  
-  Future<List<dynamic>> listPrompts() async {
-    if (!_isHealthy) {
-      throw Exception('Service unhealthy');
-    }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'prompt1', 'description': 'Test prompt'},
-    ];
-  }
-  
-  Future<List<dynamic>> listResources() async {
-    if (!_isHealthy) {
-      throw Exception('Service unhealthy');
-    }
-    await Future.delayed(Duration(milliseconds: 10));
-    return [
-      {'name': 'resource1', 'uri': 'test://resource'},
-    ];
-  }
+
+  String get negotiatedProtocolVersion => '2025-11-25';
+
+  Map<String, dynamic> get serverCapabilities => {
+        'tools': {'listChanged': true},
+        'prompts': {},
+      };
+}
+
+/// Mirrors mcp_server's `Server`: its own health record.
+class MockMcpServer {
+  bool running = true;
+  Map<String, dynamic> getHealth() => {'isRunning': running, 'connectedSessions': running ? 1 : 0};
 }
 
 void main() {
@@ -58,7 +48,6 @@ void main() {
           maxRetries: 1,
           retryDelay: Duration(milliseconds: 100),
           includeSystemMetrics: true,
-          checkAuthentication: false,
         ),
       );
       
@@ -123,15 +112,23 @@ void main() {
       final report = await healthMonitor.performHealthCheck();
       
       final client1Result = report.componentResults['client1'];
-      expect(client1Result?.metrics['capabilities'], isA<Map>());
-      
-      final capabilities = client1Result?.metrics['capabilities'] as Map;
-      expect(capabilities['tools'], isTrue);
-      expect(capabilities['prompts'], isTrue);
-      expect(capabilities['resources'], isTrue);
-      expect(capabilities['tool_count'], equals(2));
-      expect(capabilities['prompt_count'], equals(1));
-      expect(capabilities['resource_count'], equals(1));
+      expect(client1Result?.metrics['kind'], 'client');
+      expect(client1Result?.metrics['protocolVersion'], '2025-11-25');
+      expect(client1Result?.metrics['serverCapabilities'],
+          {'tools': {'listChanged': true}, 'prompts': {}});
+    });
+
+    test('a server is checked by its own health record', () async {
+      final server = MockMcpServer();
+      healthMonitor.registerClient('server', server);
+      var report = await healthMonitor.performHealthCheck(clientIds: ['server'], includeSystemMetrics: false);
+      expect(report.componentResults['server']?.status, HealthStatus.healthy);
+      expect(report.componentResults['server']?.metrics['kind'], 'server');
+
+      server.running = false;
+      report = await healthMonitor.performHealthCheck(clientIds: ['server'], includeSystemMetrics: false);
+      expect(report.componentResults['server']?.status, HealthStatus.unhealthy);
+      expect(report.componentResults['server']?.error, contains('not running'));
     });
 
     test('should retry on failure', () async {
@@ -260,8 +257,10 @@ void main() {
       expect(systemResult?.status, equals(HealthStatus.healthy));
       expect(systemResult?.metrics['registered_clients'], equals(2));
       expect(systemResult?.metrics['healthy_clients'], equals(2));
-      expect(systemResult?.metrics['memory_usage'], isA<double>());
-      expect(systemResult?.metrics['uptime'], isA<int>());
+      expect(systemResult?.metrics.containsKey('memory_usage'), isFalse,
+          reason: 'it was a fixed 128.5 — nothing measured it');
+      expect(systemResult?.metrics['uptimeSeconds'], inInclusiveRange(0, 60),
+          reason: 'it was the seconds since 1970');
     });
   });
 }

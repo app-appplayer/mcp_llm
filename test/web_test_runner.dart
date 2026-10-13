@@ -40,7 +40,7 @@ void runTests() {
 void testProviders() {
   try {
     // Test Claude Provider
-    final claude = ClaudeProvider(
+    ClaudeProvider(
       apiKey: 'test-key',
       model: 'claude-3-sonnet',
       config: LlmConfiguration(),
@@ -48,7 +48,7 @@ void testProviders() {
     log('✓ ClaudeProvider created successfully', 'success');
     
     // Test OpenAI Provider
-    final openai = OpenAiProvider(
+    OpenAiProvider(
       apiKey: 'test-key',
       model: 'gpt-4',
       config: LlmConfiguration(),
@@ -56,7 +56,7 @@ void testProviders() {
     log('✓ OpenAiProvider created successfully', 'success');
     
     // Test Together Provider
-    final together = TogetherProvider(
+    TogetherProvider(
       apiKey: 'test-key',
       model: 'mixtral-8x7b',
       config: LlmConfiguration(),
@@ -145,7 +145,7 @@ void testIntegration() async {
     
     // Create a client (will fail with invalid API key, but should not fail due to platform issues)
     try {
-      final client = await mcpLlm.createClient(
+      await mcpLlm.createClient(
         providerName: 'claude',
         config: LlmConfiguration(
           apiKey: 'test-key',
